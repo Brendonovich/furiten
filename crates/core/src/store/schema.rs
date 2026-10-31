@@ -36,7 +36,9 @@ const MIGRATIONS: &[&str] = &[
      CREATE INDEX reviews_dirty ON reviews (dirty) WHERE dirty > 0;",
 ];
 
-pub(super) fn migrate(store: &mut Store) -> Result<()> {
+/// Migrates the store. `hub` only matters when the store is created: a hub's store starts empty (no sample deck)
+/// and is marked as a hub in `meta`.
+pub(super) fn migrate(store: &mut Store, hub: bool) -> Result<()> {
     let version = store.conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? as usize;
     if version >= MIGRATIONS.len() {
         return Ok(());
@@ -46,6 +48,10 @@ pub(super) fn migrate(store: &mut Store) -> Result<()> {
         tx.execute_batch(sql)?;
         if i == 0 {
             tx.execute("INSERT INTO meta (key, value) VALUES ('change_seq', 0), ('device_id', ?1)", [ulid()])?;
+            if hub {
+                tx.execute("INSERT INTO meta (key, value) VALUES ('hub', 1)", [])?;
+                continue;
+            }
             let dirty = super::next_dirty(&tx)?;
             put_deck(&tx, &seed::deck(), dirty)?;
             for card in seed::cards() {

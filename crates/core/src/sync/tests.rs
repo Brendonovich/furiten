@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use super::memory::MemoryServer;
 use super::*;
+use crate::Change;
 use crate::protocol::{Answer, CardQuery, CardUpdate, NewCard, NewDeck};
 
 const T0: i64 = 1_800_000_000_000;
@@ -166,8 +167,12 @@ fn signing_in_to_another_account_resends_everything() {
     let a = device(T0);
     sync(&a, &server);
     assert!(lock(&a).pending().unwrap().changes.is_empty());
-    let config =
-        |user: &str| SyncConfig { server: "https://x".into(), token: format!("rc_{user}_s"), user_id: user.into() };
+    let config = |user: &str| SyncConfig {
+        server: "https://x".into(),
+        token: format!("rc_{user}_s"),
+        user_id: user.into(),
+        hub: None,
+    };
     lock(&a).set_sync_config(&config("u1")).unwrap();
     assert_eq!(lock(&a).pending().unwrap().changes.len(), 6);
     assert_eq!(lock(&a).cursor().unwrap(), None);
@@ -176,4 +181,73 @@ fn signing_in_to_another_account_resends_everything() {
     assert!(lock(&a).pending().unwrap().changes.is_empty(), "same account, nothing to resend");
     assert_eq!(token_user_id("rc_01ABC_secret").unwrap(), "01ABC");
     assert!(token_user_id("nope").is_err());
+}
+
+#[test]
+fn a_hub_answers_a_losing_write_with_the_stored_version_and_never_echoes_what_it_was_sent() {
+    let mut hub = Store::open_hub_in_memory().unwrap();
+    assert!(hub.decks().unwrap().is_empty(), "a hub has no sample deck");
+    let deck = crate::Deck {
+        id: crate::model::ulid(),
+        name: "D".into(),
+        parent_id: None,
+        created_at: T0,
+        updated_at: T0,
+        deleted: false,
+    };
+    let card = |at: i64, content: &str| crate::Card {
+        id: "01CARD".into(),
+        deck_id: deck.id.clone(),
+        content: content.into(),
+        tags: vec!["#B".into(), "a".into()],
+        created_at: T0,
+        updated_at: at,
+        deleted: false,
+    };
+    let review = crate::Review {
+        id: "01REVIEW".into(),
+        card_id: "01CARD".into(),
+        rating: 3,
+        reviewed_at: T0 + 5,
+        duration_ms: None,
+    };
+    let request = |cursor, changes| crate::protocol::SyncRequest { cursor, changes };
+
+    let (first, accepted) = hub
+        .serve_sync(&request(
+            None,
+            vec![Change::Deck(deck.clone()), Change::Card(card(T0 + 20, "new")), Change::Review(review.clone())],
+        ))
+        .unwrap();
+    assert_eq!((first.changes.len(), accepted, first.cursor), (0, 3, hub.seq().unwrap()));
+    assert_eq!(hub.card("01CARD").unwrap().card.tags, ["a", "b"], "tags are normalised on the way in");
+    assert_eq!(hub.card("01CARD").unwrap().schedule.reps, 1, "the hub derives schedules too");
+
+    // An older edit from a device that's already up to date loses, and the device gets the winner back.
+    let (lost, accepted) =
+        hub.serve_sync(&request(Some(first.cursor), vec![Change::Card(card(T0 + 10, "old"))])).unwrap();
+    assert_eq!((accepted, lost.cursor), (0, first.cursor));
+    assert!(matches!(&lost.changes[..], [Change::Card(c)] if c.content == "new"));
+
+    // Resending what's stored (the same card, deck and review) is harmless and echoes nothing.
+    let (again, accepted) = hub
+        .serve_sync(&request(
+            None,
+            vec![Change::Deck(deck.clone()), Change::Card(hub.card("01CARD").unwrap().card), Change::Review(review)],
+        ))
+        .unwrap();
+    assert_eq!((again.changes.len(), accepted, again.cursor), (0, 0, first.cursor));
+
+    // A new device gets everything, in seq order.
+    let (all, _) = hub.serve_sync(&request(None, vec![])).unwrap();
+    assert_eq!(all.changes.iter().map(|c| c.key().0).collect::<Vec<_>>(), ["deck", "card", "review"]);
+
+    assert_eq!(hub.apply(&[]).unwrap_err().code, "wrong_store");
+    assert_eq!(Store::open_in_memory().unwrap().serve_sync(&request(None, vec![])).unwrap_err().code, "wrong_store");
+    let dir = std::env::temp_dir().join(format!("recall-hubstore-{}", crate::model::ulid()));
+    drop(Store::open_hub(&dir.join("hub.db")).unwrap());
+    assert_eq!(Store::open(&dir.join("hub.db")).err().unwrap().code, "wrong_store");
+    drop(Store::open(&dir.join("device.db")).unwrap());
+    assert_eq!(Store::open_hub(&dir.join("device.db")).err().unwrap().code, "wrong_store");
+    std::fs::remove_dir_all(dir).unwrap();
 }

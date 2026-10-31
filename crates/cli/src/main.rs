@@ -88,7 +88,7 @@ enum Command {
         #[arg(long)]
         deck: Option<String>,
     },
-    /// Sync now, or sign in to a sync server.
+    /// Sync now, or sign in to Recall Cloud or a self-hosted hub.
     Sync {
         #[command(subcommand)]
         command: Option<SyncCommand>,
@@ -165,12 +165,19 @@ enum ReviewCommand {
 
 #[derive(Subcommand)]
 enum SyncCommand {
-    /// Sign in. Without --token a new account is created; keep the token it prints to sign in elsewhere.
+    /// Sign in to a server (without --token a new account is created; keep the token it prints to sign in
+    /// elsewhere), or pair with a self-hosted hub using a ticket from `recall-hub pair`.
     Login {
-        #[arg(long)]
-        server: String,
-        #[arg(long)]
+        #[arg(long, required_unless_present = "hub", conflicts_with = "hub")]
+        server: Option<String>,
+        #[arg(long, requires = "server")]
         token: Option<String>,
+        /// A hub's pairing ticket (rchub1...).
+        #[arg(long)]
+        hub: Option<String>,
+        /// This device's name in the hub's device list (default: the host name).
+        #[arg(long, requires = "hub")]
+        name: Option<String>,
     },
     /// Sync now (the default).
     Now,
@@ -290,7 +297,12 @@ fn run(cli: Cli) -> Result<()> {
             emit(json, &c.stats(deck_id.as_deref())?, output::stats)
         }
         Command::Sync { command } => match command.unwrap_or(SyncCommand::Now) {
-            SyncCommand::Login { server, token } => {
+            SyncCommand::Login { hub: Some(ticket), name, .. } => {
+                let login = c.login_hub(&ticket, name.as_deref())?;
+                emit(json, &login, |l| format!("Paired with the hub (library {})", l.library_id))
+            }
+            SyncCommand::Login { server, token, .. } => {
+                let server = server.unwrap_or_default();
                 let created = token.is_none();
                 let login = c.login(&server, token.as_deref())?;
                 emit(json, &login, |l| {

@@ -1,5 +1,9 @@
 //! The SQLite store: decks, cards, reviews, a cached schedule per card, the outbox of unsynced changes (`dirty`)
 //! and sync metadata.
+//!
+//! A store is either a device's or a hub's. A hub's store (see [`Store::open_hub`]) starts empty, answers sync
+//! requests with [`Store::serve_sync`], and never clears `dirty`: there, a row's `dirty` is the `seq` of the change
+//! that wrote its current value, since the outbox marker it comes from only ever increases.
 
 mod queue;
 mod schema;
@@ -14,11 +18,12 @@ use crate::model::{Card, CardView, Deck, DeckSummary, Id, Schedule, State, norma
 use crate::protocol::{CardQuery, CardUpdate, DeckUpdate, NewCard, NewDeck};
 use crate::{Error, Result};
 
-pub use syncing::{Outbox, SyncConfig};
+pub use syncing::{HubAddr, Outbox, SyncConfig};
 
 pub struct Store {
     conn: Connection,
     scheduler: Scheduler,
+    hub: bool,
     /// Fixed clock for tests.
     pub(crate) now: Option<i64>,
 }
@@ -32,27 +37,49 @@ const DEFAULT_LIMIT: u32 = 50;
 impl Store {
     /// Opens (creating and migrating if needed) the store at `path`. A new store gets the sample deck.
     pub fn open(path: &Path) -> Result<Store> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        Store::init(Connection::open(path)?)
+        Store::init(open_file(path)?, false)
     }
 
     pub fn open_in_memory() -> Result<Store> {
-        Store::init(Connection::open_in_memory()?)
+        Store::init(Connection::open_in_memory()?, false)
     }
 
-    fn init(conn: Connection) -> Result<Store> {
+    /// Opens (creating if needed) a hub's store: no sample deck, and it serves sync requests. Refuses a device's
+    /// store, and [`Store::open`] refuses a hub's.
+    pub fn open_hub(path: &Path) -> Result<Store> {
+        Store::init(open_file(path)?, true)
+    }
+
+    pub fn open_hub_in_memory() -> Result<Store> {
+        Store::init(Connection::open_in_memory()?, true)
+    }
+
+    fn init(conn: Connection, hub: bool) -> Result<Store> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        let mut store = Store { conn, scheduler: Scheduler::default(), now: None };
-        schema::migrate(&mut store)?;
+        let mut store = Store { conn, scheduler: Scheduler::default(), hub, now: None };
+        schema::migrate(&mut store, hub)?;
+        let is_hub = syncing::meta::<bool>(&store.conn, "hub")?.unwrap_or(false);
+        if is_hub != hub {
+            let what = if is_hub { "a hub's store, not a device's" } else { "a device's store, not a hub's" };
+            return Err(Error::new("wrong_store", format!("this is {what}")));
+        }
         Ok(store)
+    }
+
+    pub fn is_hub(&self) -> bool {
+        self.hub
     }
 
     pub(crate) fn now(&self) -> i64 {
         self.now.unwrap_or_else(crate::now_ms)
+    }
+
+    /// Fixes the clock (`None` restores the system clock). For tests, including other crates'.
+    #[doc(hidden)]
+    pub fn set_now(&mut self, now: Option<i64>) {
+        self.now = now;
     }
 
     pub fn decks(&self) -> Result<Vec<DeckSummary>> {
@@ -244,6 +271,13 @@ impl Store {
     }
 }
 
+fn open_file(path: &Path) -> Result<Connection> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    Ok(Connection::open(path)?)
+}
+
 /// A local edit's `updated_at`: now, but always later than the version it replaces so it wins last-writer-wins
 /// even against a clock that runs behind.
 fn bump(previous: i64, now: i64) -> i64 {
@@ -273,6 +307,16 @@ fn subtree(conn: &Connection, id: &str) -> Result<Vec<Id>> {
         .query_map([id], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     Ok(ids)
+}
+
+fn get_card(conn: &Connection, id: &str) -> Result<Option<Card>> {
+    Ok(conn
+        .query_row(
+            "SELECT id, deck_id, content, tags, created_at, updated_at, deleted FROM cards WHERE id = ?1",
+            [id],
+            card_row,
+        )
+        .optional()?)
 }
 
 fn get_deck(conn: &Connection, id: &str) -> Result<Option<Deck>> {

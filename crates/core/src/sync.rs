@@ -1,5 +1,7 @@
-//! The client side of `POST /v1/sync` and `POST /v1/accounts`. Merging lives in the store
-//! ([`Store::apply`], [`Store::finish_sync`]); this module moves changes between it and a [`Transport`].
+//! Moving changes between a device's store and its hub. Merging lives in the store (a device's
+//! [`Store::finish_sync`], a hub's [`Store::serve_sync`]); this module runs the client loop over any [`Transport`]:
+//! [`Http`] for Recall Cloud (`POST /v1/sync`, `POST /v1/accounts`), `crate::hub::HubLink` for a self-hosted hub
+//! over Iroh, or a hub's store in the same process.
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -8,9 +10,16 @@ use crate::protocol::{Account, SyncRequest, SyncResponse, SyncResult};
 use crate::store::SyncConfig;
 use crate::{Error, Result, Store};
 
-/// Something that answers sync requests: the HTTP server, or an in-memory one in tests.
+/// Something that answers sync requests the way the contract's Sync section says.
 pub trait Transport {
     fn sync(&self, request: &SyncRequest) -> Result<SyncResponse>;
+}
+
+/// A hub's store in the same process.
+impl Transport for Mutex<Store> {
+    fn sync(&self, request: &SyncRequest) -> Result<SyncResponse> {
+        lock(self).serve_sync(request).map(|(response, _)| response)
+    }
 }
 
 /// One sync round. The store is locked only while reading the outbox and while applying the response, never

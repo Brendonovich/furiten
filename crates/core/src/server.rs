@@ -6,6 +6,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "hub")]
+use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -31,6 +33,9 @@ pub fn run(home: &Path) -> Result<()> {
     Server::bind(home)?.serve()
 }
 
+#[cfg(feature = "hub")]
+use crate::hub::{self, HubLink, Net};
+
 pub struct Server {
     core: Arc<Core>,
     listener: UnixListener,
@@ -42,6 +47,20 @@ impl Server {
     /// Takes the home's lock (refusing if another core holds it), removes a stale socket, binds a new one with mode
     /// 0600 and opens the store.
     pub fn bind(home: &Path) -> Result<Server> {
+        Server::bind_inner(
+            home,
+            #[cfg(feature = "hub")]
+            Net::from_env(),
+        )
+    }
+
+    /// [`Server::bind`] with explicit network settings for a hub link, instead of `RECALL_NET` / `RECALL_RELAY`.
+    #[cfg(feature = "hub")]
+    pub fn bind_with_net(home: &Path, net: Net) -> Result<Server> {
+        Server::bind_inner(home, net)
+    }
+
+    fn bind_inner(home: &Path, #[cfg(feature = "hub")] net: Net) -> Result<Server> {
         std::fs::create_dir_all(home)?;
         let lock = File::options().create(true).truncate(false).write(true).open(home.join("core.lock"))?;
         if lock.try_lock().is_err() {
@@ -54,7 +73,10 @@ impl Server {
         let store = Store::open(&home.join("recall.db"))?;
         let listener = UnixListener::bind(&socket)?;
         std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
-        let core = Core {
+        #[cfg_attr(not(feature = "hub"), allow(unused_variables))]
+        let core = Arc::new_cyclic(|me| Core {
+            #[cfg(feature = "hub")]
+            me: me.clone(),
             home: home.to_path_buf(),
             store: Mutex::new(store),
             conns: Mutex::default(),
@@ -63,8 +85,13 @@ impl Server {
             sync_lock: Mutex::new(()),
             sync_error: Mutex::new(None),
             shutdown: AtomicBool::new(false),
-        };
-        Ok(Server { core: Arc::new(core), listener, _lock: lock })
+            #[cfg(feature = "hub")]
+            net,
+            #[cfg(feature = "hub")]
+            link: Mutex::new(None),
+        });
+        core.refresh_link();
+        Ok(Server { core, listener, _lock: lock })
     }
 
     pub fn serve(self) -> Result<()> {
@@ -86,11 +113,15 @@ impl Server {
         if pending && self.core.signed_in() {
             let _ = self.core.sync();
         }
+        #[cfg(feature = "hub")]
+        drop(self.core.link.lock().unwrap_or_else(|e| e.into_inner()).take());
         Ok(())
     }
 }
 
 struct Core {
+    #[cfg(feature = "hub")]
+    me: Weak<Core>,
     home: PathBuf,
     store: Mutex<Store>,
     conns: Mutex<Vec<Arc<Conn>>>,
@@ -100,6 +131,11 @@ struct Core {
     sync_lock: Mutex<()>,
     sync_error: Mutex<Option<String>>,
     shutdown: AtomicBool,
+    #[cfg(feature = "hub")]
+    net: Net,
+    /// The live connection to a self-hosted hub, while signed in to one.
+    #[cfg(feature = "hub")]
+    link: Mutex<Option<Arc<HubLink>>>,
 }
 
 /// One client's outgoing lines. A writer thread drains it so a client that doesn't read never blocks the core;
@@ -232,7 +268,11 @@ impl Core {
             "review.next" => to_value(self.store().next_review(parse::<DeckFilter>(params)?.deck_id.as_deref())?),
             "stats" => to_value(self.store().stats(parse::<DeckFilter>(params)?.deck_id.as_deref())?),
             "sync.login" => {
-                let result = to_value(self.login(parse(params)?)?);
+                let params: Login = parse(params)?;
+                let result = match params.hub {
+                    Some(ticket) => to_value(self.login_hub(&ticket, params.name.as_deref())?),
+                    None => to_value(self.login(params)?),
+                };
                 self.broadcast();
                 result
             }
@@ -282,6 +322,7 @@ impl Core {
             home: self.home.display().to_string(),
             signed_in: config.is_some(),
             last_sync: store.last_sync()?,
+            connected: config.as_ref().and_then(|c| c.hub.as_ref()).map(|_| self.hub_connected()),
             server: config.map(|c| c.server),
             sync_error: self.sync_error.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         })
@@ -298,7 +339,11 @@ impl Core {
     }
 
     fn schedule_sync(&self) {
-        *self.timer.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now() + DEBOUNCE);
+        self.sync_at(Instant::now() + DEBOUNCE);
+    }
+
+    fn sync_at(&self, at: Instant) {
+        *self.timer.lock().unwrap_or_else(|e| e.into_inner()) = Some(at);
         self.wake.notify_all();
     }
 
@@ -333,7 +378,16 @@ impl Core {
     fn sync(&self) -> Result<SyncResult> {
         let _one_at_a_time = self.sync_lock.lock().unwrap_or_else(|e| e.into_inner());
         let config = self.store().sync_config()?.ok_or_else(|| Error::new("not_signed_in", "run sync.login first"))?;
-        let result = sync_once(&self.store, &Http::from_config(&config));
+        let result = match &config.hub {
+            #[cfg(feature = "hub")]
+            Some(_) => match self.hub_link() {
+                Some(link) => sync_once(&self.store, &*link),
+                None => Err(Error::new("network", "couldn't start the connection to the hub")),
+            },
+            #[cfg(not(feature = "hub"))]
+            Some(_) => Err(Error::new("unsupported", "this build of recall can't sync with a hub")),
+            None => sync_once(&self.store, &Http::from_config(&config)),
+        };
         let error = result.as_ref().err().map(|e| e.message.clone());
         let error_changed = {
             let mut current = self.sync_error.lock().unwrap_or_else(|e| e.into_inner());
@@ -359,7 +413,13 @@ impl Core {
             }
         };
         let previous = self.store().sync_config()?;
-        self.store().set_sync_config(&SyncConfig { server, token: token.clone(), user_id: user_id.clone() })?;
+        self.store().set_sync_config(&SyncConfig {
+            server,
+            token: token.clone(),
+            user_id: user_id.clone(),
+            hub: None,
+        })?;
+        self.refresh_link();
         // A rejected token undoes the login; any other failure (offline, say) is retried in the background.
         if let Err(e) = self.sync()
             && e.code == "unauthorized"
@@ -369,10 +429,80 @@ impl Core {
                 Some(previous) => store.set_sync_config(&previous)?,
                 None => store.clear_sync_config()?,
             }
+            drop(store);
+            self.refresh_link();
             *self.sync_error.lock().unwrap_or_else(|e| e.into_inner()) = None;
             return Err(e);
         }
         Ok(LoggedIn { user_id, token })
+    }
+
+    /// Pairs with a self-hosted hub and syncs with it from now on.
+    #[cfg(feature = "hub")]
+    fn login_hub(&self, ticket: &str, name: Option<&str>) -> Result<HubLoggedIn> {
+        let ticket: hub::Ticket = ticket.parse()?;
+        let name = match name.map(str::trim).filter(|n| !n.is_empty()) {
+            Some(name) => name.to_string(),
+            None => hub::default_device_name(),
+        };
+        // One endpoint per key at a time: pair over the running link's, if there is one.
+        let link = self.link.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let library_id = match link {
+            Some(link) => link.pair(&ticket, &name)?,
+            None => hub::pair(hub::load_or_create_key(&self.home.join("iroh.key"))?, &self.net, &ticket, &name)?,
+        };
+        self.store().set_sync_config(&SyncConfig::hub(ticket.addr, &library_id))?;
+        *self.sync_error.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.refresh_link();
+        // Failures are retried in the background: the link keeps trying to reach the hub.
+        let _ = self.sync();
+        Ok(HubLoggedIn { library_id })
+    }
+
+    #[cfg(not(feature = "hub"))]
+    fn login_hub(&self, _ticket: &str, _name: Option<&str>) -> Result<HubLoggedIn> {
+        Err(Error::new("unsupported", "this build of recall can't sync with a hub"))
+    }
+
+    /// Starts, restarts or stops the hub link to match the sync config.
+    #[cfg(feature = "hub")]
+    fn refresh_link(&self) {
+        drop(self.link.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let _ = self.hub_link();
+    }
+
+    #[cfg(not(feature = "hub"))]
+    fn refresh_link(&self) {}
+
+    /// The hub link, started if the core is signed in to a hub and it isn't running.
+    #[cfg(feature = "hub")]
+    fn hub_link(&self) -> Option<Arc<HubLink>> {
+        let addr = self.store().sync_config().ok()??.hub?;
+        let mut link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        if link.is_none() {
+            let started = hub::load_or_create_key(&self.home.join("iroh.key")).and_then(|key| {
+                let me = self.me.clone();
+                // Another device wrote, or the link (re)connected: pull now.
+                HubLink::start(key, &self.net, &addr, move || {
+                    if let Some(core) = me.upgrade() {
+                        core.sync_at(Instant::now());
+                    }
+                })
+            });
+            match started {
+                Ok(started) => *link = Some(Arc::new(started)),
+                Err(e) => *self.sync_error.lock().unwrap_or_else(|e| e.into_inner()) = Some(e.message),
+            }
+        }
+        link.clone()
+    }
+
+    fn hub_connected(&self) -> bool {
+        #[cfg(feature = "hub")]
+        if let Some(link) = self.link.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            return link.is_connected();
+        }
+        false
     }
 }
 

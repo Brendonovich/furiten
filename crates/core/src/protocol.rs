@@ -14,6 +14,9 @@ pub struct Status {
     /// The last sync's error, cleared by the next successful sync.
     #[serde(default)]
     pub sync_error: Option<String>,
+    /// With a self-hosted hub, whether the core holds a live connection to it; `None` otherwise.
+    #[serde(default)]
+    pub connected: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -122,11 +125,19 @@ pub struct Stats {
     pub retention_30d: Option<f64>,
 }
 
+/// `{ server, token? }` signs in to Recall Cloud; `{ hub, name? }` pairs with a self-hosted hub.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Login {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub server: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// A hub's pairing ticket (`rchub1...`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hub: Option<String>,
+    /// This device's name in the hub's device list; defaults to the host name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,6 +145,11 @@ pub struct LoggedIn {
     pub user_id: String,
     /// The account's token, needed to sign in on another device.
     pub token: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HubLoggedIn {
+    pub library_id: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -65,7 +65,8 @@ POST /v1/sync
 - The server assigns every accepted change a monotonically increasing `seq`. The response holds every stored
   change with `seq > request.cursor` that this request didn't send, and `cursor` is the highest `seq` now stored.
 - Decks and cards merge last-writer-wins on `updated_at`; ties keep the stored value. An older incoming write is
-  ignored and not echoed back, but a stored version newer than the one a request sent is returned to it. A local
+  ignored and not echoed back, but a stored value that beat the one a request sent (newer, or a tie with different
+  content) is returned to it whatever the cursor. A local
   edit sets `updated_at` to `max(now, previous updated_at + 1)`.
 - Reviews merge by union on `id`.
 - A client sends everything it changed since its last successful sync, then applies the response with the same merge
@@ -90,20 +91,32 @@ the hub, so a phone and a sleeping laptop still converge. It reuses `crates/core
 scheduling behave exactly like a device's.
 
 - **Transport.** Iroh, dialled by the hub's endpoint ID, direct where possible and through a relay otherwise, so it
-  needs no open ports, DNS or certificates. n0's public relays by default; `--relay <url>` (hub and devices) for a
-  self-hosted `iroh-relay`.
+  needs no open ports, DNS or certificates. n0's public relays by default; `recall-hub serve --relay <url>` (and
+  `RECALL_RELAY=<url>` for devices) for a self-hosted `iroh-relay`.
 - **Sync, ALPN `recall/sync/1`.** One bidirectional stream per sync. Frames are a big-endian `u32` length followed by
-  JSON. The device sends the same body as `POST /v1/sync`, the hub answers with the same response. While a device is
-  connected the hub also opens a unidirectional stream and sends `{ "event": "changed", "cursor": n }` frames after
-  any write from another device, so open devices pull within a second.
+  JSON. The device sends the same body as `POST /v1/sync`, the hub answers with the same response, or with
+  `{ error: { code, message } }` if the request failed. Frames are at most 128 MiB on `recall/sync/1` and 16 KiB on
+  `recall/pair/1` and for events. While a device is connected the hub also opens a unidirectional stream (on the
+  first event) and sends `{ "event": "changed", "cursor": n }` frames after any write from another device, so open
+  devices pull within a second. A device syncs whenever its connection is (re)established.
 - **Devices.** The hub accepts connections only from endpoint IDs in its device list, checked on accept and again
-  before each stream; removing a device closes its open connections.
+  before each stream; removing a device closes its open connections. Refusals and removals close the connection with
+  application code `403`, which a device reports as `unauthorized`; `503` means the hub is busy.
 - **Pairing, ALPN `recall/pair/1`.** `recall-hub pair` prints a ticket (`rchub1` + base32 of the hub's endpoint
   address, relay URL and a one-time 128-bit secret) and a QR code, valid for 10 minutes and one use. A device dials
-  the hub, sends `{ secret, name }`, and the hub adds the device's endpoint ID and answers `{ library_id }`.
-  `recall-hub devices` lists and removes devices.
-- **Keys.** Each device keeps an Ed25519 secret key in `$RECALL_HOME/iroh.key` (mode `0600`); it is its endpoint ID.
-  The hub keeps its own under its data directory.
+  the hub, sends `{ secret, name }` (`secret` as 32 hex characters, `name` 1 to 64 printable characters), and the
+  hub adds the device's endpoint ID and answers `{ library_id }`, or an error with code `bad_ticket`, `ticket_used`
+  or `ticket_expired`. The ticket's bytes are the 32-byte endpoint ID, the 16-byte secret, the relay URL (`u8`
+  length, then UTF-8; empty for none) and up to 8 direct addresses (`u8` count, then per address `4` or `6`, the IP
+  and a big-endian `u16` port); base32 is lowercase RFC 4648 without padding, read case-insensitively. Tickets live
+  in the running hub's memory; `recall-hub pair` asks it for one over its control socket (`hub.sock` in the data
+  directory, mode `0600`). `recall-hub devices` lists and removes devices. The library id is the hub's store id.
+- **Keys.** Each device keeps an Ed25519 secret key in `$RECALL_HOME/iroh.key` (mode `0600`, 64 hex characters);
+  it is its endpoint ID. The hub keeps its own under its data directory.
+- **Signed in to a hub**, a device's `status.server` is `hub:<endpoint id>` and `status.connected` says whether it
+  holds a live connection. Devices dial the relay and direct addresses from the ticket and use n0's relays and
+  address lookup unless `RECALL_RELAY=<url>` names a self-hosted relay. `RECALL_NET=local` (hub and devices) means
+  loopback only, no relays: for tests and trying it out on one machine.
 - **HTTP API and MCP (optional).** `recall-hub --http 127.0.0.1:8787` serves the HTTP API below and `/mcp`, with
   tokens from `recall-hub tokens create`. Put it behind your own proxy or tunnel to reach it remotely.
 
@@ -170,15 +183,16 @@ write, including writes arriving through sync, so clients refetch.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `status` | | `{ version, home, signed_in, last_sync: ms \| null, server: string \| null, sync_error: string \| null }` |
+| `status` | | `{ version, home, signed_in, last_sync: ms \| null, server: string \| null, sync_error: string \| null, connected: bool \| null }` |
 | `decks.list` | | `DeckSummary[]` |
 | `decks.create` / `decks.update` / `decks.delete` | as the HTTP bodies, plus `id` for update/delete | as HTTP |
 | `cards.list` / `cards.get` / `cards.create` / `cards.update` / `cards.delete` | as HTTP | as HTTP |
 | `review.next` | `{ deck_id? }` | as `GET /v1/review/next` |
 | `review.answer` | `{ card_id, rating, duration_ms? }` | `CardView` |
 | `stats` | `{ deck_id? }` | as HTTP |
-| `sync.login` | `{ server, token? }` (creates an account when `token` is omitted), or `{ hub: ticket, name }` | `{ user_id, token }` or `{ library_id }` |
+| `sync.login` | `{ server, token? }` (creates an account when `token` is omitted), or `{ hub: ticket, name? }` (name defaults to the host name) | `{ user_id, token }` or `{ library_id }` |
 | `sync.now` | | `{ pushed, pulled }` |
 | `shutdown` | | `{ ok: true }` |
 
-The core syncs on its own after each write (debounced 2 s) and every 60 s while signed in.
+The core syncs on its own after each write (debounced 2 s) and every 60 s while signed in, and with a hub also as
+soon as the hub reports a change.

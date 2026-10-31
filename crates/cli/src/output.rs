@@ -9,7 +9,13 @@ pub fn status(s: &Status) -> String {
         None => "not signed in".to_string(),
         Some(server) => {
             let last = s.last_sync.map_or("never synced".to_string(), |t| format!("synced {}", relative(t)));
-            format!("{server}, {last}")
+            match (server.strip_prefix("hub:"), s.connected) {
+                (Some(id), connected) => {
+                    let state = if connected == Some(true) { "connected" } else { "not connected" };
+                    format!("hub {id} ({state}), {last}")
+                }
+                (None, _) => format!("{server}, {last}"),
+            }
         }
     };
     let mut out = format!("recall core {} at {}\nsync: {sync}", s.version, s.home);

@@ -9,7 +9,7 @@ publish = false
 [workspace]
 
 [dependencies]
-recall-core = { path = "../../crates/core" }
+recall-core = { path = "../../crates/core", default-features = false }
 rune = { git = "https://github.com/anomalyco/rune", rev = "77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb", default-features = false, features = ["dbus", "embedded-fonts"] }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb", features = ["markdown"] }
 

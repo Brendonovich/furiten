@@ -5,10 +5,18 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["hub"]
+# Syncing with a self-hosted hub over Iroh. Thin clients of the core (the desktop app) can turn it off to skip
+# Iroh's dependency tree.
+hub = ["dep:iroh", "dep:tokio"]
+
 [dependencies]
 getrandom = "=0.2.17"
+iroh = { version = "=1.4.1", default-features = false, features = ["tls-ring"], optional = true }
 recall-srs = { path = "../srs" }
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"], optional = true }
 ureq = { version = "=3.5.0", default-features = false, features = ["rustls"] }
