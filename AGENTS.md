@@ -26,6 +26,7 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 - The CLI covers everything the desktop app can do, with `--json`. Add the command when you add the feature.
 - Clients stay thin: domain logic goes in `crates/core` or `crates/srs`, never in an app.
 - Pin every dependency to an exact version (Rune to a `rev`), and say why in the commit that adds one.
-- Cloudflare resources are named `recall-<stage>-<name>`. Deploys run only from CI: `dev` deploys dev, `production`
+- Cloudflare resources are named `recall-<stage>-<name>` (Durable Objects are named by their Worker and class, so
+  the per-user object is class `Users` on `recall-<stage>-api`). Deploys run only from CI: `dev` deploys dev, `production`
   (fast-forwarded from `dev`) deploys production.
 - Tests run offline and headless.

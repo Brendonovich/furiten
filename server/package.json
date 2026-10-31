@@ -1,0 +1,32 @@
+{
+  "name": "recall-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "bun scripts/build-wasm.ts",
+    "dev": "bun run build:wasm && bun node_modules/alchemy/bin/cli.js dev",
+    "typecheck": "tsc -p .",
+    "test": "bun run build:wasm && bun test",
+    "check": "bun run typecheck && bun run test",
+    "deploy:dev": "bun run build:wasm && RECALL_STATE=cloudflare bun node_modules/alchemy/bin/cli.js deploy --stage dev --yes --no-input",
+    "deploy:production": "bun run build:wasm && RECALL_STATE=cloudflare bun node_modules/alchemy/bin/cli.js deploy --stage production --yes --no-input"
+  },
+  "dependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.84",
+    "@effect/platform-bun": "4.0.7",
+    "@effect/platform-node": "4.0.7",
+    "alchemy": "2.0.0-beta.84",
+    "effect": "4.0.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261031.1",
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2"
+  },
+  "overrides": {
+    "effect": "4.0.7",
+    "@effect/platform-node-shared": "4.0.7",
+    "@effect/sql-d1": "4.0.7"
+  }
+}

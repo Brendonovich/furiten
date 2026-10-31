@@ -112,7 +112,13 @@ run against a base URL, that both must pass; a behaviour isn't in the contract u
 
 ## HTTP API
 
-Served by the Worker and by `recall-hub --http`. JSON in and out; errors are `{ error: { code, message } }` with a matching status.
+Served by the Worker and by `recall-hub --http`. JSON in and out; errors are `{ error: { code, message } }` with a
+matching status, and `code` is one of `invalid_params` (400), `unauthorized` (401), `not_found` (404), `conflict`
+(409) or `internal` (500), the same codes the local core uses. Sync rejects a whole request with 400 if any ID isn't
+a ULID.
+
+"Today" (the new-card cap, `reviews_today`) is the caller's local day. Devices know it; over HTTP a client sends an
+IANA zone in `X-Recall-Timezone`, and a server without one uses UTC. (The Worker uses UTC until it reads the header.)
 
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
@@ -121,7 +127,7 @@ Served by the Worker and by `recall-hub --http`. JSON in and out; errors are `{ 
 | GET | `/v1/decks` | | `{ decks: DeckSummary[] }` |
 | POST | `/v1/decks` | `{ name, parent_id? }` | `Deck` |
 | PATCH | `/v1/decks/:id` | `{ name?, parent_id? }` | `Deck` |
-| DELETE | `/v1/decks/:id` | | `{ ok: true }` (soft-deletes its cards too) |
+| DELETE | `/v1/decks/:id` | | `{ ok: true }` (soft-deletes its subdecks and all their cards too) |
 | GET | `/v1/cards` | `?deck_id&q&tag&due=true&limit=50&offset` | `{ cards: CardView[] }` |
 | POST | `/v1/cards` | `{ deck_id, content, tags? }` or `{ cards: [...] }` | `CardView` or `{ cards: CardView[] }` |
 | GET | `/v1/cards/:id` | | `CardView` |

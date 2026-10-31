@@ -1,0 +1,50 @@
+name: deploy
+
+# `dev` deploys the dev stage; `production` (fast-forwarded from `dev`) deploys production. Nothing else deploys.
+on:
+  push:
+    branches: [dev, production]
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            server:
+              - server/**
+              - crates/srs/**
+              - .github/workflows/deploy.yml
+
+  deploy:
+    needs: changes
+    # Production deploys every push; dev only when the server or the scheduler it embeds changed.
+    if: github.ref_name == 'production' || needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+        working-directory: server
+      - run: bun run check
+        working-directory: server
+      - run: bun run deploy:${{ github.ref_name }}
+        working-directory: server
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
