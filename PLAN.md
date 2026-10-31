@@ -9,7 +9,7 @@ drive it through a CLI, an HTTP API and an MCP server.
 ```
  desktop (Mac/Win/Linux)                         mobile                      web
 ┌─────────────────────────────┐   ┌───────────────────────────────┐   ┌─────────────────┐
-│ Rune app      recall CLI    │   │ SwiftUI app    Compose app    │   │ DOM app (Solid) │
+│ Rune app      recall CLI    │   │ SwiftUI app    Compose app    │   │ SolidJS 2 app   │
 │      \          /           │   │      │              │         │   │                 │
 │   Unix socket, JSON lines   │   │  core linked in (no daemons   │   │                 │
 │          │                  │   │  on iOS/Android), via C ABI   │   │                 │
@@ -39,7 +39,7 @@ drive it through a CLI, an HTTP API and an MCP server.
   because flashcards need a phone and a sleeping laptop to converge. Both take the same sync request, merge the
   same way and serve the same HTTP API and MCP; one conformance suite keeps the two implementations honest.
 - **Native shells, Rune where it's ready.** Rune draws the desktop app. iOS is SwiftUI, Android is Jetpack Compose,
-  and the web is a DOM app, because Rune's iOS target only embeds, it has no Android target, and its web target is
+  and the web is a SolidJS 2 app, because Rune's iOS target only embeds, it has no Android target, and its web target is
   experimental. Each moves to Rune surfaces as those targets mature.
 
 The exact formats, protocol and endpoints are in [docs/contract.md](docs/contract.md).
@@ -61,7 +61,9 @@ review. No sign-up, no choices. Sync, import and settings come after the first r
    notifications, its HTTP API and MCP, and `tests/conformance` passing against both backends. `recall mcp` over
    stdio on every device.
 6. **iOS (SwiftUI)** over the core through a C ABI. **Android (Compose)** the same way.
-7. **Web.** DOM app over the HTTP API; offline later with the core in wasm.
+7. **Web.** SolidJS 2 app (`apps/web`) over the HTTP API, served as static assets from the Recall Cloud Worker; offline
+   later with the core in wasm. Solid 2 is still a release candidate (`solid-js@2.0.0-rc.20` on the `next` tag, with
+   `@solidjs/router@2.0.0-next.43`), so pin exact versions and bump deliberately until it's stable.
 8. Import from Anki (`.apkg`) and Mochi (`.mochi`), cloze cards, images, real sign-in, published decks.
 
 ## Decisions

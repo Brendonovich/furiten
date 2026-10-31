@@ -10,6 +10,7 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 - `crates/cli`: the `recall` binary. `recall core` runs the core; every other command is a client of it.
 - `apps/desktop`: the Rune desktop app, a thin client of the core.
 - `server`: Recall Cloud, the Cloudflare Worker and per-user Durable Object (TypeScript), deployed with Alchemy.
+- `apps/web`: the web app in SolidJS 2 (pinned release candidate). Planned.
 - `crates/hub`: `recall-hub`, the self-hosted backend (Rust, Iroh). Planned.
 - `tests/conformance`: one HTTP API suite both backends must pass. Planned.
 
