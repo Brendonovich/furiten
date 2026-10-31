@@ -45,7 +45,8 @@ Schedule { state: "new" | "learning" | "review" | "relearning", due: ms, stabili
 ```
 
 A new card is due immediately. A card is due when `due <= now`. The review queue is due cards ordered by `due`, then
-new cards ordered by `created_at`, capped at 20 new cards per deck per local day.
+new cards ordered by `created_at`, capped at 20 new cards per deck per local day (a deck's allowance is 20 minus
+the cards in it first reviewed today).
 
 ## Sync
 
@@ -63,8 +64,9 @@ POST /v1/sync
 
 - The server assigns every accepted change a monotonically increasing `seq`. The response holds every stored
   change with `seq > request.cursor` that this request didn't send, and `cursor` is the highest `seq` now stored.
-- Decks and cards merge last-writer-wins on `(updated_at, id of the change's device)`; ties keep the stored value.
-  An older incoming write is ignored and not echoed back.
+- Decks and cards merge last-writer-wins on `updated_at`; ties keep the stored value. An older incoming write is
+  ignored and not echoed back, but a stored version newer than the one a request sent is returned to it. A local
+  edit sets `updated_at` to `max(now, previous updated_at + 1)`.
 - Reviews merge by union on `id`.
 - A client sends everything it changed since its last successful sync, then applies the response with the same merge
   rules, then stores `cursor`. Syncing is idempotent: resending a change is harmless.
@@ -135,7 +137,10 @@ DeckSummary = Deck & { cards: number, due: number, new: number }
 CardView    = Card & { sides: string[], schedule: Schedule }
 ```
 
-`q` matches card content case-insensitively. Deleted entities never appear outside `/v1/sync`.
+`q` matches card content case-insensitively. Deleted entities never appear outside `/v1/sync`. A `deck_id` filter
+(cards, review, stats) covers the deck and its subdecks, and a `DeckSummary`'s counts include its subdecks. `due`
+counts reviewed cards with `due <= now`; `new` counts new cards available today under the cap; `remaining` includes
+the returned card. `retention_30d` is `null` when there is nothing to measure.
 
 ## MCP
 
@@ -159,14 +164,14 @@ write, including writes arriving through sync, so clients refetch.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `status` | | `{ version, home, signed_in, last_sync: ms \| null, server: string \| null }` |
+| `status` | | `{ version, home, signed_in, last_sync: ms \| null, server: string \| null, sync_error: string \| null }` |
 | `decks.list` | | `DeckSummary[]` |
 | `decks.create` / `decks.update` / `decks.delete` | as the HTTP bodies, plus `id` for update/delete | as HTTP |
 | `cards.list` / `cards.get` / `cards.create` / `cards.update` / `cards.delete` | as HTTP | as HTTP |
 | `review.next` | `{ deck_id? }` | as `GET /v1/review/next` |
 | `review.answer` | `{ card_id, rating, duration_ms? }` | `CardView` |
 | `stats` | `{ deck_id? }` | as HTTP |
-| `sync.login` | `{ server, token? }` (creates an account when `token` is omitted), or `{ hub: ticket, name }` | `{ user_id }` or `{ library_id }` |
+| `sync.login` | `{ server, token? }` (creates an account when `token` is omitted), or `{ hub: ticket, name }` | `{ user_id, token }` or `{ library_id }` |
 | `sync.now` | | `{ pushed, pulled }` |
 | `shutdown` | | `{ ok: true }` |
 
