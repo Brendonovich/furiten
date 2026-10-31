@@ -49,7 +49,9 @@ new cards ordered by `created_at`, capped at 20 new cards per deck per local day
 
 ## Sync
 
-Each device keeps its own SQLite store and syncs with the user's Durable Object.
+Each device keeps its own SQLite store and syncs with one hub: the user's Durable Object on Recall Cloud, or a
+self-hosted `recall-hub` reached over Iroh (see Self-hosted hub). Both speak the same request and response and
+apply the same rules; only the transport differs.
 
 ```
 Change = { kind: "deck", value: Deck } | { kind: "card", value: Card } | { kind: "review", value: Review }
@@ -78,9 +80,37 @@ POST /v1/accounts -> { user_id, token }      token = "rc_" + user_id + "_" + 32 
 The Worker routes a request to the Durable Object named by the token's `user_id`; the DO stores only a SHA-256 hash
 of the secret and rejects mismatches with 401. Clients send `Authorization: Bearer <token>`.
 
+## Self-hosted hub
+
+`recall-hub` is a Rust binary that holds one library (any number of devices) and does the Durable Object's job on
+hardware the user owns: a NAS, a Pi, a VPS. It's an always-online peer, not a mesh: devices only ever sync with
+the hub, so a phone and a sleeping laptop still converge. It reuses `crates/core`'s store and merge, so its sync and
+scheduling behave exactly like a device's.
+
+- **Transport.** Iroh, dialled by the hub's endpoint ID, direct where possible and through a relay otherwise, so it
+  needs no open ports, DNS or certificates. n0's public relays by default; `--relay <url>` (hub and devices) for a
+  self-hosted `iroh-relay`.
+- **Sync, ALPN `recall/sync/1`.** One bidirectional stream per sync. Frames are a big-endian `u32` length followed by
+  JSON. The device sends the same body as `POST /v1/sync`, the hub answers with the same response. While a device is
+  connected the hub also opens a unidirectional stream and sends `{ "event": "changed", "cursor": n }` frames after
+  any write from another device, so open devices pull within a second.
+- **Devices.** The hub accepts connections only from endpoint IDs in its device list, checked on accept and again
+  before each stream; removing a device closes its open connections.
+- **Pairing, ALPN `recall/pair/1`.** `recall-hub pair` prints a ticket (`rchub1` + base32 of the hub's endpoint
+  address, relay URL and a one-time 128-bit secret) and a QR code, valid for 10 minutes and one use. A device dials
+  the hub, sends `{ secret, name }`, and the hub adds the device's endpoint ID and answers `{ library_id }`.
+  `recall-hub devices` lists and removes devices.
+- **Keys.** Each device keeps an Ed25519 secret key in `$RECALL_HOME/iroh.key` (mode `0600`); it is its endpoint ID.
+  The hub keeps its own under its data directory.
+- **HTTP API and MCP (optional).** `recall-hub --http 127.0.0.1:8787` serves the HTTP API below and `/mcp`, with
+  tokens from `recall-hub tokens create`. Put it behind your own proxy or tunnel to reach it remotely.
+
+The HTTP API exists twice, in the Worker (TypeScript) and the hub (Rust). `tests/conformance` is one black-box suite,
+run against a base URL, that both must pass; a behaviour isn't in the contract until it's tested there.
+
 ## HTTP API
 
-Served by the Worker. JSON in and out; errors are `{ error: { code, message } }` with a matching status.
+Served by the Worker and by `recall-hub --http`. JSON in and out; errors are `{ error: { code, message } }` with a matching status.
 
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
@@ -109,7 +139,9 @@ CardView    = Card & { sides: string[], schedule: Schedule }
 
 ## MCP
 
-The Worker serves MCP over Streamable HTTP at `/mcp` with the same bearer token. Tools mirror the API:
+The Worker and the hub serve MCP over Streamable HTTP at `/mcp` with the same bearer token, and `recall mcp` serves
+it over stdio from any device through the local core, so agents work offline and against either backend. Tools
+mirror the API:
 `list_decks`, `create_deck`, `search_cards`, `create_cards` (batch), `update_card`, `delete_card`, `next_review`,
 `review_card`, `stats`. Each tool's description says what a card's `---` separator means, so an agent writes
 two-sided cards.
@@ -134,7 +166,7 @@ write, including writes arriving through sync, so clients refetch.
 | `review.next` | `{ deck_id? }` | as `GET /v1/review/next` |
 | `review.answer` | `{ card_id, rating, duration_ms? }` | `CardView` |
 | `stats` | `{ deck_id? }` | as HTTP |
-| `sync.login` | `{ server, token? }` (creates an account when `token` is omitted) | `{ user_id }` |
+| `sync.login` | `{ server, token? }` (creates an account when `token` is omitted), or `{ hub: ticket, name }` | `{ user_id }` or `{ library_id }` |
 | `sync.now` | | `{ pushed, pulled }` |
 | `shutdown` | | `{ ok: true }` |
 
