@@ -1,0 +1,9 @@
+[package]
+name = "recall-srs"
+description = "FSRS-6 scheduler for Recall"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
