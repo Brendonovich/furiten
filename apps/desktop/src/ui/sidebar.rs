@@ -8,6 +8,10 @@ use crate::core::now_ms;
 use crate::theme;
 
 pub fn view(s: &App, k: &Kit) -> El {
+    if s.connecting.is_some() {
+        // Empty until the decks arrive, so nothing shows that's about to change.
+        return Sidebar::new().inset(0.0).label("Decks").build(k);
+    }
     let (due, new) = s.decks.iter().fold((0, 0), |(d, n), x| (d + x.due, n + x.new));
     let all = SidebarRow::new("All decks")
         .icon(&icons::STACK)
@@ -24,7 +28,9 @@ pub fn view(s: &App, k: &Kit) -> El {
         .help("New deck")
         .on_press(|s: &mut App| s.start_new_deck())
         .build(k)
-        .key("new-deck");
+        .key("new-deck")
+        // The plus sits in the button's padding; this lines its edge up with the counts and the sidebar toggle.
+        .mr(-4.0);
     let mut decks = SidebarSection::new("Decks").key("decks").action(add);
     for d in &s.decks {
         let id = d.deck.id.clone();
@@ -53,7 +59,7 @@ pub fn view(s: &App, k: &Kit) -> El {
         );
     }
 
-    Sidebar::new().label("Decks").header(all).section(decks).footer(sync_row(s, k)).build(k)
+    Sidebar::new().inset(0.0).label("Decks").header(all).section(decks).footer(sync_row(s, k)).build(k)
 }
 
 /// Due in the accent, new in faint, each only when there are some. Tabular, since they tick down as you review.

@@ -10,14 +10,18 @@ pub use types::*;
 
 pub type Result<T> = std::result::Result<T, String>;
 
-/// How many cards a deck's list asks for. The list isn't virtualised yet.
+/// How many cards a deck's list asks for.
 const LIST_LIMIT: u32 = 500;
+
+const PENDING: &str = "Still connecting to the Recall core";
 
 pub enum Core {
     /// The `recall core` daemon over its Unix socket.
     Live(Client),
     /// Sample data in memory (`--fixtures`, scenes and tests).
     Fixture(fixture::Fixture),
+    /// Not connected yet: the window is up and the connection is being made on another thread. Every call fails.
+    Pending,
 }
 
 /// Which fixture store to start from.
@@ -50,6 +54,10 @@ impl Core {
         matches!(self, Core::Fixture(_))
     }
 
+    pub fn is_pending(&self) -> bool {
+        matches!(self, Core::Pending)
+    }
+
     /// Calls `changed` from another thread whenever the core pushes `{ event: "changed" }`.
     pub fn watch(&self, changed: impl Fn() + Send + 'static) {
         match self {
@@ -63,7 +71,7 @@ impl Core {
                 Err(e) => eprintln!("recall: not watching for changes: {}", e.message),
             },
             // Fixtures only change through this app, which refreshes after its own writes.
-            Core::Fixture(_) => drop(changed),
+            Core::Fixture(_) | Core::Pending => drop(changed),
         }
     }
 
@@ -71,6 +79,7 @@ impl Core {
         match self {
             Core::Live(c) => c.status().map_err(err),
             Core::Fixture(f) => Ok(f.status()),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -78,6 +87,7 @@ impl Core {
         match self {
             Core::Live(c) => c.decks().map_err(err),
             Core::Fixture(f) => Ok(f.decks()),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -85,19 +95,23 @@ impl Core {
         match self {
             Core::Live(c) => c.create_deck(name, None).map_err(err),
             Core::Fixture(f) => f.create_deck(name),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
-    pub fn cards(&mut self, deck_id: Option<&str>) -> Result<Vec<CardView>> {
+    /// The cards of a deck (or every deck), filtered to those whose Markdown contains `q` when it isn't empty.
+    pub fn cards(&mut self, deck_id: Option<&str>, q: &str) -> Result<Vec<CardView>> {
         match self {
             Core::Live(c) => c
                 .cards(&CardQuery {
                     deck_id: deck_id.map(String::from),
+                    q: Some(q.to_string()).filter(|q| !q.is_empty()),
                     limit: Some(LIST_LIMIT),
                     ..CardQuery::default()
                 })
                 .map_err(err),
-            Core::Fixture(f) => Ok(f.cards(deck_id)),
+            Core::Fixture(f) => Ok(f.cards(deck_id, q)),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -105,6 +119,7 @@ impl Core {
         match self {
             Core::Live(c) => c.card(id).map_err(err),
             Core::Fixture(f) => f.card(id),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -112,6 +127,7 @@ impl Core {
         match self {
             Core::Live(c) => c.create_card(&new).map_err(err),
             Core::Fixture(f) => f.create_card(new),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -119,6 +135,7 @@ impl Core {
         match self {
             Core::Live(c) => c.update_card(&update).map_err(err),
             Core::Fixture(f) => f.update_card(update),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -126,6 +143,7 @@ impl Core {
         match self {
             Core::Live(c) => c.delete_card(id).map_err(err),
             Core::Fixture(f) => f.delete_card(id),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -133,6 +151,7 @@ impl Core {
         match self {
             Core::Live(c) => c.next_review(deck_id).map_err(err),
             Core::Fixture(f) => Ok(f.next_review(deck_id)),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -140,6 +159,7 @@ impl Core {
         match self {
             Core::Live(c) => c.answer(&answer.card_id, answer.rating, answer.duration_ms).map_err(err),
             Core::Fixture(f) => f.answer(answer),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -148,6 +168,7 @@ impl Core {
         match self {
             Core::Live(c) => c.login(server, None).map(|l| l.user_id).map_err(err),
             Core::Fixture(_) => Err(format!("Couldn’t sign in to {server}: the app is running on sample data")),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 
@@ -155,6 +176,7 @@ impl Core {
         match self {
             Core::Live(c) => c.sync_now().map(drop).map_err(err),
             Core::Fixture(_) => Err("Sync isn’t available on sample data".into()),
+            Core::Pending => Err(PENDING.into()),
         }
     }
 }

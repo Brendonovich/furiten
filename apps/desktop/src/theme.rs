@@ -11,6 +11,8 @@ const THEME: &str = include_str!("../assets/theme.json");
 pub const CARD_FACE: TextStyle = TextStyle::new(20.0, 400.0).lh(30.0);
 /// Large headings (the first-run deck title, empty states).
 pub const DISPLAY: TextStyle = TextStyle::new(26.0, 600.0).lh(32.0).tracking(-0.3);
+/// Small capitals in a tile's footer ("+ 1 HIDDEN SIDE", "DUE").
+pub const CAPS: TextStyle = TextStyle::new(10.5, 600.0).lh(14.0).tracking(0.6).features("'tnum' 1");
 /// Counts that change while you look at them.
 pub const COUNT: TextStyle = TextStyle::new(12.0, 500.0).features("'tnum' 1");
 

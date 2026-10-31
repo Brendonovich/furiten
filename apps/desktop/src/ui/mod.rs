@@ -1,5 +1,6 @@
 //! The window: a sidebar of decks beside a main pane that shows a deck, a review, the card editor or settings.
 
+mod cards;
 mod deck;
 mod editor;
 pub mod format;
@@ -8,41 +9,59 @@ mod review;
 mod settings;
 mod sidebar;
 
-use rune::{Cx, El};
+use rune::{Anim, Cx, El, Spring, col, text};
 use rune_kit::shell::{SidebarToggle, SplitView, Toolbar};
 use rune_kit::{ControlSize, Keybind, KeybindVariant, Kit};
 
 use crate::app::App;
 use crate::theme;
 
+pub use deck::key as deck_key;
 pub use editor::key as editor_key;
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let k = theme::kit(cx.system_dark());
     let mut layer = Vec::new();
-    let (main, toolbar) = if let Some(e) = &s.editor {
+    let (main, toolbar) = if s.connecting.is_some() {
+        (connecting(s, &k), Toolbar::new())
+    } else if let Some(e) = &s.editor {
         editor::view(s, e, &k, &mut layer)
     } else if let Some(settings) = &s.settings {
         settings::view(s, settings, &k)
     } else if let Some(r) = &s.review {
         review::view(s, r, &k)
     } else {
-        deck::view(s, &k)
+        deck::view(s, &k, &mut layer)
     };
-    let mut split = SplitView::new(main.key("main"))
+    let main =
+        main.key("main").on_window_focus(|s: &mut App, focused: bool, _: &mut rune::Tx| s.window_focused = focused);
+    let mut split = SplitView::new(main)
         .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar::view(s, &k))
         .toolbar(toolbar)
         .titlebar_inset(cx.titlebar_inset())
         .frame_inset(8.0)
         .toolbar_in_panel()
-        .sidebar_padding(12.0, 8.0)
+        .sidebar_padding(20.0, 16.0)
         .sidebar_toggle(SidebarToggle::new().size(ControlSize::Large).past_lights(16.0).edge(18.0).gap(4.0).in_header())
         .reduced_motion(cx.is_reduced_motion());
     if s.first_run {
         // One path before the first review: no sidebar, nothing to choose.
         split = split.hide_sidebar_toggle();
     }
+    // The app has no animation: every change, entrance, exit, colour and hover lands on the next frame.
     rune_kit::root(split.build(&k), layer)
+        .instant_changes()
+        .motion(Spring::NONE)
+        .hover_motion_within(Anim::INSTANT, Anim::INSTANT)
+}
+
+/// While the core connection is being made: nothing for a quick one, a quiet line once it's taking a while.
+fn connecting(s: &App, k: &Kit) -> El {
+    let mut page = col().key("connecting").w_full().h_full().center();
+    if s.slow_connect {
+        page = page.child(text("Opening your decks…").key("opening").font(k.ty.ui).color(k.c.text_faint));
+    }
+    page
 }
 
 /// A main pane's toolbar with a title.

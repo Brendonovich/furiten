@@ -3,9 +3,10 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use rune::TextEdit;
+use rune::prefs::Prefs;
+use rune::{TextEdit, Tx};
 use rune_kit::PaneState;
 
 use crate::core::{Answer, CardUpdate, CardView, Core, DeckSummary, Fixtures, Id, NewCard, NextReview, Status, now_ms};
@@ -16,8 +17,28 @@ pub struct App {
     pub decks: Vec<DeckSummary>,
     /// The deck in the main pane; `None` is "All decks".
     pub deck: Option<Id>,
-    /// The cards of `deck`, for its card list.
+    /// The cards of `deck` that match `query`, for its card views.
     pub cards: Vec<CardView>,
+    /// How `deck`'s cards are laid out, remembered per deck in `prefs`.
+    pub view: CardsView,
+    /// The view switcher's menu is open.
+    pub picking_view: bool,
+    /// The search field above the cards.
+    pub search: TextEdit,
+    /// The search the card list shows: `search` becomes it after a pause in typing.
+    pub query: String,
+    /// When `search` is applied, on the `poll` clock.
+    search_due: Option<f64>,
+    /// The highlighted card, moved with the arrow keys.
+    pub selected: Option<Id>,
+    /// In the column view, Return has moved from the list to the selected card's detail.
+    pub detail_focused: bool,
+    /// The window has keyboard focus; the selection turns neutral while it doesn't.
+    pub window_focused: bool,
+    /// The card area's width, for the grid's column count.
+    pub cards_width: f32,
+    /// Local UI preferences (each deck's view). Not library data, so not the core's.
+    pub prefs: Prefs,
     pub review: Option<Review>,
     pub editor: Option<Editor>,
     pub settings: Option<Settings>,
@@ -32,7 +53,63 @@ pub struct App {
     pub changed: Arc<AtomicBool>,
     /// Why the app couldn't reach the core and fell back to sample data.
     pub offline: Option<String>,
+    /// While the core connection is being made: when it started, on the `poll` clock (`None` until the first poll).
+    pub connecting: Option<Option<f64>>,
+    /// The connection has taken long enough that the window says so.
+    pub slow_connect: bool,
+    /// The last `poll` clock, in seconds.
+    clock: f64,
+    waker: Option<rune::Waker>,
 }
+
+/// How a deck's cards are laid out.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CardsView {
+    #[default]
+    Grid,
+    List,
+    Column,
+}
+
+impl CardsView {
+    pub const ALL: [CardsView; 3] = [CardsView::Grid, CardsView::List, CardsView::Column];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CardsView::Grid => "Grid view",
+            CardsView::List => "List view",
+            CardsView::Column => "Column view",
+        }
+    }
+
+    /// The menu's shortcut, as shown, and the digit that goes with ⌘.
+    pub fn shortcut(self) -> (&'static str, char) {
+        match self {
+            CardsView::Grid => ("⌘1", '1'),
+            CardsView::List => ("⌘2", '2'),
+            CardsView::Column => ("⌘3", '3'),
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            CardsView::Grid => "grid",
+            CardsView::List => "list",
+            CardsView::Column => "column",
+        }
+    }
+
+    fn from_id(id: &str) -> Option<CardsView> {
+        CardsView::ALL.into_iter().find(|v| v.id() == id)
+    }
+}
+
+/// How long typing in the search field pauses before the list is asked again.
+const SEARCH_DEBOUNCE: f64 = 0.15;
+/// A connection that takes longer than this says so; a quicker one shows nothing in between.
+const SLOW_CONNECT: f64 = 0.4;
+/// Where the app keeps its preferences (`rune::prefs`).
+const PREFS_ID: &str = "recall-desktop";
 
 pub struct Review {
     pub next: NextReview,
@@ -92,29 +169,51 @@ fn fixtures_arg() -> Option<Fixtures> {
     })
 }
 
+/// The first state, built before the first frame, so it never waits on the core: unless `--fixtures` is given, the
+/// window opens connecting and `main` connects on another thread once the first frame is up (`App::connected`).
 pub fn init() -> App {
-    if let Some(which) = fixtures_arg() {
-        return App::new(Core::fixtures(which));
+    match fixtures_arg() {
+        Some(which) => App::new(Core::fixtures(which)),
+        None => App::connecting(),
     }
-    match Core::connect() {
-        Ok(core) => App::new(core),
-        Err(e) => {
-            let mut s = App::new(Core::fixtures(Fixtures::FirstRun));
-            s.offline = Some(e);
-            s
-        }
-    }
+}
+
+/// Whether this run connects to the core (rather than running on fixtures).
+pub fn wants_core() -> bool {
+    fixtures_arg().is_none()
 }
 
 impl App {
     pub fn new(core: Core) -> App {
-        let changed = Arc::new(AtomicBool::new(false));
-        let mut s = App {
+        let mut s = App::empty(core, Prefs::memory());
+        s.start();
+        s
+    }
+
+    /// Waiting for the core: an empty window with the sidebar where it usually is, so nothing moves when it lands.
+    pub fn connecting() -> App {
+        let mut s = App::empty(Core::Pending, Prefs::open(PREFS_ID));
+        s.connecting = Some(None);
+        s
+    }
+
+    fn empty(core: Core, prefs: Prefs) -> App {
+        App {
             core,
             status: Status::default(),
             decks: Vec::new(),
             deck: None,
             cards: Vec::new(),
+            view: CardsView::default(),
+            picking_view: false,
+            search: TextEdit::new(""),
+            query: String::new(),
+            search_due: None,
+            selected: None,
+            detail_focused: false,
+            window_focused: true,
+            cards_width: 0.0,
+            prefs,
             review: None,
             editor: None,
             settings: None,
@@ -122,17 +221,76 @@ impl App {
             sidebar: PaneState::new(232.0).range(180.0, 360.0),
             first_run: false,
             error: None,
-            changed: changed.clone(),
+            changed: Arc::new(AtomicBool::new(false)),
             offline: None,
-        };
-        s.refresh();
-        s.first_run = s.decks.len() == 1 && s.decks[0].cards > 0 && s.decks[0].new == s.decks[0].cards;
-        if s.first_run {
-            s.deck = Some(s.decks[0].deck.id.clone());
-            s.sidebar.set_open(false);
-            s.load_cards();
+            connecting: None,
+            slow_connect: false,
+            clock: 0.0,
+            waker: None,
         }
-        s
+    }
+
+    /// Loads everything from the core and decides whether this is the first run.
+    fn start(&mut self) {
+        self.refresh();
+        self.first_run = self.decks.len() == 1 && self.decks[0].cards > 0 && self.decks[0].new == self.decks[0].cards;
+        if self.first_run {
+            self.deck = Some(self.decks[0].deck.id.clone());
+            self.sidebar.set_open(false);
+            self.load_cards();
+        }
+        self.view = self.saved_view();
+    }
+
+    /// The connection made on another thread has landed: the core, or why there isn't one (then sample data).
+    pub fn connected(&mut self, core: crate::core::Result<Core>) {
+        self.connecting = None;
+        self.slow_connect = false;
+        match core {
+            Ok(core) => self.core = core,
+            Err(e) => {
+                self.core = Core::fixtures(Fixtures::FirstRun);
+                self.offline = Some(e);
+            }
+        }
+        self.start();
+        if let Some(wake) = self.waker.clone() {
+            self.watch(wake);
+        }
+    }
+
+    /// Before each frame: lands a paused search and says when a slow connection has been slow long enough to show.
+    /// True when the view needs to run again.
+    pub fn tick(&mut self, clock: f64, tx: &mut Tx) -> bool {
+        self.clock = clock;
+        let mut changed = false;
+        if let Some(started) = self.connecting {
+            let started = started.unwrap_or(clock);
+            self.connecting = Some(Some(started));
+            if !self.slow_connect {
+                let left = started + SLOW_CONNECT - clock;
+                if left <= 0.0 {
+                    self.slow_connect = true;
+                    changed = true;
+                } else {
+                    tx.wake_after(Duration::from_secs_f64(left));
+                }
+            }
+        }
+        if let Some(due) = self.search_due {
+            let left = due - clock;
+            if left <= 0.0 {
+                self.search_due = None;
+                if self.apply_search() {
+                    // A new set of results replaces the old at once; nothing slides.
+                    tx.instant();
+                    changed = true;
+                }
+            } else {
+                tx.wake_after(Duration::from_secs_f64(left));
+            }
+        }
+        changed || self.poll_changed()
     }
 
     /// Replaces the core (scenes and tests switch fixture stores) and starts over.
@@ -145,7 +303,13 @@ impl App {
         }
     }
 
-    pub fn watch(&self, wake: rune::Waker) {
+    /// Keeps the waker, for the connection that lands later, and listens for the core's changes.
+    pub fn set_waker(&mut self, wake: rune::Waker) {
+        self.waker = Some(wake.clone());
+        self.watch(wake);
+    }
+
+    fn watch(&self, wake: rune::Waker) {
         let changed = self.changed.clone();
         self.core.watch(move || {
             changed.store(true, Ordering::Release);
@@ -176,6 +340,9 @@ impl App {
     }
 
     pub fn refresh(&mut self) {
+        if self.core.is_pending() {
+            return;
+        }
         if let Ok(status) = self.core.status() {
             self.status = status;
         }
@@ -191,9 +358,13 @@ impl App {
     }
 
     fn load_cards(&mut self) {
-        let cards = self.core.cards(self.deck.as_deref());
+        let cards = self.core.cards(self.deck.as_deref(), &self.query);
         if let Some(cards) = self.ok(cards) {
             self.cards = cards;
+        }
+        if self.selected.as_ref().is_some_and(|id| !self.cards.iter().any(|c| &c.card.id == id)) {
+            self.selected = None;
+            self.detail_focused = false;
         }
     }
 
@@ -242,7 +413,133 @@ impl App {
         self.review = None;
         self.editor = None;
         self.settings = None;
+        self.picking_view = false;
+        self.search = TextEdit::new("");
+        self.query.clear();
+        self.search_due = None;
+        self.selected = None;
+        self.detail_focused = false;
+        self.view = self.saved_view();
         self.load_cards();
+    }
+
+    fn view_pref(&self) -> String {
+        format!("view.{}", self.deck.as_deref().unwrap_or("all"))
+    }
+
+    fn saved_view(&self) -> CardsView {
+        self.prefs.get::<String>(&self.view_pref()).and_then(|id| CardsView::from_id(&id)).unwrap_or_default()
+    }
+
+    /// Lays the deck's cards out another way, and remembers it for this deck.
+    pub fn set_view(&mut self, view: CardsView) {
+        self.picking_view = false;
+        self.detail_focused = false;
+        if self.view == view {
+            return;
+        }
+        self.view = view;
+        let key = self.view_pref();
+        if let Err(e) = self.prefs.set(&key, view.id()) {
+            eprintln!("recall-desktop: {e}");
+        }
+    }
+
+    /// The search field changed: the list is asked again once typing pauses.
+    pub fn search_edited(&mut self, tx: &mut Tx) {
+        self.search_due = Some(self.clock + SEARCH_DEBOUNCE);
+        tx.wake_after(Duration::from_secs_f64(SEARCH_DEBOUNCE));
+    }
+
+    /// Asks for the cards matching the search field now. True when the search changed.
+    pub fn apply_search(&mut self) -> bool {
+        self.search_due = None;
+        if self.query == self.search.text {
+            return false;
+        }
+        self.query = self.search.text.clone();
+        self.load_cards();
+        true
+    }
+
+    pub fn focus_search(&mut self) {
+        self.search.focused = true;
+        self.search.set_selection(0, self.search.text.len());
+    }
+
+    /// Escape in the search field: clears it, or leaves it when it's already empty.
+    pub fn leave_search(&mut self) {
+        if self.search.text.is_empty() {
+            self.search.focused = false;
+            return;
+        }
+        self.search.replace_text("");
+        self.search_due = None;
+        if !self.query.is_empty() {
+            self.query.clear();
+            self.load_cards();
+        }
+    }
+
+    /// The selected card, or in the column view the first card when none is: the detail always shows one.
+    pub fn current(&self) -> Option<&CardView> {
+        let selected = self.selected.as_ref().and_then(|id| self.cards.iter().find(|c| &c.card.id == id));
+        match self.view {
+            CardsView::Column => selected.or(self.cards.first()),
+            _ => selected,
+        }
+    }
+
+    fn current_index(&self) -> Option<usize> {
+        let id = &self.current()?.card.id;
+        self.cards.iter().position(|c| &c.card.id == id)
+    }
+
+    /// Selects a card by a click: Grid and List open it, Column shows it.
+    pub fn press_card(&mut self, id: &str) {
+        self.selected = Some(id.to_string());
+        self.detail_focused = false;
+        if self.view != CardsView::Column {
+            self.edit_card(id);
+        }
+    }
+
+    /// How many tiles the grid fits in a row, the "New card" tile included.
+    pub fn grid_columns(&self) -> usize {
+        grid_columns(self.cards_width)
+    }
+
+    /// Moves the selection by an arrow key; in the grid, by its rows and columns. Returns the card now selected.
+    pub fn move_selection(&mut self, dx: i32, dy: i32) -> Option<Id> {
+        let n = self.cards.len();
+        if n == 0 {
+            return None;
+        }
+        let next = match self.current_index() {
+            None => 0,
+            Some(i) => match self.view {
+                CardsView::Grid => grid_step(i, n, self.grid_columns(), dx, dy),
+                _ => {
+                    (i as i64 + i64::from(dy) + i64::from(if dy == 0 { dx } else { 0 })).clamp(0, n as i64 - 1) as usize
+                }
+            },
+        };
+        let id = self.cards[next].card.id.clone();
+        self.selected = Some(id.clone());
+        self.detail_focused = false;
+        Some(id)
+    }
+
+    /// Return on the selection: the editor in Grid and List; in Column, the detail first, then the editor.
+    pub fn open_selected(&mut self) -> bool {
+        let Some(id) = self.current().map(|c| c.card.id.clone()) else { return false };
+        if self.view == CardsView::Column && !self.detail_focused {
+            self.selected = Some(id);
+            self.detail_focused = true;
+            return true;
+        }
+        self.edit_card(&id);
+        true
     }
 
     pub fn start_review(&mut self) {
@@ -306,6 +603,7 @@ impl App {
 
     pub fn edit_card(&mut self, id: &str) {
         let Some(c) = self.cards.iter().find(|c| c.card.id == id).cloned() else { return };
+        self.search.focused = false;
         self.open_editor(Some(c.card.id), c.card.content, c.card.tags.join(", "), c.card.deck_id);
     }
 
@@ -426,5 +724,78 @@ impl App {
             s.error = Some(e);
         }
         self.refresh();
+    }
+}
+
+/// The narrowest a grid tile gets before the grid drops a column.
+const TILE_MIN: f32 = 200.0;
+pub const GRID_GAP: f32 = 12.0;
+
+/// Columns of at least `TILE_MIN` that fit in `width`, from one to four; three before the width is known.
+pub fn grid_columns(width: f32) -> usize {
+    if width <= 0.0 {
+        return 3;
+    }
+    (((width + GRID_GAP) / (TILE_MIN + GRID_GAP)).floor() as usize).clamp(1, 4)
+}
+
+/// Card `i` of `n` moved by an arrow in a grid of `cols` columns whose first cell is the "New card" tile.
+fn grid_step(i: usize, n: usize, cols: usize, dx: i32, dy: i32) -> usize {
+    let (pos, last) = (i as i64 + 1, n as i64);
+    let cols = cols as i64;
+    let to = if dy == 0 {
+        pos + i64::from(dx)
+    } else {
+        let below = pos + i64::from(dy) * cols;
+        // Down from a row above the last one's end lands on the last card, as in Finder.
+        if below > last && pos / cols < last / cols { last } else { below }
+    };
+    if to < 1 || to > last { i } else { to as usize - 1 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grid_columns_follow_the_width() {
+        assert_eq!(grid_columns(0.0), 3);
+        assert_eq!(grid_columns(720.0), 3);
+        assert_eq!(grid_columns(420.0), 2);
+        assert_eq!(grid_columns(150.0), 1);
+    }
+
+    #[test]
+    fn grid_arrows_move_by_cell() {
+        // Three columns: [new, 0, 1], [2, 3, 4], [5, 6].
+        assert_eq!(grid_step(0, 7, 3, 1, 0), 1);
+        assert_eq!(grid_step(0, 7, 3, -1, 0), 0, "the New card tile isn't a card");
+        assert_eq!(grid_step(0, 7, 3, 0, 1), 3);
+        assert_eq!(grid_step(3, 7, 3, 0, -1), 0);
+        assert_eq!(grid_step(2, 7, 3, 0, -1), 2, "nothing above but the New card tile");
+        assert_eq!(grid_step(4, 7, 3, 0, 1), 6, "down past the end lands on the last card");
+        assert_eq!(grid_step(6, 7, 3, 0, 1), 6);
+    }
+
+    #[test]
+    fn views_are_remembered_per_deck() {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        let spanish = s.decks.iter().find(|d| d.deck.name == "Spanish").map(|d| d.deck.id.clone());
+        s.select_deck(spanish.clone());
+        s.set_view(CardsView::Column);
+        s.select_deck(None);
+        assert_eq!(s.view, CardsView::Grid);
+        s.select_deck(spanish);
+        assert_eq!(s.view, CardsView::Column);
+    }
+
+    #[test]
+    fn column_return_shows_the_detail_then_edits() {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        s.set_view(CardsView::Column);
+        assert!(s.open_selected());
+        assert!(s.detail_focused && s.editor.is_none());
+        assert!(s.open_selected());
+        assert!(s.editor.is_some());
     }
 }

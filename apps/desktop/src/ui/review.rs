@@ -1,6 +1,6 @@
-//! Reviewing: the front, Space to reveal, 1–4 to grade, and a quiet hand-off to the next card.
+//! Reviewing: the front, Space to reveal, 1–4 to grade, and on to the next card.
 
-use rune::{Effect, El, Spring, SpringPair, Transition, Vec2, col, row, text};
+use rune::{El, col, row, text};
 use rune_kit::shell::Toolbar;
 use rune_kit::{Button, ButtonVariant, ControlSize, Divider, Kit, Markdown, MarkdownStyle};
 
@@ -8,19 +8,6 @@ use super::{error_line, format, keyed, toolbar};
 use crate::app::{App, RATINGS, Review};
 use crate::core::now_ms;
 use crate::theme;
-
-/// The next card rises into place as the answered one lifts away, on `settle`. Under reduced motion the runtime
-/// drops the travel and scale and keeps the fade.
-fn card_transition() -> Transition {
-    let enter = Effect { offset: Vec2::new(0.0, 14.0), opacity: 0.0, scale: 0.985, ..Effect::IDENTITY };
-    let exit = Effect { offset: Vec2::new(0.0, -10.0), opacity: 0.0, scale: 0.985, ..Effect::IDENTITY };
-    Transition {
-        insertion: enter,
-        removal: exit,
-        pop_layout: true,
-        springs: SpringPair::new(Spring::new(0.3, 0.0), Spring::new(0.24, 0.0)),
-    }
-}
 
 pub fn view(s: &App, r: &Review, k: &Kit) -> (El, Toolbar) {
     let title = s.deck_summary().map_or("All decks".to_string(), |d| d.deck.name.clone());
@@ -48,7 +35,6 @@ fn reviewing(s: &App, r: &Review, k: &Kit) -> El {
     let style = MarkdownStyle::from_kit(k).body_font(theme::CARD_FACE);
     let mut face = col()
         .key(format!("card-{}", card.card.id))
-        .transition(card_transition())
         .w_full()
         .max_w(620.0)
         .padding(32.0)
@@ -63,7 +49,6 @@ fn reviewing(s: &App, r: &Review, k: &Kit) -> El {
                 .key(format!("side-{i}"))
                 .w_full()
                 .gap(20.0)
-                .transition(Transition::opacity())
                 .child(Divider::horizontal().build(k))
                 .child(Markdown::new(side.clone()).render(&style)),
         );
@@ -87,12 +72,10 @@ fn reviewing(s: &App, r: &Review, k: &Kit) -> El {
     page.child(
         col()
             .key("controls")
-            // Grading happens dozens of times a session: the buttons swap on the next frame.
-            .instant_changes()
             .items_center()
             .gap(12.0)
             // Keyed by card and phase, so a press doesn't leave focus on a button that carries over.
-            .child(controls.key(format!("controls-{}-{}", card.card.id, r.revealed())).transition(Transition::none()))
+            .child(controls.key(format!("controls-{}-{}", card.card.id, r.revealed())))
             .child(last_answer(r, k)),
     )
 }
@@ -143,7 +126,6 @@ fn caught_up(s: &App, r: &Review, k: &Kit) -> El {
     };
     col()
         .key("caught-up")
-        .transition(card_transition())
         .w_full()
         .h_full()
         .center()

@@ -22,13 +22,48 @@ const BASICS: [&str; 5] = [
      then the answer. From a terminal: `printf 'hola\\n---\\nhello' | recall add --deck Spanish -`.",
 ];
 
-const SPANISH: [&str; 6] = [
-    "**la biblioteca**\n---\nthe library",
-    "**el desayuno**\n---\nbreakfast",
-    "**madrugar**\n---\nto get up early",
-    "**la sobremesa**\n---\nthe time spent talking at the table after a meal",
-    "**aprovechar**\n---\nto make the most of something",
-    "**el atardecer**\n---\nsunset",
+/// When a sample card is due, relative to now, with its review and lapse counts; `None` is a new card.
+type Seen = Option<(i64, u32, u32)>;
+
+/// A deck someone has used for a while: short and long fronts, one-sided and multi-sided cards, some due now, some
+/// later, some new.
+const SPANISH: [(&str, &[&str], Seen); 10] = [
+    ("**la biblioteca**\n---\nthe library", &["vocab", "places"], Some((-HOUR, 4, 0))),
+    (
+        "**el desayuno**\n---\nbreakfast\n---\n*Desayuno a las ocho.* I have breakfast at eight.",
+        &["vocab", "food"],
+        Some((-2 * HOUR, 6, 1)),
+    ),
+    ("**madrugar**\n---\nto get up early", &["vocab", "verbs"], Some((-3 * HOUR, 2, 0))),
+    (
+        "**la sobremesa**\n---\nthe time spent talking at the table after a meal",
+        &["vocab", "culture"],
+        Some((3 * HOUR, 5, 0)),
+    ),
+    (
+        "When do you use *ser* rather than *estar*?\n---\n*Ser* for what something is: identity, origin, \
+         profession, time.\n---\n*Estar* for how or where it is: location, mood, the result of a change.",
+        &["grammar"],
+        Some((2 * DAY, 9, 2)),
+    ),
+    (
+        "Translate: *Si hubiera sabido que venías, habría preparado algo especial para la cena, pero nadie me \
+         avisó hasta el último momento.*\n---\nIf I had known you were coming, I would have made something special \
+         for dinner, but nobody told me until the last minute.",
+        &["grammar", "subjunctive"],
+        Some((5 * DAY, 3, 0)),
+    ),
+    ("**aprovechar**\n---\nto make the most of something", &["vocab", "verbs"], None),
+    ("**el atardecer**\n---\nsunset", &["vocab"], None),
+    (
+        "*Ojalá* comes from the Arabic *law šá lláh*, “if God wills”, from the centuries when Arabic was spoken \
+         across much of Spain. It always takes the subjunctive: *ojalá que llueva* (I hope it rains), *ojalá \
+         hubiera venido* (if only she had come). Hundreds of everyday words came the same way: *aceite*, \
+         *almohada*, *azúcar*, *hasta*.",
+        &["culture"],
+        None,
+    ),
+    ("**tener ganas de**\n---\nto feel like doing something", &["vocab", "expressions"], Some((12 * DAY, 7, 0))),
 ];
 
 const RUST: [&str; 4] = [
@@ -66,13 +101,14 @@ impl Fixture {
             reviewed(&mut card.schedule, now - 2 * DAY, now + (i as i64 + 1) * DAY);
         }
         let spanish = f.add_deck("Spanish", now - 30 * DAY);
-        for (i, content) in SPANISH.iter().enumerate() {
-            let due = match i {
-                0..=2 => Some(now - (i as i64 + 1) * HOUR),
-                3 => Some(now + 3 * HOUR),
-                _ => None,
-            };
-            f.add_card(&spanish, content, &["vocab"], now - 30 * DAY + i as i64, due);
+        for (i, (content, tags, seen)) in SPANISH.iter().enumerate() {
+            let card = f.add_card(&spanish, content, tags, now - 30 * DAY + i as i64, seen.map(|(due, ..)| now + due));
+            if let Some((_, reps, lapses)) = seen {
+                let schedule =
+                    &mut f.cards.iter_mut().find(|c| c.card.id == card.card.id).expect("just added").schedule;
+                schedule.reps = *reps;
+                schedule.lapses = *lapses;
+            }
         }
         let rust = f.add_deck("Rust", now - 10 * DAY);
         for (i, content) in RUST.iter().enumerate() {
@@ -174,8 +210,15 @@ impl Fixture {
         Ok(self.decks.iter().find(|d| d.id == id).cloned().expect("just added"))
     }
 
-    pub fn cards(&self, deck_id: Option<&str>) -> Vec<CardView> {
-        self.cards.iter().filter(|c| deck_id.is_none_or(|d| c.card.deck_id == d)).cloned().collect()
+    /// As the core filters: by deck, then by `q` anywhere in the Markdown, ignoring case.
+    pub fn cards(&self, deck_id: Option<&str>, q: &str) -> Vec<CardView> {
+        let q = q.to_lowercase();
+        self.cards
+            .iter()
+            .filter(|c| deck_id.is_none_or(|d| c.card.deck_id == d))
+            .filter(|c| q.is_empty() || c.card.content.to_lowercase().contains(&q))
+            .cloned()
+            .collect()
     }
 
     pub fn card(&self, id: &str) -> Result<CardView, String> {

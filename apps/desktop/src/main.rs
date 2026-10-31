@@ -11,10 +11,13 @@ mod ui;
 use rune::{AppSpec, Chrome, Key, KeyEvent, Tx};
 use rune_kit::shell;
 
-use crate::app::App;
+use crate::app::{App, CardsView};
 use crate::core::{Core, Fixtures};
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if s.connecting.is_some() {
+        return false;
+    }
     if shell::is_sidebar_toggle(ev) && !s.first_run {
         s.sidebar.toggle();
         return true;
@@ -51,21 +54,15 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         return false;
     }
-    let (due, new) = s.counts();
-    match &ev.key {
-        Key::Text(t) if t == " " && plain && due + new > 0 => s.start_review(),
-        Key::Enter if plain && due + new > 0 => s.start_review(),
-        _ => return false,
-    }
-    true
+    ui::deck_key(s, ev, tx)
 }
 
-fn poll(s: &mut App, _: f64, _: &mut Tx) -> bool {
-    s.poll_changed()
+fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
+    s.tick(clock, tx)
 }
 
 fn setup(s: &mut App, wake: rune::Waker) {
-    s.watch(wake);
+    s.set_waker(wake);
 }
 
 type Scene = (&'static str, fn(&mut App));
@@ -89,9 +86,53 @@ const SCENES: &[Scene] = &[
         s.grade(3);
         s.reveal();
     }),
-    ("deck", |s| {
+    ("grid", |s| {
         s.with_core(Core::fixtures(Fixtures::LivedIn));
         select(s, "Spanish");
+    }),
+    ("grid-selected", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.move_selection(0, 1);
+    }),
+    ("grid-narrow", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+    }),
+    ("list", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.set_view(CardsView::List);
+    }),
+    ("column", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.set_view(CardsView::Column);
+        s.move_selection(0, 1);
+        s.move_selection(0, 1);
+        s.move_selection(0, 1);
+        s.move_selection(0, 1);
+    }),
+    ("view-menu", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.picking_view = true;
+    }),
+    ("search", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.search.replace_text("hubiera");
+        s.search.focused = true;
+        s.apply_search();
+    }),
+    ("all-decks", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.select_deck(None);
+    }),
+    ("connecting", |s| {
+        *s = App::connecting();
+        s.slow_connect = true;
     }),
     ("editor", |s| {
         s.with_core(Core::fixtures(Fixtures::LivedIn));
@@ -123,29 +164,80 @@ fn select(s: &mut App, name: &str) {
 /// the core from the same checkout. Release builds find `recall` next to the app or on PATH.
 #[cfg(debug_assertions)]
 fn use_dev_core() {
-    if std::env::var_os("RECALL_BIN").is_some() {
+    if let Some(bin) = std::env::var_os("RECALL_BIN") {
+        eprintln!("recall-desktop: RECALL_BIN is set, not building the core: {}", bin.to_string_lossy());
         return;
     }
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = root.canonicalize().unwrap_or(root);
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let built = std::process::Command::new(cargo)
+    eprintln!("recall-desktop: building the recall core ({} build -p recall)…", cargo.to_string_lossy());
+    let started = std::time::Instant::now();
+    let built = match std::process::Command::new(&cargo)
         .args(["build", "-q", "-p", "recall", "--manifest-path"])
         .arg(root.join("Cargo.toml"))
         .status()
-        .is_ok_and(|status| status.success());
+    {
+        Ok(status) if status.success() => true,
+        Ok(status) => {
+            eprintln!("recall-desktop: cargo build exited with {status}");
+            false
+        }
+        Err(e) => {
+            eprintln!("recall-desktop: couldn't run {}: {e}", cargo.to_string_lossy());
+            false
+        }
+    };
+    let elapsed = started.elapsed().as_secs_f64();
     let bin = root.join("target/debug/recall");
-    if !built {
-        eprintln!("recall-desktop: building the recall core failed; using {} if it exists", bin.display());
+    if built {
+        eprintln!("recall-desktop: built the recall core in {elapsed:.1}s");
+    } else {
+        eprintln!(
+            "recall-desktop: building the recall core failed after {elapsed:.1}s; using {} if it exists",
+            bin.display()
+        );
     }
     if bin.exists() {
+        eprintln!("recall-desktop: using the core at {}", bin.display());
         // SAFETY: runs first thing in `main`, before any other thread exists.
         unsafe { std::env::set_var("RECALL_BIN", bin) };
+    } else {
+        eprintln!("recall-desktop: no core at {}; looking next to the app and on PATH", bin.display());
     }
+}
+
+/// Connects to the core on another thread once the first frame is up, so the window never waits on it (starting
+/// the core can take seconds).
+fn connect_when_ready(app: rune::App<App>) -> rune::App<App> {
+    if !app::wants_core() {
+        return app;
+    }
+    let handle = app.handle();
+    let mut started = false;
+    app.on_ready(move |_| {
+        if std::mem::replace(&mut started, true) {
+            return;
+        }
+        let handle = handle.clone();
+        std::thread::Builder::new()
+            .name("recall-connect".into())
+            .spawn(move || {
+                let core = Core::connect();
+                handle.update(move |s: &mut App, tx| {
+                    s.connected(core);
+                    // State that arrives right after launch lands without motion.
+                    tx.instant();
+                });
+            })
+            .expect("spawn the connect thread");
+    })
 }
 
 fn main() {
     #[cfg(debug_assertions)]
     use_dev_core();
+    rune::prewarm_gpu();
     let chrome = Chrome { full_size_content: true, traffic_lights: Some((16.0, 25.0)), drag_regions: true };
     let spec = AppSpec {
         min_size: Some((720.0, 480.0)),
@@ -155,5 +247,5 @@ fn main() {
         on_key: Some(on_key),
         ..AppSpec::new("Recall", (1040.0, 680.0), app::init, ui::view)
     };
-    rune::App::new(spec).chrome(chrome).run();
+    connect_when_ready(rune::App::new(spec).chrome(chrome)).run();
 }
