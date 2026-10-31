@@ -5,7 +5,8 @@ The Rune desktop app. It's a thin client of the `recall core` daemon: every read
 `changed`, so edits from the CLI or a sync show up live. It holds no store and does no scheduling.
 
 This directory is its own Cargo workspace, so Rune's large dependency tree stays out of the root workspace. It builds
-with Rust 1.95 (`rust-toolchain.toml`), which Rune needs.
+with the repo-wide Rust 1.95 pin (root `rust-toolchain.toml`), which Rune needs. One pin for both workspaces matters:
+the app builds the root workspace's `recall`, and two toolchains would keep invalidating each other's builds.
 
 ## Run
 
@@ -15,10 +16,10 @@ cargo run                          # connects to the core at $RECALL_HOME, start
 cargo run -- --fixtures            # sample data in memory, no core (first-run | lived-in | caught-up)
 ```
 
-The app starts the core with `$RECALL_BIN`, else a `recall` next to its own binary, else `recall` on `PATH`. From a
-checkout: `cargo build -p recall` at the repo root, then
-`RECALL_BIN=$PWD/target/debug/recall cargo run --manifest-path apps/desktop/Cargo.toml`. Point `RECALL_HOME` at a
-scratch directory to try it without touching your own decks. If the core can't be reached the app says so and shows
+The app starts the core with `$RECALL_BIN`, else a `recall` next to its own binary, else `recall` on `PATH`. Debug
+builds first run `cargo build -p recall` in the root workspace and set `RECALL_BIN` to it, so `cargo run` here always
+uses the core from the same checkout. A core that's already running keeps serving until you `recall shutdown`. Point
+`RECALL_HOME` at a scratch directory to try it without touching your own decks. If the core can't be reached the app says so and shows
 sample data.
 
 ## Keys
