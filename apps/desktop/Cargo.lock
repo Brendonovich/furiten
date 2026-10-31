@@ -2056,6 +2056,7 @@ dependencies = [
  "recall-core",
  "rune",
  "rune-kit",
+ "rune-theme-opencode",
  "serde_json",
 ]
 
@@ -2203,6 +2204,16 @@ version = "0.0.1"
 source = "git+https://github.com/anomalyco/rune?rev=77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb#77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb"
 dependencies = [
  "wgpu",
+]
+
+[[package]]
+name = "rune-theme-opencode"
+version = "0.0.1"
+source = "git+https://github.com/anomalyco/rune?rev=77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb#77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb"
+dependencies = [
+ "rune",
+ "rune-kit",
+ "serde_json",
 ]
 
 [[package]]

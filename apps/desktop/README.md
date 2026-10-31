@@ -94,5 +94,5 @@ pass it with `--script` and `--snap` at any `--at` time to see a frame mid-trans
 - `src/app.rs`: state and actions, each a call into `Core` and a refetch.
 - `src/ui/`: the views (sidebar, deck, review, editor, settings), built from rune-kit components; `cards.rs` has the
   grid, list and column.
-- `src/theme.rs`, `assets/theme.json`: Recall's palette, turned into a rune-kit `Kit`.
+- `src/theme.rs`: Anomaly's theme (`rune-theme-opencode`: kit tokens, Inter and IBM Plex Mono) plus Recall's own type styles.
 - `RUNE-GAPS.md`: what Rune didn't do, and how the app works around it.

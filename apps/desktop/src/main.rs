@@ -171,11 +171,17 @@ fn use_dev_core() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = root.canonicalize().unwrap_or(root);
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    eprintln!("recall-desktop: building the recall core ({} build -p recall)…", cargo.to_string_lossy());
+    let target = root.join("target");
+    eprintln!("recall-desktop: building the recall core ({} build --profile dev -p recall)…", cargo.to_string_lossy());
     let started = std::time::Instant::now();
+    // The dev profile into the checkout's own target dir, whatever the environment or a cargo config says, so the
+    // binary is the debug one at the path below.
     let built = match std::process::Command::new(&cargo)
-        .args(["build", "-q", "-p", "recall", "--manifest-path"])
+        .args(["build", "-q", "--profile", "dev", "-p", "recall", "--manifest-path"])
         .arg(root.join("Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&target)
+        .env_remove("CARGO_BUILD_TARGET")
         .status()
     {
         Ok(status) if status.success() => true,
@@ -189,9 +195,9 @@ fn use_dev_core() {
         }
     };
     let elapsed = started.elapsed().as_secs_f64();
-    let bin = root.join("target/debug/recall");
+    let bin = target.join("debug/recall");
     if built {
-        eprintln!("recall-desktop: built the recall core in {elapsed:.1}s");
+        eprintln!("recall-desktop: built the recall core (dev profile) in {elapsed:.1}s");
     } else {
         eprintln!(
             "recall-desktop: building the recall core failed after {elapsed:.1}s; using {} if it exists",
@@ -245,6 +251,8 @@ fn main() {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),
+        fonts: rune_theme_opencode::FONTS,
+        families: rune_theme_opencode::FAMILIES,
         ..AppSpec::new("Recall", (1040.0, 680.0), app::init, ui::view)
     };
     connect_when_ready(rune::App::new(spec).chrome(chrome)).run();
