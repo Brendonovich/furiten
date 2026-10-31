@@ -1,0 +1,15 @@
+{"events": [
+  {"t": 0.3, "type": "key", "name": "Enter"},
+  {"t": 0.8, "type": "key", "name": " "},
+  {"t": 1.3, "type": "key", "name": "3"},
+  {"t": 1.8, "type": "key", "name": " "},
+  {"t": 2.3, "type": "key", "name": "4"},
+  {"t": 2.6, "type": "mark", "name": "mid-transition"},
+  {"t": 3.2, "type": "key", "name": " "},
+  {"t": 3.5, "type": "key", "name": "1"},
+  {"t": 3.8, "type": "key", "name": " "},
+  {"t": 4.1, "type": "key", "name": "3"},
+  {"t": 4.4, "type": "key", "name": " "},
+  {"t": 4.7, "type": "key", "name": "3"},
+  {"t": 5.5, "type": "mark", "name": "end"}
+]}

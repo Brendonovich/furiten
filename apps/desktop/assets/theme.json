@@ -1,0 +1,13 @@
+{
+  "name": "Recall",
+  "palette": {
+    "paper": "#fbfaf7",
+    "ink": "#1f1d1a",
+    "ember": "#c8552a",
+    "night": "#151413",
+    "chalk": "#ece9e3",
+    "glow": "#ef8a55"
+  },
+  "light": { "bg": "paper", "text": "ink", "accent": "ember" },
+  "dark": { "bg": "night", "text": "chalk", "accent": "glow" }
+}
