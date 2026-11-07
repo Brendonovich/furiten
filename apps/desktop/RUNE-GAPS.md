@@ -13,22 +13,25 @@ at its default 280 pt width.
 Workaround: a short placeholder (`https://recall.example.com`) and `.width(None)` so the field fills its row. The
 deck's "Search cards" field also wrapped in a narrow window, so its box has `min_w(180.0)`.
 
-## `TextArea` can't take a font
+## Return in a multi-line field submits instead of breaking the line
 
-`TextInput` has `text_style(..)`, `TextArea` doesn't: it always sets `k.ty.ui` at a 1.35 line height. The card
-editor wants a monospace face so `---` and Markdown markers line up.
+`text_input` is multi-line by default, but plain Return in a paragraph submits (calling `on_submit`, or pressing the
+default button) and only Shift or Option+Return inserts a line break. rune-kit's `TextArea` builds on it and sets no
+`on_submit`, so a `TextArea` swallows Return: you can't start a new line in it. This was the card editor's "Return
+does nothing" bug.
 
-Repro: try to build `TextArea::new(&edit)` in `TextStyle::new(13.0, 400.0).mono()`.
+Repro: `TextArea::new(&edit).on_edit(..).build(&k)`, focus it, press Return: no new line.
 
-Workaround: the editor uses the kit's UI face.
+Workaround: the editor's side fields are `text_input`s with `.on_submit(|s, _| edit.insert("\n"))`, as `text_input`'s
+docs suggest for a document editor. `TextArea` could take a `submit_on_return(false)` (or default to it, as an HTML
+`<textarea>` does).
 
-## `TextArea` can't fill the height it's given
+## `TextArea` can't take a font or spans
 
-A `TextArea` is sized by `rows(n)`, `auto_grow(min, max)` or `max_height(h)`; there's no way to make it take the
-height its parent leaves, as a `grow(1.0)` column with `min_h(0.0)` and a scroll viewport inside would. The editor
-wants the text area to run down the pane beside the preview.
+`TextInput` has `text_style(..)`, `TextArea` doesn't: it always sets `k.ty.ui` at a 1.35 line height. The card editor
+sets the front like a card's face and styles its Markdown in place with spans.
 
-Workaround: `rows(12).max_height(520.0)`, with the tags and deck fields placed under it.
+Workaround: the editor builds its fields from `text_input` directly (no field chrome; the card sheet is the frame).
 
 ## Headless runs can't wait for something outside the process
 
@@ -85,6 +88,26 @@ of unbreakable text pushed the third tile out of the row.
 Repro: `row().equal_columns(3)` with children whose content is wider than a third.
 
 Workaround: `min_w(0.0)` on every cell. `equal_columns` could use `minmax(0, 1fr)`.
+
+## A `Select` inside a `Dialog` opens its list in the window's corner
+
+An anchored overlay only finds its anchor among the elements before it in the tree. `Select::build` pushes its list
+into the layer at once, before `Dialog::build` pushes the panel holding the trigger, so the list can't find
+`deck-trigger` and lands at (0, 0). rune-kit's `dialog_select` test builds them in that order and only checks that the
+option is outside the panel, which (0, 0) is. Re-keying the built trigger breaks it the same way.
+
+Repro: `Select::new("deck", ..).build(&k, &mut layer)` as a `Dialog` child, then `Dialog::build(&k, &mut layer)`; open it.
+
+Workaround: the editor builds the deck picker into a layer of its own and appends it after the dialog's.
+
+## The text caret doesn't blink
+
+Every text field's caret drew solid: Rune had no blink at all (not even on its latest `dev`).
+
+Repro: focus any field and wait.
+
+Workaround: Rune is vendored in `vendor/rune` with the blink from anomalyco/rune#54 applied (see
+`vendor/rune/README.md`). Go back to a git `rev` once that lands.
 
 ## Notes (not gaps)
 

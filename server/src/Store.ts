@@ -15,9 +15,11 @@ import {
   type NextReview,
   type Review,
   type Stats,
+  type TagSummary,
   type SyncRequest,
   type SyncResponse,
 } from "./Model.ts";
+import { sortCards } from "./Sort.ts";
 import type { Scheduler } from "./srs.ts";
 import { ulid } from "./ulid.ts";
 
@@ -39,6 +41,9 @@ export interface Database {
 const NEW_PER_DECK_PER_DAY = 20;
 const DAY = 86_400_000;
 const DEFAULT_LIMIT = 50;
+// The FSRS grades a forgotten and a remembered answer are stored as.
+const AGAIN = 1;
+const GOOD = 3;
 
 // Each migration runs once, in order, tracked by `meta.schema_version`. Append; never edit a shipped one.
 // `seq` on decks, cards and reviews is the change log: the seq of the change that wrote the row's current value.
@@ -392,20 +397,28 @@ export class Store {
     const q = query.q === undefined || query.q === "" ? null : query.q;
     const tag = query.tag === undefined ? null : normalizeTag(query.tag);
     const dueBefore = query.due === true ? this.clock() : null;
-    return this.rows(
+    const by = query.sort ?? "created";
+    const desc = query.desc === true;
+    const dir = desc ? "DESC" : "ASC";
+    const limit = query.limit ?? DEFAULT_LIMIT;
+    const offset = query.offset ?? 0;
+    // Creation order pages in SQL; every other order sorts all the matches, then pages.
+    const created = by === "created";
+    const cards = this.rows(
       `${CARD_VIEW} WHERE c.deleted = 0
        AND (?1 IS NULL OR c.deck_id IN (SELECT value FROM json_each(?1)))
        AND (?2 IS NULL OR instr(lower(c.content), lower(?2)) > 0)
        AND (?3 IS NULL OR EXISTS (SELECT 1 FROM json_each(c.tags) WHERE value = ?3))
        AND (?4 IS NULL OR s.due <= ?4)
-       ORDER BY c.created_at, c.id LIMIT ?5 OFFSET ?6`,
+       ORDER BY c.created_at ${dir}, c.id ${dir} LIMIT ?5 OFFSET ?6`,
       scope,
       q,
       tag,
       dueBefore,
-      query.limit ?? DEFAULT_LIMIT,
-      query.offset ?? 0,
+      created ? limit : -1,
+      created ? offset : 0,
     ).map(toCardView);
+    return created ? cards : sortCards(cards, by, desc, query.seed ?? 0).slice(offset, offset + limit);
   }
 
   private cardView(id: string): CardView | undefined {
@@ -503,17 +516,14 @@ export class Store {
     return { card: id === undefined ? null : this.card(id as string), remaining: { due, new: fresh } };
   }
 
-  answer(cardId: string, rating: number, durationMs: number | null | undefined): CardView {
-    if (![1, 2, 3, 4].includes(rating)) {
-      throw ApiError.invalid("rating must be 1 (again), 2 (hard), 3 (good) or 4 (easy)");
-    }
+  answer(cardId: string, remembered: boolean, durationMs: number | null | undefined): CardView {
     if (durationMs != null && durationMs < 0) throw ApiError.invalid("duration_ms can't be negative");
     this.card(cardId);
     const now = this.clock();
     const review: Review = {
       id: ulid(now),
       card_id: cardId,
-      rating: rating as Review["rating"],
+      rating: remembered ? GOOD : AGAIN,
       reviewed_at: now,
       duration_ms: durationMs ?? null,
     };
@@ -522,6 +532,17 @@ export class Store {
       this.recompute(cardId);
     });
     return this.card(cardId);
+  }
+
+  /** Every tag on a live card, the most recently used first (ties by tag); with a deck, its tags come first. */
+  tags(deckId: string | undefined): TagSummary[] {
+    const scope = this.scope(deckId) ?? "[]";
+    return this.rows(
+      `SELECT t.value AS tag, COUNT(*) AS cards, MAX(c.updated_at) AS last_used FROM cards c, json_each(c.tags) t
+       WHERE c.deleted = 0 GROUP BY t.value
+       ORDER BY MAX(c.deck_id IN (SELECT value FROM json_each(?1))) DESC, MAX(c.updated_at) DESC, t.value`,
+      scope,
+    ).map((r) => ({ tag: r.tag as string, cards: r.cards as number, last_used: r.last_used as number }));
   }
 
   stats(deckId: string | undefined): Stats {

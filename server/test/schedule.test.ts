@@ -6,26 +6,19 @@ beforeAll(() => baseUrl(), 120_000);
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
-// FSRS-6 default w[3], the initial stability after Easy. At 90 % retention crates/srs's interval_days(s) is
-// round(s), so Easy on a new card is due 8 days later (crates/srs test `easy_on_new_card_skips_learning`).
-const W3 = 8.2956;
+// FSRS-6 default w[2], w[4] and w[5]: the initial stability after Good, and the initial difficulty's terms.
+const [W2, W4, W5] = [2.3065, 6.4133, 0.8334];
 
-test("Easy on a new card through the API schedules exactly like crates/srs", async () => {
+test("Remembered on a new card through the API schedules exactly like crates/srs", async () => {
   const a = await account();
   const deck = (await a.post("/v1/decks", { name: "D" })).body.id;
   const card = (await a.post("/v1/cards", { deck_id: deck, content: "q\n---\na" })).body;
-  const reviewed = (await a.post(`/v1/cards/${card.id}/reviews`, { rating: 4 })).body;
+  const reviewed = (await a.post(`/v1/cards/${card.id}/reviews`, { remembered: true })).body;
   const t0 = reviewed.schedule.last_review;
-  expect(reviewed.schedule).toEqual({
-    state: "review",
-    due: t0 + Math.round(W3) * DAY,
-    stability: W3,
-    // w[4] - e^(w[5] * 3) + 1 is below 1, so it clamps to 1.
-    difficulty: 1,
-    reps: 1,
-    lapses: 0,
-    last_review: t0,
-  });
+  // Good on a new card: learning, back in 10 minutes.
+  expect(reviewed.schedule).toMatchObject({ state: "learning", due: t0 + 10 * MINUTE, reps: 1, lapses: 0 });
+  expect(reviewed.schedule.stability).toBe(W2);
+  expect(reviewed.schedule.difficulty).toBeCloseTo(W4 - Math.exp(W5 * 2) + 1, 12);
 });
 
 test("synced reviews fold in (reviewed_at, id) order, matching the wasm scheduler run locally", async () => {

@@ -13,9 +13,9 @@ const BASICS: [&str; 5] = [
     "What does a line with only `---` do in a card?\n---\nIt splits the card into sides. The first side is the \
      question; the rest are revealed when you flip it.",
     "How do you answer a card while reviewing?\n---\nPress Space (Enter in the terminal) to reveal the answer, \
-     then grade yourself: 1 again, 2 hard, 3 good, 4 easy.",
-    "Why is a card you know well shown less often?\n---\nRecall schedules with FSRS. Each grade updates how well \
-     you know the card, so easy cards wait longer and hard ones come back sooner.",
+     then say whether you remembered it: 1 forgot, 2 remembered.",
+    "Why is a card you know well shown less often?\n---\nRecall schedules with FSRS. Each answer updates how well \
+     you know the card, so cards you keep remembering wait longer and ones you forget come back sooner.",
     "Can other tools use Recall?\n---\nYes. The `recall` command line does everything the app does (add `--json` \
      for scripts), and agents can connect through the MCP server.",
     "How do you make your own deck?\n---\nCreate a deck, then add cards: write the question, a line with `---`, \
@@ -108,6 +108,8 @@ impl Fixture {
                     &mut f.cards.iter_mut().find(|c| c.card.id == card.card.id).expect("just added").schedule;
                 schedule.reps = *reps;
                 schedule.lapses = *lapses;
+                // A card reviewed more often waits longer between reviews, so the intervals differ.
+                schedule.last_review = Some(schedule.due - i64::from(*reps) * DAY);
             }
         }
         let rust = f.add_deck("Rust", now - 10 * DAY);
@@ -210,19 +212,56 @@ impl Fixture {
         Ok(self.decks.iter().find(|d| d.id == id).cloned().expect("just added"))
     }
 
-    /// As the core filters: by deck, then by `q` anywhere in the Markdown, ignoring case.
-    pub fn cards(&self, deck_id: Option<&str>, q: &str) -> Vec<CardView> {
+    /// As the core filters: by deck, then by `q` anywhere in the Markdown, ignoring case; sorted as the core sorts.
+    pub fn cards(&self, deck_id: Option<&str>, q: &str, order: Order) -> Vec<CardView> {
         let q = q.to_lowercase();
-        self.cards
+        let mut cards = self
+            .cards
             .iter()
             .filter(|c| deck_id.is_none_or(|d| c.card.deck_id == d))
             .filter(|c| q.is_empty() || c.card.content.to_lowercase().contains(&q))
             .cloned()
-            .collect()
+            .collect();
+        recall_core::sort::sort(&mut cards, order.by, order.desc, order.seed);
+        cards
     }
 
     pub fn card(&self, id: &str) -> Result<CardView, String> {
         self.cards.iter().find(|c| c.card.id == id).cloned().ok_or_else(|| format!("card {id} not found"))
+    }
+
+    /// As the core lists them: those on cards in `deck_id` or its subdecks first, then the rest, each part the most
+    /// recently used (by the latest `updated_at` among their cards) first.
+    pub fn tags(&self, deck_id: &str) -> Vec<TagSummary> {
+        let mut scope = vec![deck_id.to_owned()];
+        let mut i = 0;
+        while i < scope.len() {
+            let children = self.decks.iter().filter(|d| d.parent_id.as_ref() == Some(&scope[i]));
+            let children: Vec<String> = children.map(|d| d.id.clone()).filter(|id| !scope.contains(id)).collect();
+            scope.extend(children);
+            i += 1;
+        }
+        let in_deck = |tag: &str| {
+            self.cards.iter().any(|c| scope.contains(&c.card.deck_id) && c.card.tags.iter().any(|t| t == tag))
+        };
+        let mut tags: Vec<TagSummary> = Vec::new();
+        for c in &self.cards {
+            for tag in &c.card.tags {
+                match tags.iter_mut().find(|t| &t.tag == tag) {
+                    Some(t) => {
+                        t.cards += 1;
+                        t.last_used = t.last_used.max(c.card.updated_at);
+                    }
+                    None => tags.push(TagSummary { tag: tag.clone(), cards: 1, last_used: c.card.updated_at }),
+                }
+            }
+        }
+        tags.sort_by(|a, b| {
+            (in_deck(&b.tag).cmp(&in_deck(&a.tag)))
+                .then_with(|| b.last_used.cmp(&a.last_used))
+                .then_with(|| a.tag.cmp(&b.tag))
+        });
+        tags
     }
 
     pub fn create_card(&mut self, new: NewCard) -> Result<CardView, String> {
@@ -269,12 +308,7 @@ impl Fixture {
     pub fn answer(&mut self, answer: Answer) -> Result<CardView, String> {
         let now = now_ms();
         let card = self.cards.iter_mut().find(|c| c.card.id == answer.card_id).ok_or("card not found")?;
-        let wait = match answer.rating {
-            1 => MIN,
-            2 => 6 * MIN,
-            3 => 10 * MIN,
-            _ => 4 * DAY,
-        };
+        let wait = if answer.remembered { 10 * MIN } else { MIN };
         reviewed(&mut card.schedule, now, now + wait);
         Ok(card.clone())
     }

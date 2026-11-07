@@ -67,6 +67,7 @@ impl Store {
     /// Signs in. Switching to a different server or account puts everything back in the outbox and resets the
     /// cursor, so the new account gets all local data.
     pub fn set_sync_config(&mut self, config: &SyncConfig) -> Result<()> {
+        self.not_hosting()?;
         let previous = self.sync_config()?;
         let same_account = previous.as_ref().is_some_and(|p| p.server == config.server && p.user_id == config.user_id);
         let tx = self.conn.transaction()?;
@@ -92,8 +93,45 @@ impl Store {
         Ok(())
     }
 
+    /// Signs out: forgets where to sync, the cursor and when it last synced. Data stays.
     pub fn clear_sync_config(&mut self) -> Result<()> {
-        self.conn.execute("DELETE FROM meta WHERE key IN ('server', 'token', 'user_id', 'hub_addr')", [])?;
+        self.conn.execute(
+            "DELETE FROM meta WHERE key IN ('server', 'token', 'user_id', 'hub_addr', 'cursor', 'last_sync')",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// Starts or stops hosting: serving sync to other devices from this device's store, as a hub does. Refused
+    /// while signed in, since a library syncs with one hub. Starting gives every row that has synced (`dirty = 0`)
+    /// a fresh `seq`, so a device's first sync gets the whole library; rows still in the outbox already hold
+    /// increasing markers from the same counter. Stopping leaves `dirty` as it is: rows a device's sync wrote stay
+    /// in the outbox, which a later sign-in resets anyway.
+    pub fn set_hosting(&mut self, on: bool) -> Result<()> {
+        if self.hub {
+            return Err(Error::new("wrong_store", "a hub's store always serves sync"));
+        }
+        if on == self.hosting {
+            return Ok(());
+        }
+        if on && let Some(config) = self.sync_config()? {
+            return Err(Error::new(
+                "conflict",
+                format!("this library syncs with {}; sign your other devices in there instead", config.server),
+            ));
+        }
+        let tx = self.conn.transaction()?;
+        if on {
+            let seq = next_dirty(&tx)?;
+            for table in ["decks", "cards", "reviews"] {
+                tx.execute(&format!("UPDATE {table} SET dirty = ?1 WHERE dirty = 0"), [seq])?;
+            }
+            set_meta(&tx, "hosting", 1)?;
+        } else {
+            tx.execute("DELETE FROM meta WHERE key = 'hosting'", [])?;
+        }
+        tx.commit()?;
+        self.hosting = on;
         Ok(())
     }
 
@@ -164,8 +202,8 @@ impl Store {
     /// values this request itself sent, plus the stored value of any deck or card whose incoming version lost.
     /// Also returns how many changes were accepted.
     pub fn serve_sync(&mut self, request: &SyncRequest) -> Result<(SyncResponse, u64)> {
-        if !self.hub {
-            return Err(Error::new("wrong_store", "only a hub's store serves sync requests"));
+        if !self.serves_sync() {
+            return Err(Error::new("wrong_store", "only a hub's store, or a hosting device's, serves sync requests"));
         }
         let tx = self.conn.transaction()?;
         let mut sent = HashSet::new();
@@ -277,9 +315,17 @@ impl Store {
         Ok(meta(&self.conn, "change_seq")?.unwrap_or(0))
     }
 
+    /// A device that syncs elsewhere: not a hub, and not hosting (syncing would clear `dirty`, its `seq`).
     fn device_only(&self) -> Result<()> {
         if self.hub {
             return Err(Error::new("wrong_store", "a hub's store only changes through serve_sync and local writes"));
+        }
+        self.not_hosting()
+    }
+
+    fn not_hosting(&self) -> Result<()> {
+        if self.hosting {
+            return Err(Error::new("conflict", "this library hosts other devices; stop hosting to sync it elsewhere"));
         }
         Ok(())
     }

@@ -9,10 +9,10 @@ const SEEDED_AT: i64 = 1_767_225_600_000;
 const CARDS: [&str; 5] = [
     "What does a line with only `---` do in a card?\n---\nIt splits the card into sides. The first side is the \
      question; the rest are revealed when you flip it.",
-    "How do you answer a card while reviewing?\n---\nPress Space (Enter in the terminal) to reveal the answer, then grade yourself: \
-     1 again, 2 hard, 3 good, 4 easy.",
-    "Why is a card you know well shown less often?\n---\nRecall schedules with FSRS. Each grade updates how well \
-     you know the card, so easy cards wait longer and hard ones come back sooner.",
+    "How do you answer a card while reviewing?\n---\nPress Space (Enter in the terminal) to reveal the answer, then say whether \
+     you remembered it: 1 forgot, 2 remembered.",
+    "Why is a card you know well shown less often?\n---\nRecall schedules with FSRS. Each answer updates how well \
+     you know the card, so cards you keep remembering wait longer and ones you forget come back sooner.",
     "Can other tools use Recall?\n---\nYes. The `recall` command line does everything the app does (add `--json` \
      for scripts), and agents can connect through the MCP server.",
     "How do you make your own deck?\n---\nCreate a deck, then add cards: write the question, a line with `---`, \

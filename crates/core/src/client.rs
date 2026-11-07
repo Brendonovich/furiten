@@ -5,11 +5,11 @@
 //! use recall_core::client::{Client, Event};
 //!
 //! let home = recall_core::default_home();
-//! let mut client = Client::connect_or_spawn(&home)?; // starts `recall core` if it isn't running
+//! let mut client = Client::connect_or_spawn(&home)?; // starts the desktop app, windowless, if no core is running
 //! let next = client.next_review(None)?;
 //! if let Some(card) = next.card {
 //!     println!("{}", card.front());
-//!     client.answer(&card.card.id, 3, Some(4_000))?;
+//!     client.answer(&card.card.id, true, Some(4_000))?;
 //! }
 //!
 //! // Events come on their own connection; read them on another thread and refetch on each one.
@@ -27,7 +27,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -56,28 +56,35 @@ impl Client {
         Ok(Client { home: home.to_path_buf(), reader: BufReader::new(stream), next_id: 0 })
     }
 
-    /// Connects, starting `recall core` in the background first if it isn't running. The binary is `$RECALL_BIN`,
-    /// else `recall` next to the current executable, else `recall` on `PATH`.
+    /// Connects, first starting the desktop app without a window (`recall-desktop --background`) to host the core
+    /// if none is running. The app is `$RECALL_APP`, else `recall-desktop` next to the current executable, else
+    /// `recall-desktop` on `PATH`; when there's none the error's code is `no_app`.
     pub fn connect_or_spawn(home: &Path) -> Result<Client> {
         if let Ok(client) = Client::connect(home) {
             return Ok(client);
         }
-        spawn_core(home)?;
+        let mut app = spawn_app(home)?;
         let started = Instant::now();
+        let failed = |why: String| {
+            Err(Error::new(
+                "core_unavailable",
+                format!("started the Recall app but its core didn't answer ({why}); see {}", log_path(home).display()),
+            ))
+        };
         loop {
             match Client::connect(home) {
-                Ok(client) => return Ok(client),
-                Err(e) if started.elapsed() > SPAWN_TIMEOUT => {
-                    return Err(Error::new(
-                        "core_unavailable",
-                        format!(
-                            "started recall core but it didn't answer ({}); see {}",
-                            e.message,
-                            log_path(home).display()
-                        ),
-                    ));
+                Ok(client) => {
+                    std::thread::spawn(move || app.wait());
+                    return Ok(client);
                 }
-                Err(_) => std::thread::sleep(Duration::from_millis(25)),
+                Err(e) if started.elapsed() > SPAWN_TIMEOUT => return failed(e.message),
+                Err(e) => {
+                    if let Ok(Some(status)) = app.try_wait() {
+                        // Another app may have won the race to host the core.
+                        return Client::connect(home).or_else(|_| failed(format!("{status}; {}", e.message)));
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
             }
         }
     }
@@ -145,6 +152,11 @@ impl Client {
         self.call("cards.get", IdParams { id: id.to_string() })
     }
 
+    /// Every tag in use, the most recently used first; with `deck_id`, those used in that deck (or its subdecks) first.
+    pub fn tags(&mut self, deck_id: Option<&str>) -> Result<Vec<TagSummary>> {
+        self.call("tags.list", DeckFilter { deck_id: deck_id.map(str::to_string) })
+    }
+
     pub fn create_card(&mut self, card: &NewCard) -> Result<CardView> {
         self.call("cards.create", card)
     }
@@ -167,9 +179,9 @@ impl Client {
         self.call("review.next", DeckFilter { deck_id: deck_id.map(str::to_string) })
     }
 
-    /// Grades a card: 1 again, 2 hard, 3 good, 4 easy. Returns it with its new schedule.
-    pub fn answer(&mut self, card_id: &str, rating: u8, duration_ms: Option<i64>) -> Result<CardView> {
-        self.call("review.answer", Answer { card_id: card_id.to_string(), rating, duration_ms })
+    /// Answers a card: whether you remembered it. Returns it with its new schedule.
+    pub fn answer(&mut self, card_id: &str, remembered: bool, duration_ms: Option<i64>) -> Result<CardView> {
+        self.call("review.answer", Answer { card_id: card_id.to_string(), remembered, duration_ms })
     }
 
     pub fn stats(&mut self, deck_id: Option<&str>) -> Result<Stats> {
@@ -193,13 +205,72 @@ impl Client {
         )
     }
 
+    /// Imports a Mochi export (`.mochi`, or a bare `data.json` or `data.edn`) as new decks under `parent_id`, or at
+    /// the top level. A relative `path` is taken from this process's working directory.
+    pub fn import_mochi(&mut self, path: &Path, parent_id: Option<&str>) -> Result<Imported> {
+        let path = std::path::absolute(path)?;
+        if !path.is_file() {
+            return Err(Error::not_found("file", &path.display().to_string()));
+        }
+        self.call(
+            "import.mochi",
+            ImportFile { path: path.display().to_string(), parent_id: parent_id.map(str::to_string) },
+        )
+    }
+
     pub fn sync_now(&mut self) -> Result<SyncResult> {
         self.call("sync.now", json!({}))
     }
 
-    /// Stops the core. It replies before exiting.
+    pub fn web_status(&mut self) -> Result<WebStatus> {
+        self.call("web.status", json!({}))
+    }
+
+    /// Turns web access on, optionally moving it to another port or bind address.
+    pub fn web_enable(&mut self, params: &WebEnable) -> Result<WebStatus> {
+        self.call("web.enable", params)
+    }
+
+    pub fn web_disable(&mut self) -> Result<WebStatus> {
+        self.call("web.disable", json!({}))
+    }
+
+    /// Stops syncing; everything stays local.
+    pub fn logout(&mut self) -> Result<()> {
+        self.call::<Ack>("sync.logout", json!({})).map(drop)
+    }
+
+    pub fn host_status(&mut self) -> Result<HostStatus> {
+        self.call("host.status", json!({}))
+    }
+
+    /// Makes this library its own hub, for phones to pair with.
+    pub fn host_enable(&mut self) -> Result<HostStatus> {
+        self.call("host.enable", json!({}))
+    }
+
+    pub fn host_disable(&mut self) -> Result<HostStatus> {
+        self.call("host.disable", json!({}))
+    }
+
+    /// A one-time pairing ticket, turning hosting on if it's off.
+    pub fn host_pair(&mut self) -> Result<PairTicket> {
+        self.call("host.pair", json!({}))
+    }
+
+    /// Unpairs a device by id, id prefix or name.
+    pub fn host_remove(&mut self, device: &str) -> Result<Device> {
+        self.call("host.remove", DeviceQuery { device: device.to_string() })
+    }
+
+    /// Stops the core, and with it the desktop app hosting it. It replies before exiting.
     pub fn shutdown(&mut self) -> Result<()> {
         self.call::<Ack>("shutdown", json!({})).map(drop)
+    }
+
+    /// Shows the window of the desktop app hosting the core; `unsupported` when the core has no app around it.
+    pub fn open_app(&mut self) -> Result<()> {
+        self.call::<Ack>("app.open", json!({})).map(drop)
     }
 
     /// Finds a live deck by id, else by name (case-insensitive). With `create`, a missing name becomes a new
@@ -258,17 +329,17 @@ impl Iterator for Events {
 }
 
 fn log_path(home: &Path) -> PathBuf {
-    home.join("core.log")
+    home.join("app.log")
 }
 
-fn spawn_core(home: &Path) -> Result<()> {
-    let bin = find_recall().ok_or_else(|| {
-        Error::new("core_unavailable", "can't find the recall binary; put it on PATH or set RECALL_BIN")
-    })?;
+const APP: &str = "recall-desktop";
+
+fn spawn_app(home: &Path) -> Result<Child> {
+    let bin = find_app()?;
     std::fs::create_dir_all(home)?;
     let log = std::fs::OpenOptions::new().create(true).append(true).open(log_path(home))?;
-    let mut child = Command::new(&bin)
-        .arg("core")
+    Command::new(&bin)
+        .arg("--background")
         .env("RECALL_HOME", home)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -276,15 +347,22 @@ fn spawn_core(home: &Path) -> Result<()> {
         // Its own process group, so Ctrl-C in the terminal that started it doesn't stop it.
         .process_group(0)
         .spawn()
-        .map_err(|e| Error::new("core_unavailable", format!("couldn't start {}: {e}", bin.display())))?;
-    std::thread::spawn(move || child.wait());
-    Ok(())
+        .map_err(|e| Error::new("core_unavailable", format!("couldn't start {}: {e}", bin.display())))
 }
 
-fn find_recall() -> Option<PathBuf> {
-    let env = std::env::var_os("RECALL_BIN").map(PathBuf::from);
-    let sibling = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join("recall")));
+fn find_app() -> Result<PathBuf> {
+    if let Some(bin) = std::env::var_os("RECALL_APP").filter(|v| !v.is_empty()).map(PathBuf::from) {
+        return match bin.is_file() {
+            true => Ok(bin),
+            false => Err(Error::new("no_app", format!("RECALL_APP is {}, which isn't a file", bin.display()))),
+        };
+    }
+    let sibling = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join(APP)));
     let on_path = std::env::var_os("PATH")
-        .and_then(|path| std::env::split_paths(&path).map(|dir| dir.join("recall")).find(|p| p.is_file()));
-    [env, sibling, on_path].into_iter().flatten().find(|p| p.is_file())
+        .and_then(|path| std::env::split_paths(&path).map(|dir| dir.join(APP)).find(|p| p.is_file()));
+    [sibling, on_path]
+        .into_iter()
+        .flatten()
+        .find(|p| p.is_file())
+        .ok_or_else(|| Error::new("no_app", format!("can't find the Recall app; put {APP} on PATH or set RECALL_APP")))
 }

@@ -1,0 +1,60 @@
+# XcodeGen spec for the iOS app. `apps/ios/scripts/deploy.sh` generates Recall.xcodeproj from it (the project
+# itself isn't committed), builds, and installs on a paired iPhone.
+name: Recall
+options:
+  bundleIdPrefix: co.anomaly
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: 5NZ4Q7NXJ4
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+targets:
+  Recall:
+    type: application
+    platform: iOS
+    sources:
+      - path: Recall
+    # Iroh needs these on iOS (network interfaces and reachability, the keychain's TLS roots).
+    dependencies:
+      - sdk: SystemConfiguration.framework
+      - sdk: Security.framework
+    # The core (crates/ffi), linked in: this phone's own library, which syncs with your computer over Iroh.
+    preBuildScripts:
+      - name: Build the core
+        script: '"$SRCROOT/scripts/core.sh"'
+        basedOnDependencyAnalysis: false
+    # Generated with the project; the build settings below fill in the rest.
+    info:
+      path: build/Info.plist
+      properties:
+        # Iroh connects straight to the computer when both are on one network, and through a relay otherwise.
+        NSLocalNetworkUsageDescription: Recall syncs directly with the Recall app on your computer when they're on the same network.
+        NSCameraUsageDescription: Recall scans the code in your computer's Recall Settings to pair with it.
+        # `recall://pair/<ticket>`, which the computer's pairing QR code holds, opens pairing.
+        CFBundleURLTypes:
+          - CFBundleURLName: co.anomaly.recall
+            CFBundleURLSchemes: [recall]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.anomaly.recall
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Recall
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: >-
+          UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+          UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # The core's C header and module map, and the library scripts/core.sh builds for the platform.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/../../crates/ffi/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/build/core/$(PLATFORM_NAME)
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # The core is built for Apple silicon only.
+        EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64

@@ -65,21 +65,32 @@ fn caps(label: &str, ink: rune::Color) -> El {
 }
 
 /// A dashed rule across a tile: the top edge of a dashed box, clipped to one point.
-fn dashed(k: &Kit, key: &str) -> El {
+pub(super) fn dashed(k: &Kit, key: &str) -> El {
+    dashed_in(k.c.border_base, key)
+}
+
+/// [`dashed`] in `color`.
+pub(super) fn dashed_in(color: rune::Color, key: &str) -> El {
+    rule(color, key, 3.0, 3.0)
+}
+
+/// The rule between a review card's sides: dotted, with wider gaps, across the card's full width.
+pub(super) fn dotted(k: &Kit, key: &str) -> El {
+    rule(k.c.border_strong, key, 3.0, 4.0)
+}
+
+fn rule(color: rune::Color, key: &str, dash: f32, gap: f32) -> El {
     el().key(key.to_owned())
         .w_full()
         .h(1.0)
         .clip_rounded(0.0)
-        .child(el().absolute(0.0, 0.0).w_full().h(8.0).border(1.0, k.c.border_base).border_dash(3.0, 3.0))
+        .child(el().absolute(0.0, 0.0).w_full().h(8.0).border(1.0, color).border_dash(dash, gap))
 }
 
-/// When and how many sides; the deck too, in All decks, unless the tile shows it at its top (`full`).
-fn footer(s: &App, c: &CardView, k: &Kit, full: bool) -> El {
+/// When it's due and, on a full tile, how many sides it hides.
+fn footer(c: &CardView, k: &Kit, full: bool) -> El {
     let (when, is_due) = due(c, now_ms());
     let mut footer = row().key("footer").w_full().gap(10.0).center_y();
-    if s.deck.is_none() && !full {
-        footer = footer.child(caps(s.deck_name(&c.card.deck_id), k.c.text_faint).key("deck").truncate());
-    }
     let more = c.sides.len().saturating_sub(1);
     if full && more > 0 {
         footer = footer.child(
@@ -108,9 +119,8 @@ fn ring(e: El, k: &Kit, on: bool, strong: bool) -> El {
 fn tile(s: &App, c: &CardView, k: &Kit, width: f32, list: bool) -> El {
     let (when, _) = due(c, now_ms());
     let selected = s.selected.as_deref() == Some(c.card.id.as_str());
-    let deck = s.deck.is_none().then(|| s.deck_name(&c.card.deck_id));
     let strong = s.window_focused;
-    let version = (&c.card.updated_at, c.schedule.reps, &when, selected, strong, list, width as i32, deck);
+    let version = (&c.card.updated_at, c.schedule.reps, &when, selected, strong, list, width as i32);
     memo(format!("tile-{}", c.card.id), version, || {
         let front = c.sides.first().map_or("", String::as_str);
         let font = face(front, list);
@@ -122,7 +132,7 @@ fn tile(s: &App, c: &CardView, k: &Kit, width: f32, list: bool) -> El {
             body = body.clip_fade(0.0, 0.0, 0.0, 32.0);
         }
         let id = c.card.id.clone();
-        let mut tile = col()
+        let tile = col()
             .key(format!("tile-{}", c.card.id))
             .role("button")
             .label(format::title(front))
@@ -133,11 +143,10 @@ fn tile(s: &App, c: &CardView, k: &Kit, width: f32, list: bool) -> El {
             .gap(14.0)
             .radius(k.radius.xl)
             .fill(k.c.layer_01)
-            .border(1.0, k.c.border_muted);
-        if let Some(deck) = deck {
-            tile = tile.child(caps(deck, k.c.text_faint).key("deck").truncate());
-        }
-        let tile = tile.child(body).child(dashed(k, "rule")).child(footer(s, c, k, true));
+            .border(1.0, k.c.border_muted)
+            .child(body)
+            .child(dashed(k, "rule"))
+            .child(footer(c, k, true));
         k.interactive(ring(tile, k, selected, strong)).on_press(move |s: &mut App| s.press_card(&id))
     })
 }
@@ -257,8 +266,7 @@ fn compact(s: &App, c: &CardView, k: &Kit) -> El {
     let (when, _) = due(c, now_ms());
     let selected = s.current().is_some_and(|cur| cur.card.id == c.card.id);
     let strong = !s.detail_focused && s.window_focused;
-    let deck = s.deck.is_none().then(|| s.deck_name(&c.card.deck_id));
-    let version = (&c.card.updated_at, c.schedule.reps, &when, selected, strong, deck);
+    let version = (&c.card.updated_at, c.schedule.reps, &when, selected, strong);
     memo(format!("compact-{}", c.card.id), version, || {
         let front = c.sides.first().map_or("", String::as_str);
         let id = c.card.id.clone();
@@ -280,7 +288,7 @@ fn compact(s: &App, c: &CardView, k: &Kit) -> El {
                     .color(k.c.text_base)
                     .max_lines(2),
             )
-            .child(footer(s, c, k, false));
+            .child(footer(c, k, false));
         k.interactive(ring(tile, k, selected, strong)).on_press(move |s: &mut App| s.press_card(&id))
     })
 }
@@ -338,9 +346,6 @@ fn detail(s: &App, k: &Kit) -> El {
             .key("edit"),
     );
     let mut sheet = col().key("sides").w_full().gap(22.0);
-    if s.deck.is_none() {
-        sheet = sheet.child(caps(s.deck_name(&c.card.deck_id), k.c.text_faint).key("deck"));
-    }
     for (i, side) in c.sides.iter().enumerate() {
         if i > 0 {
             sheet = sheet.child(dashed(k, &format!("rule-{i}")));

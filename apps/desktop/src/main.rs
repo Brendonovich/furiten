@@ -1,18 +1,28 @@
-//! Recall's desktop app: a thin Rune client of the `recall core` daemon.
+//! Recall's desktop app, which also hosts the core the CLI talks to.
 //!
-//! `cargo run` opens the window. `cargo run -- --fixtures [first-run|lived-in|caught-up]` runs on sample data.
+//! `cargo run` opens the window. `cargo run -- --background` hosts the core without one (the CLI starts the app this
+//! way when nothing is running). `cargo run -- --fixtures [first-run|lived-in|caught-up]` runs on sample data.
 //! Screenshots: `./snap.sh`, or `cargo run -- --fixtures --snap out.png --scene review-front --size 1040x680`.
 
 mod app;
 mod core;
+mod editor;
 mod theme;
 mod ui;
 
-use rune::{AppSpec, Chrome, Key, KeyEvent, Tx};
+use std::sync::{Mutex, OnceLock};
+
+use recall_core::server::Hosted;
+use rune::{AppHandle, AppSpec, Chrome, Key, KeyEvent, Tx};
 use rune_kit::shell;
 
-use crate::app::{App, CardsView};
-use crate::core::{Core, Fixtures};
+use crate::app::{App, CardsView, Editor};
+use crate::core::{CardSort, Core, Fixtures, Running};
+
+/// The core this app hosts, stopped (pushing what's left) once the app quits.
+static HOSTED: Mutex<Option<Hosted>> = Mutex::new(None);
+/// Set for `--background` runs, whose window comes and goes.
+static BACKGROUND: OnceLock<AppHandle<App>> = OnceLock::new();
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.connecting.is_some() {
@@ -35,14 +45,13 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt);
     if let Some(r) = &s.review {
-        let has_card = r.card().is_some();
+        let (has_card, inbox) = (r.card().is_some(), r.inbox());
         match &ev.key {
             Key::Text(t) if t == " " && plain && has_card => s.reveal(),
             Key::Enter if plain && has_card => s.reveal(),
-            Key::Text(t) if plain && matches!(t.as_str(), "1" | "2" | "3" | "4") => {
-                s.grade(t.parse().expect("a digit"))
-            }
-            Key::Escape => s.end_review(),
+            Key::Text(t) if plain && t == "1" => s.answer(false),
+            Key::Text(t) if plain && t == "2" => s.answer(true),
+            Key::Escape if !inbox => s.end_review(),
             _ => return false,
         }
         return true;
@@ -83,7 +92,16 @@ const SCENES: &[Scene] = &[
         select(s, "Spanish");
         s.start_review();
         s.reveal();
-        s.grade(3);
+        s.answer(true);
+        s.reveal();
+    }),
+    ("inbox", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        s.open_inbox();
+    }),
+    ("inbox-revealed", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        s.open_inbox();
         s.reveal();
     }),
     ("grid", |s| {
@@ -118,6 +136,12 @@ const SCENES: &[Scene] = &[
         select(s, "Spanish");
         s.picking_view = true;
     }),
+    ("sort-menu", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.set_sort(CardSort::Name);
+        s.picking_sort = true;
+    }),
     ("search", |s| {
         s.with_core(Core::fixtures(Fixtures::LivedIn));
         select(s, "Spanish");
@@ -125,23 +149,33 @@ const SCENES: &[Scene] = &[
         s.search.focused = true;
         s.apply_search();
     }),
-    ("all-decks", |s| {
+    ("deck-menu", |s| {
         s.with_core(Core::fixtures(Fixtures::LivedIn));
         select(s, "Spanish");
-        s.select_deck(None);
+        s.deck_menu = true;
     }),
     ("connecting", |s| {
         *s = App::connecting();
         s.slow_connect = true;
     }),
-    ("editor", |s| {
+    ("editor", editor_scene),
+    ("editor-separate", |s| {
+        editor_scene(s);
+        s.toggle_separate_sides();
+    }),
+    ("tag-menu", |s| {
         s.with_core(Core::fixtures(Fixtures::LivedIn));
         select(s, "Spanish");
         s.new_card();
         if let Some(e) = s.editor.as_mut() {
-            e.content.replace_text("**la merienda**\n\n*noun, feminine*\n---\nan afternoon snack");
-            e.content.set_caret(e.content.text.len());
-            e.tags.replace_text("vocab, food");
+            e.sides[0].edit.replace_text("**la merienda**\n---\nan afternoon snack");
+            e.sides[0].edit.focused = false;
+            e.split();
+            e.tag_draft.focused = true;
+            e.tag_draft.replace_text("vocab ");
+            e.take_typed_tags();
+            e.tag_draft.replace_text("e");
+            e.take_typed_tags();
         }
     }),
     ("empty", |s| {
@@ -159,92 +193,84 @@ fn select(s: &mut App, name: &str) {
     s.select_deck(id);
 }
 
-/// `apps/desktop` is its own workspace, so `cargo run` here never builds the `recall` binary the app spawns as its
-/// core. Debug builds build it from the root workspace and point `RECALL_BIN` at it, so the app always runs against
-/// the core from the same checkout. Release builds find `recall` next to the app or on PATH.
-#[cfg(debug_assertions)]
-fn use_dev_core() {
-    if let Some(bin) = std::env::var_os("RECALL_BIN") {
-        eprintln!("recall-desktop: RECALL_BIN is set, not building the core: {}", bin.to_string_lossy());
-        return;
-    }
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let root = root.canonicalize().unwrap_or(root);
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let target = root.join("target");
-    eprintln!("recall-desktop: building the recall core ({} build --profile dev -p recall)…", cargo.to_string_lossy());
-    let started = std::time::Instant::now();
-    // The dev profile into the checkout's own target dir, whatever the environment or a cargo config says, so the
-    // binary is the debug one at the path below.
-    let built = match std::process::Command::new(&cargo)
-        .args(["build", "-q", "--profile", "dev", "-p", "recall", "--manifest-path"])
-        .arg(root.join("Cargo.toml"))
-        .arg("--target-dir")
-        .arg(&target)
-        .env_remove("CARGO_BUILD_TARGET")
-        .status()
-    {
-        Ok(status) if status.success() => true,
-        Ok(status) => {
-            eprintln!("recall-desktop: cargo build exited with {status}");
-            false
-        }
-        Err(e) => {
-            eprintln!("recall-desktop: couldn't run {}: {e}", cargo.to_string_lossy());
-            false
-        }
-    };
-    let elapsed = started.elapsed().as_secs_f64();
-    let bin = target.join("debug/recall");
-    if built {
-        eprintln!("recall-desktop: built the recall core (dev profile) in {elapsed:.1}s");
-    } else {
-        eprintln!(
-            "recall-desktop: building the recall core failed after {elapsed:.1}s; using {} if it exists",
-            bin.display()
-        );
-    }
-    if bin.exists() {
-        eprintln!("recall-desktop: using the core at {}", bin.display());
-        // SAFETY: runs first thing in `main`, before any other thread exists.
-        unsafe { std::env::set_var("RECALL_BIN", bin) };
-    } else {
-        eprintln!("recall-desktop: no core at {}; looking next to the app and on PATH", bin.display());
+/// Shows the window (`app.open` from a client, or the Dock), with the Dock icon a background run hides.
+fn show(handle: &AppHandle<App>) {
+    handle.set_dock_icon(true);
+    handle.open();
+}
+
+/// A background run's window closes back to no window, and no Dock icon; the core keeps serving.
+fn hide_dock(_: &mut App, _: &mut Tx) {
+    if let Some(handle) = BACKGROUND.get() {
+        handle.set_dock_icon(false);
     }
 }
 
-/// Connects to the core on another thread once the first frame is up, so the window never waits on it (starting
-/// the core can take seconds).
-fn connect_when_ready(app: rune::App<App>) -> rune::App<App> {
+/// An accessory app gets no default reopen, so a background run brings its window back itself.
+fn reopen(_: &mut App, has_visible_windows: bool, _: &mut Tx) -> bool {
+    match BACKGROUND.get() {
+        Some(handle) if !has_visible_windows => {
+            show(handle);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Hosts the core on another thread, so the window never waits on it (opening the store can take seconds): once the
+/// first frame is up, or straight away without a window. The app quits when a client stops the core.
+fn host_core(app: rune::App<App>, background: bool) -> rune::App<App> {
     if !app::wants_core() {
         return app;
     }
     let handle = app.handle();
-    let mut started = false;
-    app.on_ready(move |_| {
-        if std::mem::replace(&mut started, true) {
-            return;
-        }
+    let start = move || {
         let handle = handle.clone();
         std::thread::Builder::new()
-            .name("recall-connect".into())
+            .name("recall-host".into())
             .spawn(move || {
-                let core = Core::connect();
+                let (opener, quitter) = (handle.clone(), handle.clone());
+                let core = Core::host(move || show(&opener), move || quitter.quit()).map(|(core, hosted)| {
+                    *HOSTED.lock().unwrap_or_else(|e| e.into_inner()) = hosted;
+                    core
+                });
                 handle.update(move |s: &mut App, tx| {
                     s.connected(core);
                     // State that arrives right after launch lands without motion.
                     tx.instant();
                 });
             })
-            .expect("spawn the connect thread");
+            .expect("spawn the host thread");
+    };
+    if background {
+        start();
+        return app;
+    }
+    let mut started = false;
+    app.on_ready(move |_| {
+        if !std::mem::replace(&mut started, true) {
+            start();
+        }
     })
 }
 
 fn main() {
-    #[cfg(debug_assertions)]
-    use_dev_core();
-    rune::prewarm_gpu();
-    let chrome = Chrome { full_size_content: true, traffic_lights: Some((16.0, 25.0)), drag_regions: true };
+    let background = rune::extra_args().iter().any(|a| a == "--background");
+    // One app per library: another one already serving it shows its window instead.
+    if app::wants_core() {
+        match core::running() {
+            Running::App => return,
+            Running::Windowless if background => {
+                eprintln!("recall-desktop: a core is already running for {}", recall_core::default_home().display());
+                return;
+            }
+            Running::Windowless | Running::Nothing => {}
+        }
+    }
+    if !background {
+        rune::prewarm_gpu();
+    }
+    let chrome = Chrome { full_size_content: true, traffic_lights: Some((25.0, 25.0)), drag_regions: true };
     let spec = AppSpec {
         min_size: Some((720.0, 480.0)),
         scenes: SCENES,
@@ -255,5 +281,26 @@ fn main() {
         families: rune_theme_opencode::FAMILIES,
         ..AppSpec::new("Recall", (1040.0, 680.0), app::init, ui::view)
     };
-    connect_when_ready(rune::App::new(spec).chrome(chrome)).run();
+    let mut app = rune::App::new(spec).chrome(chrome);
+    if background {
+        app = app.windowless().accessory().standard_menus().on_close(hide_dock).on_reopen(reopen);
+        let _ = BACKGROUND.set(app.handle());
+    }
+    host_core(app, background).run();
+    let hosted = HOSTED.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some(Err(e)) = hosted.map(Hosted::stop) {
+        eprintln!("recall-desktop: the core didn't stop cleanly: {}", e.message);
+    }
+}
+
+/// The editor scene: a new card with a few sides, Markdown and tags.
+fn editor_scene(s: &mut App) {
+    s.with_core(Core::fixtures(Fixtures::LivedIn));
+    select(s, "Spanish");
+    s.new_card();
+    if let Some(e) = s.editor.as_mut() {
+        let content = "# la merienda\n\n*noun, feminine* · `la`\n---\nan **afternoon snack**, eaten around six\n- pan con chocolate\n  - con aceite\n- fruta\n---\n\
+                       > Siempre meriendo pan con chocolate.";
+        *e = Editor::new(None, content, vec!["vocab".into(), "food".into()], e.deck.clone());
+    }
 }

@@ -5,15 +5,25 @@ edition = "2024"
 license = "MIT"
 publish = false
 
-# Its own workspace: Rune's dependency tree is large, and the root workspace stays fast.
+# Its own workspace: Rune's dependency tree is large, and the root workspace stays fast. The vendored Rune stays out
+# of it, so fmt, clippy and tests leave it alone and it builds like any other dependency.
 [workspace]
+exclude = ["vendor"]
 
 [dependencies]
-recall-core = { path = "../../crates/core", default-features = false }
-rune = { git = "https://github.com/anomalyco/rune", rev = "77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb", default-features = false, features = ["dbus", "embedded-fonts"] }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb", features = ["markdown"] }
+# The app hosts the core, so it needs all of it: hub sync and import.
+recall-core = { path = "../../crates/core" }
+# Rune is vendored from rev 77dd9132 with the caret blink from anomalyco/rune#54 applied (vendor/rune/README.md).
+# Go back to a git `rev` once that PR lands.
+rune = { path = "vendor/rune/crates/rune", default-features = false, features = ["dbus", "embedded-fonts", "native-file-dialog"] }
+rune-kit = { path = "vendor/rune/crates/rune-kit", features = ["markdown"] }
+# The editor styles Markdown in place with the parser rune-kit renders it with (already in the tree, through
+# rune-kit's `markdown` feature), so what's styled is what renders.
+pulldown-cmark = { version = "=0.13.6", default-features = false }
 # Anomaly's look (the OpenCode theme): kit tokens, the ember brand scale, Inter and IBM Plex Mono.
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "77dd9132a8b64d0ef55b0e95ce4628bdfac47eeb" }
+rune-theme-opencode = { path = "vendor/rune/themes/opencode" }
+# The web access QR code in Settings, drawn as Rune boxes (no image or SVG output needed).
+qrcode = { version = "=0.14.1", default-features = false }
 
 [dev-dependencies]
 serde_json = "=1.0.154"
@@ -21,3 +31,8 @@ serde_json = "=1.0.154"
 [profile.dev.package."*"]
 debug = false
 opt-level = 2
+
+# ICU4X prints data errors to stderr when debug assertions are on (release is silent). Parley's word segmenter has
+# no CJK dictionary, so every layout of Chinese or Japanese text logged "No segmentation model for complex script".
+[profile.dev.package.icu_provider]
+debug-assertions = false

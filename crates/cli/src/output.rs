@@ -1,11 +1,16 @@
 //! Human-readable output.
 
 use recall_core::model::{CardView, DeckSummary};
-use recall_core::protocol::{NextReview, Stats, Status};
+use std::io::IsTerminal;
+
+use qrcode::render::unicode::Dense1x2;
+use qrcode::{EcLevel, QrCode};
+use recall_core::protocol::{HostStatus, Imported, NextReview, PairTicket, Stats, Status, TagSummary, WebStatus};
 use recall_core::{State, now_ms};
 
 pub fn status(s: &Status) -> String {
     let sync = match &s.server {
+        None if s.hosting => "hosting: paired phones sync with this desktop (recall host)".to_string(),
         None => "not signed in".to_string(),
         Some(server) => {
             let last = s.last_sync.map_or("never synced".to_string(), |t| format!("synced {}", relative(t)));
@@ -25,6 +30,87 @@ pub fn status(s: &Status) -> String {
     out
 }
 
+pub fn web(w: &WebStatus) -> String {
+    if !w.enabled {
+        return "Web access is off. Turn it on with: recall web on".to_string();
+    }
+    let mut out = String::from(if w.running { "Web access is on." } else { "Web access is on but not serving." });
+    if let Some(error) = &w.error {
+        out.push_str(&format!(" {error}"));
+    }
+    if !w.urls.is_empty() {
+        out.push_str("\nOpen it at:");
+        for url in &w.urls {
+            out.push_str(&format!("\n  {url}"));
+        }
+    }
+    if let Some(token) = &w.token {
+        out.push_str(&format!("\nToken: {token}"));
+    }
+    if let Some(link) = &w.link {
+        out.push_str(&format!("\nSign-in link: {link}"));
+    }
+    out
+}
+
+pub fn host(h: &HostStatus) -> String {
+    let mut out = String::from(match (h.enabled, h.running) {
+        (false, _) => "Hosting is off. Pair a phone with: recall host pair",
+        (true, true) => "Hosting: phones paired with this desktop sync with it.",
+        (true, false) => "Hosting is on but not running.",
+    });
+    if let Some(error) = &h.error {
+        out.push_str(&format!(" {error}"));
+    }
+    if let Some(id) = &h.endpoint_id {
+        out.push_str(&format!(
+            "
+Endpoint: {id}"
+        ));
+    }
+    if h.devices.is_empty() {
+        out.push_str(
+            "
+No devices paired.",
+        );
+    }
+    let width = h.devices.iter().map(|d| d.device.name.chars().count()).max().unwrap_or(0);
+    for d in &h.devices {
+        let state = match (d.connected, d.last_sync) {
+            (true, _) => "connected".to_string(),
+            (false, Some(at)) => format!("synced {}", relative(at)),
+            (false, None) => "offline".to_string(),
+        };
+        out.push_str(&format!(
+            "
+  {:width$}  {}  {state}",
+            d.device.name, d.device.id
+        ));
+    }
+    out
+}
+
+/// The ticket, as a QR code for the phone's camera when printing to a terminal.
+pub fn pair(t: &PairTicket) -> String {
+    let mut out = String::new();
+    // A link, so the phone's Camera app opens Recall to pair; the ticket in uppercase fits QR's alphanumeric
+    // mode, a smaller code, and tickets read case-insensitively.
+    let link = format!("recall://pair/{}", t.ticket.to_uppercase());
+    if std::io::stdout().is_terminal()
+        && let Ok(code) = QrCode::with_error_correction_level(link, EcLevel::L)
+    {
+        out.push_str(&code.render::<Dense1x2>().quiet_zone(true).build());
+        out.push('\n');
+    }
+    let minutes = ((t.expires_at - now_ms()) as f64 / 60_000.0).round();
+    out.push_str(&format!(
+        "{}\n\nScan it in Recall on your phone (Settings → Pair with your computer), valid {minutes} minutes, once. \
+         Or on another device: recall sync login --hub <ticket>",
+        t.ticket
+    ));
+    out
+}
+
 pub fn decks(decks: &[DeckSummary]) -> String {
     if decks.is_empty() {
         return "No decks. Add a card with: recall add --deck <name> \"question\\n---\\nanswer\"".to_string();
@@ -36,6 +122,15 @@ pub fn decks(decks: &[DeckSummary]) -> String {
     }
     let width = rows.iter().map(|(name, _)| name.chars().count()).max().unwrap_or(0);
     rows.into_iter().map(|(name, rest)| format!("{name:width$}  {rest}")).collect::<Vec<_>>().join("\n")
+}
+
+pub fn tags(tags: &[TagSummary]) -> String {
+    if tags.is_empty() {
+        return "No tags. Tag a card with: recall edit <id> --tags <tag>".to_string();
+    }
+    let width = tags.iter().map(|t| t.tag.chars().count()).max().unwrap_or(0);
+    let rows = tags.iter().map(|t| format!("{:width$}  {:>4} cards  used {}", t.tag, t.cards, relative(t.last_used)));
+    rows.collect::<Vec<_>>().join("\n")
 }
 
 fn tree(all: &[DeckSummary], deck: &DeckSummary, depth: usize, rows: &mut Vec<(String, String)>) {
@@ -85,8 +180,8 @@ pub fn next(n: &NextReview) -> String {
     }
 }
 
-pub fn answered(rating: u8, c: &CardView) -> String {
-    format!("{}: next {}", rating_name(rating), due(c))
+pub fn answered(remembered: bool, c: &CardView) -> String {
+    format!("{}: next {}", if remembered { "Remembered" } else { "Forgot" }, due(c))
 }
 
 pub fn stats(s: &Stats) -> String {
@@ -97,13 +192,34 @@ pub fn stats(s: &Stats) -> String {
     )
 }
 
-pub fn rating_name(rating: u8) -> &'static str {
-    match rating {
-        1 => "Again",
-        2 => "Hard",
-        3 => "Good",
-        _ => "Easy",
+pub fn imported(i: &Imported) -> String {
+    let names: Vec<&str> = i
+        .decks
+        .iter()
+        .filter(|d| !i.decks.iter().any(|p| Some(&p.id) == d.parent_id.as_ref()))
+        .map(|d| d.name.as_str())
+        .collect();
+    let mut out = format!(
+        "Imported {}, {} and {} from Mochi: {}",
+        plural(i.decks.len() as u64, "deck"),
+        plural(i.cards, "card"),
+        plural(i.reviews, "review"),
+        names.join(", ")
+    );
+    if i.skipped > 0 {
+        out.push_str(&format!("\nSkipped {} (trashed or empty)", plural(i.skipped, "card")));
     }
+    if i.attachments > 0 {
+        out.push_str(&format!(
+            "\nLeft out {}: Recall can't show images or audio yet",
+            plural(i.attachments, "attachment")
+        ));
+    }
+    out
+}
+
+fn plural(n: u64, one: &str) -> String {
+    if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
 }
 
 /// "new", "due" or when it's due, e.g. "in 3d".

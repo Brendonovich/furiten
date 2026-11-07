@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import {
   Answer,
+  CardSort,
   CardUpdate,
   CardView,
   Deck,
@@ -17,6 +18,7 @@ import {
   Stats,
   SyncRequest,
   SyncResponse,
+  TagSummary,
   Ulid,
 } from "./Model.ts";
 
@@ -38,6 +40,7 @@ export const errors = [BadRequest, Unauthorized, NotFound, Conflict] as const;
 const IdParams = { id: Ulid };
 const DeckFilter = { deck_id: Schema.optionalKey(Ulid) };
 const Count = Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
+const Seed = Count.check(Schema.isLessThanOrEqualTo(0xffff_ffff));
 
 export class DecksGroup extends HttpApiGroup.make("decks")
   .add(
@@ -65,6 +68,9 @@ export class CardsGroup extends HttpApiGroup.make("cards")
         due: Schema.optionalKey(Schema.Literals(["true", "false"])),
         limit: Schema.optionalKey(Count),
         offset: Schema.optionalKey(Count),
+        sort: Schema.optionalKey(CardSort),
+        desc: Schema.optionalKey(Schema.Literals(["true", "false"])),
+        seed: Schema.optionalKey(Seed),
       },
       success: Schema.Struct({ cards: Schema.Array(CardView) }),
       error: errors,
@@ -82,6 +88,11 @@ export class CardsGroup extends HttpApiGroup.make("cards")
       error: errors,
     }),
     HttpApiEndpoint.delete("delete", "/v1/cards/:id", { params: IdParams, success: Ok, error: errors }),
+    HttpApiEndpoint.get("tags", "/v1/tags", {
+      query: DeckFilter,
+      success: Schema.Struct({ tags: Schema.Array(TagSummary) }),
+      error: errors,
+    }),
   ) {}
 
 export class ReviewGroup extends HttpApiGroup.make("review")

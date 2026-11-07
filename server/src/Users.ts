@@ -67,21 +67,25 @@ const makeApp = (store: Store) => {
   const cards = HttpApiBuilder.group(RecallApi, "cards", (h) =>
     h
       .handle("list", ({ query }) =>
-        http(() => ({ cards: store.cards({ ...query, due: query.due === undefined ? undefined : query.due === "true" }) })),
+        http(() => {
+          const flag = (v: "true" | "false" | undefined) => (v === undefined ? undefined : v === "true");
+          return { cards: store.cards({ ...query, due: flag(query.due), desc: flag(query.desc) }) };
+        }),
       )
       .handle("create", ({ payload }) =>
         http(() => ("cards" in payload ? { cards: store.createCards(payload.cards) } : store.createCards([payload])[0]!)),
       )
       .handle("get", ({ params }) => http(() => store.card(params.id)))
       .handle("update", ({ params, payload }) => http(() => store.updateCard(params.id, payload)))
-      .handle("delete", ({ params }) => http(() => (store.deleteCard(params.id), { ok: true as const }))),
+      .handle("delete", ({ params }) => http(() => (store.deleteCard(params.id), { ok: true as const })))
+      .handle("tags", ({ query }) => http(() => ({ tags: store.tags(query.deck_id) }))),
   );
 
   const review = HttpApiBuilder.group(RecallApi, "review", (h) =>
     h
       .handle("next", ({ query }) => http(() => store.nextReview(query.deck_id)))
       .handle("answer", ({ params, payload }) =>
-        http(() => store.answer(params.id, payload.rating, payload.duration_ms)),
+        http(() => store.answer(params.id, payload.remembered, payload.duration_ms)),
       )
       .handle("stats", ({ query }) => http(() => store.stats(query.deck_id))),
   );
@@ -103,7 +107,7 @@ const makeApp = (store: Store) => {
     update_card: ({ id, ...update }) => tool(() => store.updateCard(id, update)),
     delete_card: ({ id }) => tool(() => (store.deleteCard(id), { ok: true as const })),
     next_review: (p) => tool(() => store.nextReview(p.deck_id)),
-    review_card: (p) => tool(() => store.answer(p.id, p.rating, p.duration_ms)),
+    review_card: (p) => tool(() => store.answer(p.id, p.remembered, p.duration_ms)),
     stats: (p) => tool(() => store.stats(p.deck_id)),
   });
 

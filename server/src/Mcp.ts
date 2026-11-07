@@ -1,7 +1,7 @@
 // MCP tools (docs/contract.md, MCP). They mirror the HTTP API and run against the caller's own library.
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
-import { CardView, Deck, DeckSummary, NewCard, NextReview, Ok, Rating, Stats, Ulid } from "./Model.ts";
+import { CardSort, CardView, Deck, DeckSummary, NewCard, NextReview, Ok, Remembered, Stats, Ulid } from "./Model.ts";
 
 const CONTENT =
   "A card is Markdown. A line containing only `---` splits it into sides: the text above is the front (the " +
@@ -32,7 +32,8 @@ export const createDeck = Tool.make("create_deck", {
 
 export const searchCards = Tool.make("search_cards", {
   description:
-    "Search cards. Every filter is optional and they combine. Results are ordered by creation time. " +
+    "Search cards. Every filter is optional and they combine. Results are ordered by creation time unless `sort` " +
+    "says otherwise. " +
     `Each result has \`content\`, its \`sides\` and its \`schedule\`. ${CONTENT}`,
   parameters: Schema.Struct({
     deck_id: deckId("Only cards in this deck and its subdecks."),
@@ -44,6 +45,21 @@ export const searchCards = Tool.make("search_cards", {
     ),
     offset: Schema.optionalKey(
       Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({ description: "Results to skip, for paging." }),
+    ),
+    sort: Schema.optionalKey(
+      CardSort.annotate({
+        description:
+          "Order: created (default), updated, name (the front's first line, numbers by value), due, reviewed " +
+          "(last review), interval (last interval), retention (share of reviews that weren't lapses) or random.",
+      }),
+    ),
+    desc: Schema.optionalKey(
+      Schema.Boolean.annotate({ description: "Reverse the order. Never-reviewed cards stay last." }),
+    ),
+    seed: Schema.optionalKey(
+      Schema.Int.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(0xffff_ffff)).annotate({
+        description: "Seed for sort=random; the same seed gives the same order.",
+      }),
     ),
   }),
   success: Schema.Struct({ cards: Schema.Array(CardView) }),
@@ -98,11 +114,11 @@ export const nextReview = Tool.make("next_review", {
 
 export const reviewCard = Tool.make("review_card", {
   description:
-    "Grade a review of a card now: 1 again (forgot), 2 hard, 3 good, 4 easy. Returns the card with its new " +
-    "schedule (FSRS-6), including when it is next due.",
+    "Answer a review of a card now: whether you remembered it. Returns the card with its new schedule (FSRS-6), " +
+    "including when it is next due.",
   parameters: Schema.Struct({
     id: Ulid.annotate({ description: "The card's id." }),
-    rating: Rating,
+    remembered: Remembered,
     duration_ms: Schema.optionalKey(Schema.Int.annotate({ description: "How long the answer took, in ms." })),
   }),
   success: CardView,

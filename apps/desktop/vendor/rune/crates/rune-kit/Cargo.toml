@@ -1,0 +1,19 @@
+[package]
+name = "rune-kit"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+description = "Generic, themable components for Rune. Components read only semantic tokens (`Kit`); a theme crate supplies them."
+
+[dependencies]
+rune = { path = "../rune", default-features = false }
+rune-motion = { path = "../rune-motion" }
+unicode-segmentation = "1.13"
+pulldown-cmark = { version = "0.13", default-features = false, optional = true }
+
+[features]
+# `Markdown` and `MarkdownStyle`.
+markdown = ["dep:pulldown-cmark"]
+# Vendored without rune-mermaid and procwatch: declared so their cfgs stay known, but they don't build.
+mermaid = []
+frame-profile = []

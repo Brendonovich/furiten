@@ -1,0 +1,5 @@
+module RecallCore {
+    header "recall.h"
+    link "recall_ffi"
+    export *
+}

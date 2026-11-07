@@ -1,21 +1,27 @@
 //! The app's state and the actions that change it. Every action is a thin call into `Core` followed by a refetch;
 //! nothing here decides what's due or when a card comes back.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use rune::prefs::Prefs;
-use rune::{TextEdit, Tx};
+use rune::{FileDialogOptions, TextEdit, Tx};
 use rune_kit::PaneState;
 
-use crate::core::{Answer, CardUpdate, CardView, Core, DeckSummary, Fixtures, Id, NewCard, NextReview, Status, now_ms};
+pub use crate::editor::Editor;
+
+use crate::core::{
+    Answer, CardSort, CardUpdate, CardView, Core, DeckSummary, Fixtures, HostStatus, Id, Imported, NewCard, NextReview,
+    Order, PairTicket, Status, WebStatus, now_ms,
+};
 
 pub struct App {
     pub core: Core,
     pub status: Status,
     pub decks: Vec<DeckSummary>,
-    /// The deck in the main pane; `None` is "All decks".
+    /// The deck in the main pane. There's no view of every deck at once: this is `None` only when there are no decks.
     pub deck: Option<Id>,
     /// The cards of `deck` that match `query`, for its card views.
     pub cards: Vec<CardView>,
@@ -23,6 +29,10 @@ pub struct App {
     pub view: CardsView,
     /// The view switcher's menu is open.
     pub picking_view: bool,
+    /// How `deck`'s cards are ordered, remembered per deck in `prefs` (all but `Random`'s seed).
+    pub order: Order,
+    /// The sort menu is open.
+    pub picking_sort: bool,
     /// The search field above the cards.
     pub search: TextEdit,
     /// The search the card list shows: `search` becomes it after a pause in typing.
@@ -44,6 +54,10 @@ pub struct App {
     pub settings: Option<Settings>,
     /// The name of a deck being added in the sidebar.
     pub new_deck: Option<TextEdit>,
+    /// The sidebar's "+" menu (New deck, Import from Mochi) is open.
+    pub deck_menu: bool,
+    /// What the last import brought in, shown above the deck it opened until you move on.
+    pub notice: Option<String>,
     pub sidebar: PaneState,
     /// Nothing has been reviewed yet: the app shows only the sample deck and "Start review".
     pub first_run: bool,
@@ -108,53 +122,58 @@ impl CardsView {
 const SEARCH_DEBOUNCE: f64 = 0.15;
 /// A connection that takes longer than this says so; a quicker one shows nothing in between.
 const SLOW_CONNECT: f64 = 0.4;
+/// The preference behind [`App::separate_sides`].
+const SEPARATE_SIDES: &str = "experiment.separate-sides";
+
 /// Where the app keeps its preferences (`rune::prefs`).
 const PREFS_ID: &str = "recall-desktop";
 
 pub struct Review {
+    /// The deck (with its subdecks) being reviewed, or `None` for the inbox: every due card from every deck.
+    pub deck: Option<Id>,
     pub next: NextReview,
     /// How many of the current card's sides are showing (1 is just the front).
     pub shown: usize,
     pub started: Instant,
     /// Cards answered since the review started.
     pub answered: u32,
-    /// What the last answer did, so you see the card get scheduled.
-    pub last: Option<Answered>,
-}
-
-#[derive(Clone, Copy)]
-pub struct Answered {
-    pub rating: u8,
-    pub due: i64,
-}
-
-pub struct Editor {
-    /// `None` while writing a new card.
-    pub card: Option<Id>,
-    pub content: TextEdit,
-    pub tags: TextEdit,
-    pub deck: Id,
-    pub picking_deck: bool,
-    /// The first press on "Delete card" asks again in place.
-    pub confirm_delete: bool,
-    pub error: Option<String>,
 }
 
 pub struct Settings {
     pub server: TextEdit,
     pub error: Option<String>,
+    /// Web access: whether this app serves the library to browsers on the network, and where.
+    pub web: WebStatus,
+    pub web_error: Option<String>,
+    /// The token is showing instead of dots.
+    pub show_token: bool,
+    /// Hosting: whether this app is the library's hub for paired phones, and which they are.
+    pub host: HostStatus,
+    pub host_error: Option<String>,
+    /// The pairing ticket on screen, and how many devices were paired when it was made.
+    pub ticket: Option<(PairTicket, usize)>,
+    /// When `host` was last fetched (the app clock), to keep connection states fresh while Settings is open.
+    pub host_at: f64,
 }
 
-pub const RATINGS: [(u8, &str); 4] = [(1, "Again"), (2, "Hard"), (3, "Good"), (4, "Easy")];
+/// How often Settings refetches the paired devices, whose connections come and go without a `changed` event.
+const HOST_POLL: f64 = 3.0;
+
+/// The answers, with their keys: whether you remembered the card.
+pub const ANSWERS: [(bool, &str, &str); 2] = [(false, "Forgot", "1"), (true, "Remembered", "2")];
 
 impl Review {
     pub fn card(&self) -> Option<&CardView> {
         self.next.card.as_ref()
     }
 
-    /// Every side is showing, so the card can be graded.
+    /// Every side is showing.
     pub fn revealed(&self) -> bool {
         self.card().is_some_and(|c| self.shown >= c.sides.len())
+    }
+
+    pub fn inbox(&self) -> bool {
+        self.deck.is_none()
     }
 }
 
@@ -206,6 +225,8 @@ impl App {
             cards: Vec::new(),
             view: CardsView::default(),
             picking_view: false,
+            order: Order::default(),
+            picking_sort: false,
             search: TextEdit::new(""),
             query: String::new(),
             search_due: None,
@@ -218,6 +239,8 @@ impl App {
             editor: None,
             settings: None,
             new_deck: None,
+            deck_menu: false,
+            notice: None,
             sidebar: PaneState::new(232.0).range(180.0, 360.0),
             first_run: false,
             error: None,
@@ -237,6 +260,7 @@ impl App {
         if self.first_run {
             self.deck = Some(self.decks[0].deck.id.clone());
             self.sidebar.set_open(false);
+            self.order = self.saved_order();
             self.load_cards();
         }
         self.view = self.saved_view();
@@ -264,6 +288,10 @@ impl App {
     pub fn tick(&mut self, clock: f64, tx: &mut Tx) -> bool {
         self.clock = clock;
         let mut changed = false;
+        // Escape closes the tag menu until the field is next focused.
+        if let Some(e) = self.editor.as_mut().filter(|e| !e.tag_draft.focused) {
+            e.tag_menu_closed = false;
+        }
         if let Some(started) = self.connecting {
             let started = started.unwrap_or(clock);
             self.connecting = Some(Some(started));
@@ -286,6 +314,17 @@ impl App {
                     tx.instant();
                     changed = true;
                 }
+            } else {
+                tx.wake_after(Duration::from_secs_f64(left));
+            }
+        }
+        if let Some(at) = self.settings.as_ref().filter(|s| s.host.enabled).map(|s| s.host_at) {
+            let left = at + HOST_POLL - clock;
+            if left <= 0.0 {
+                let before = self.settings.as_ref().map(|s| s.host.clone());
+                self.refresh_host();
+                changed |= self.settings.as_ref().map(|s| &s.host) != before.as_ref();
+                tx.wake_after(Duration::from_secs_f64(HOST_POLL));
             } else {
                 tx.wake_after(Duration::from_secs_f64(left));
             }
@@ -346,19 +385,24 @@ impl App {
         if let Ok(status) = self.core.status() {
             self.status = status;
         }
+        self.refresh_host();
         let decks = self.core.decks();
         if let Some(decks) = self.ok(decks) {
             self.decks = decks;
         }
-        if self.deck.as_ref().is_some_and(|id| !self.decks.iter().any(|d| &d.deck.id == id)) {
-            self.deck = None;
+        // When the deck on screen is gone (or none was chosen yet), the first one takes its place.
+        let shown = self.deck.as_ref().is_some_and(|id| self.decks.iter().any(|d| &d.deck.id == id));
+        let first = self.deck_tree().first().map(|(d, _)| d.deck.id.clone());
+        if !shown && first != self.deck {
+            self.select_deck(first);
+        } else {
+            self.load_cards();
         }
-        self.load_cards();
         self.refresh_review();
     }
 
     fn load_cards(&mut self) {
-        let cards = self.core.cards(self.deck.as_deref(), &self.query);
+        let cards = self.core.cards(self.deck.as_deref(), &self.query, self.order);
         if let Some(cards) = self.ok(cards) {
             self.cards = cards;
         }
@@ -370,8 +414,11 @@ impl App {
 
     /// Keeps the card on screen if it still exists (picking up edits made elsewhere), and updates the counts.
     fn refresh_review(&mut self) {
-        let Some(current) = self.review.as_ref().map(|r| r.card().map(|c| c.card.id.clone())) else { return };
-        let next = self.core.next_review(self.deck.as_deref());
+        let Some((deck, current)) = self.review.as_ref().map(|r| (r.deck.clone(), r.card().map(|c| c.card.id.clone())))
+        else {
+            return;
+        };
+        let next = self.core.next_review(deck.as_deref());
         let Some(mut next) = self.ok(next) else { return };
         if let Some(id) = current
             && let Ok(card) = self.core.card(&id)
@@ -394,12 +441,42 @@ impl App {
         self.decks.iter().find(|d| d.deck.id == id).map_or("", |d| d.deck.name.as_str())
     }
 
-    /// Due and new cards in the main pane's deck (or all decks).
-    pub fn counts(&self) -> (u64, u64) {
-        match self.deck_summary() {
-            Some(d) => (d.due, d.new),
-            None => self.decks.iter().fold((0, 0), |(due, new), d| (due + d.due, new + d.new)),
+    /// A deck's name with its parents': "Languages / Spanish".
+    pub fn deck_path(&self, id: &str) -> String {
+        let mut names = Vec::new();
+        let mut at = Some(id);
+        while let Some(d) = at.and_then(|id| self.decks.iter().find(|d| d.deck.id == id)) {
+            if names.len() > self.decks.len() {
+                break;
+            }
+            names.push(d.deck.name.as_str());
+            at = d.deck.parent_id.as_deref();
         }
+        names.reverse();
+        names.join(" / ")
+    }
+
+    /// Cards waiting in the inbox: every deck's due and new, counting each top deck once (its counts take in its
+    /// subdecks').
+    pub fn inbox_count(&self) -> u64 {
+        let top =
+            |d: &&DeckSummary| d.deck.parent_id.as_ref().is_none_or(|p| !self.decks.iter().any(|o| &o.deck.id == p));
+        self.decks.iter().filter(top).map(|d| d.due + d.new).sum()
+    }
+
+    /// The inbox is in the main pane.
+    pub fn in_inbox(&self) -> bool {
+        self.settings.is_none() && self.review.as_ref().is_some_and(Review::inbox)
+    }
+
+    /// The decks as the sidebar lists them: each followed by its subdecks, with how deep it is.
+    pub fn deck_tree(&self) -> Vec<(&DeckSummary, u8)> {
+        deck_tree(&self.decks)
+    }
+
+    /// Due and new cards in the main pane's deck.
+    pub fn counts(&self) -> (u64, u64) {
+        self.deck_summary().map_or((0, 0), |d| (d.due, d.new))
     }
 
     /// When the soonest card in the main pane's deck comes due, if it isn't due already.
@@ -410,17 +487,31 @@ impl App {
 
     pub fn select_deck(&mut self, deck: Option<Id>) {
         self.deck = deck;
+        self.notice = None;
         self.review = None;
         self.editor = None;
         self.settings = None;
         self.picking_view = false;
+        self.picking_sort = false;
         self.search = TextEdit::new("");
         self.query.clear();
         self.search_due = None;
         self.selected = None;
         self.detail_focused = false;
         self.view = self.saved_view();
+        self.order = self.saved_order();
         self.load_cards();
+    }
+
+    /// Experiment: each side of the card editor in a box of its own, rather than one box with rules between.
+    pub fn separate_sides(&self) -> bool {
+        self.prefs.get::<bool>(SEPARATE_SIDES).unwrap_or(false)
+    }
+
+    pub fn toggle_separate_sides(&mut self) {
+        if let Err(e) = self.prefs.set(SEPARATE_SIDES, &!self.separate_sides()) {
+            eprintln!("recall-desktop: {e}");
+        }
     }
 
     fn view_pref(&self) -> String {
@@ -443,6 +534,42 @@ impl App {
         if let Err(e) = self.prefs.set(&key, view.id()) {
             eprintln!("recall-desktop: {e}");
         }
+    }
+
+    fn order_pref(&self) -> String {
+        format!("sort.{}", self.deck.as_deref().unwrap_or("all"))
+    }
+
+    /// The deck's saved order, as `name` or `name-desc`; a saved `random` gets a fresh shuffle.
+    fn saved_order(&self) -> Order {
+        let saved = self.prefs.get::<String>(&self.order_pref()).unwrap_or_default();
+        let (id, desc) = saved.strip_suffix("-desc").map_or((saved.as_str(), false), |id| (id, true));
+        let by = CardSort::parse(id).unwrap_or_default();
+        Order { by, desc, seed: if by == CardSort::Random { shuffle_seed() } else { 0 } }
+    }
+
+    /// Orders the deck's cards by `by`, starting the way that reads best for it (newest first for "Last updated"
+    /// and "Last reviewed"), and remembers it for this deck. Choosing Random again shuffles again.
+    pub fn set_sort(&mut self, by: CardSort) {
+        let desc = if by == self.order.by { self.order.desc } else { sort_starts_desc(by) };
+        let seed = if by == CardSort::Random { shuffle_seed() } else { 0 };
+        self.set_order(Order { by, desc, seed });
+    }
+
+    /// Puts the deck's cards in `order` and remembers it for this deck.
+    pub fn set_order(&mut self, order: Order) {
+        self.picking_sort = false;
+        if self.order == order {
+            return;
+        }
+        self.order = order;
+        let id = order.by.as_str();
+        let value = if order.desc { format!("{id}-desc") } else { id.to_string() };
+        let key = self.order_pref();
+        if let Err(e) = self.prefs.set(&key, &value) {
+            eprintln!("recall-desktop: {e}");
+        }
+        self.load_cards();
     }
 
     /// The search field changed: the list is asked again once typing pauses.
@@ -542,35 +669,49 @@ impl App {
         true
     }
 
+    /// Reviews the deck in the main pane, with its subdecks.
     pub fn start_review(&mut self) {
+        self.review_deck(self.deck.clone());
+    }
+
+    /// The inbox: every due card from every deck, from the top of the sidebar.
+    pub fn open_inbox(&mut self) {
+        self.review_deck(None);
+    }
+
+    fn review_deck(&mut self, deck: Option<Id>) {
         self.editor = None;
         self.settings = None;
-        let next = self.core.next_review(self.deck.as_deref());
+        let next = self.core.next_review(deck.as_deref());
         if let Some(next) = self.ok(next) {
-            self.review = Some(Review { next, shown: 1, started: Instant::now(), answered: 0, last: None });
+            self.review = Some(Review { deck, next, shown: 1, started: Instant::now(), answered: 0 });
         }
     }
 
     pub fn reveal(&mut self) {
-        if let Some(r) = self.review.as_mut().filter(|r| !r.revealed()) {
+        if let Some(r) = self.review.as_mut().filter(|r| r.card().is_some() && !r.revealed()) {
             r.shown += 1;
         }
     }
 
-    pub fn grade(&mut self, rating: u8) {
-        let Some(review) = self.review.as_ref().filter(|r| r.revealed()) else { return };
-        let card_id = review.card().expect("revealed").card.id.clone();
+    /// Answers the card on screen, at any side, and moves on to the next.
+    pub fn answer(&mut self, remembered: bool) {
+        let Some(review) = self.review.as_ref() else { return };
+        let Some(card) = review.card() else { return };
+        let card_id = card.card.id.clone();
+        let deck = review.deck.clone();
         let duration_ms = Some(review.started.elapsed().as_millis() as i64);
-        let answered = self.core.answer(Answer { card_id, rating, duration_ms });
-        let Some(card) = self.ok(answered) else { return };
-        let next = self.core.next_review(self.deck.as_deref());
+        let answered = self.core.answer(Answer { card_id, remembered, duration_ms });
+        if self.ok(answered).is_none() {
+            return;
+        }
+        let next = self.core.next_review(deck.as_deref());
         let Some(next) = self.ok(next) else { return };
         let review = self.review.as_mut().expect("reviewing");
         review.next = next;
         review.shown = 1;
         review.started = Instant::now();
         review.answered += 1;
-        review.last = Some(Answered { rating, due: card.schedule.due });
         let finished = review.card().is_none();
         if finished && self.first_run {
             // The first review is done: now the rest of the app can show itself.
@@ -593,34 +734,40 @@ impl App {
     }
 
     pub fn new_card(&mut self) {
-        let deck = self.deck.clone().or_else(|| self.decks.first().map(|d| d.deck.id.clone()));
-        let Some(deck) = deck else {
+        let Some(deck) = self.deck.clone() else {
             self.error = Some("Add a deck first".into());
             return;
         };
-        self.open_editor(None, String::new(), String::new(), deck);
+        self.open_editor(Editor::new(None, "", Vec::new(), deck));
     }
 
     pub fn edit_card(&mut self, id: &str) {
         let Some(c) = self.cards.iter().find(|c| c.card.id == id).cloned() else { return };
         self.search.focused = false;
-        self.open_editor(Some(c.card.id), c.card.content, c.card.tags.join(", "), c.card.deck_id);
+        self.open_editor(Editor::new(Some(c.card.id), &c.card.content, c.card.tags, c.card.deck_id));
     }
 
-    fn open_editor(&mut self, card: Option<Id>, content: String, tags: String, deck: Id) {
-        let mut content = TextEdit::new(content);
-        content.set_caret(content.text.len());
-        content.focused = true;
+    fn open_editor(&mut self, editor: Editor) {
         self.settings = None;
-        self.editor = Some(Editor {
-            card,
-            content,
-            tags: TextEdit::new(tags),
-            deck,
-            picking_deck: false,
-            confirm_delete: false,
-            error: None,
-        });
+        self.editor = Some(editor);
+        self.load_editor_tags();
+    }
+
+    /// What the tag menu suggests from: the editor's deck's tags first, then the library's. Again whenever the card
+    /// moves to another deck. Without them the menu just has nothing to offer; typing tags still works.
+    pub fn load_editor_tags(&mut self) {
+        let Some(deck) = self.editor.as_ref().map(|e| e.deck.clone()) else { return };
+        let tags = match self.core.tags(&deck) {
+            Ok(tags) => tags.into_iter().map(|t| t.tag).collect(),
+            Err(e) => {
+                eprintln!("recall-desktop: no tag suggestions: {e}");
+                Vec::new()
+            }
+        };
+        if let Some(e) = self.editor.as_mut() {
+            e.known_tags = tags;
+            e.tag_active = None;
+        }
     }
 
     pub fn cancel_editor(&mut self) {
@@ -629,13 +776,12 @@ impl App {
 
     pub fn save_editor(&mut self) {
         let Some(e) = self.editor.as_ref() else { return };
-        let content = e.content.text.trim().to_string();
+        let content = e.content();
         if content.is_empty() {
-            self.editor.as_mut().expect("editing").error = Some("Write the front of the card first".into());
+            self.editor.as_mut().expect("editing").error = Some("Write something on the card first".into());
             return;
         }
-        let tags: Vec<String> =
-            e.tags.text.split([',', ' ']).map(str::trim).filter(|t| !t.is_empty()).map(String::from).collect();
+        let tags = e.saved_tags();
         let deck = e.deck.clone();
         let saved = match &e.card {
             Some(id) => self.core.update_card(CardUpdate {
@@ -672,6 +818,8 @@ impl App {
     }
 
     pub fn start_new_deck(&mut self) {
+        self.deck_menu = false;
+        self.sidebar.set_open(true);
         let mut edit = TextEdit::new("");
         edit.focused = true;
         self.new_deck = Some(edit);
@@ -689,11 +837,143 @@ impl App {
         }
     }
 
+    /// Asks for a Mochi export, then imports it.
+    pub fn choose_mochi_export(&mut self, tx: &mut Tx) {
+        self.deck_menu = false;
+        let options = FileDialogOptions { title: "Import from Mochi".into(), ..FileDialogOptions::default() }
+            .filter("Mochi export", &["mochi"]);
+        tx.open_file(options, |s: &mut App, chosen, _| match chosen {
+            Ok(Some(path)) => s.import_mochi(&path),
+            Ok(None) => {}
+            Err(e) => s.error = Some(e.to_string()),
+        });
+    }
+
+    /// Imports a Mochi export and opens the first deck it added.
+    pub fn import_mochi(&mut self, path: &Path) {
+        let imported = self.core.import_mochi(path);
+        let Some(imported) = self.ok(imported) else { return };
+        self.refresh();
+        let top = imported
+            .decks
+            .iter()
+            .find(|d| d.parent_id.as_ref().is_none_or(|p| !imported.decks.iter().any(|o| &o.id == p)));
+        if let Some(deck) = top {
+            self.select_deck(Some(deck.id.clone()));
+        }
+        self.notice = Some(import_summary(&imported));
+    }
+
     pub fn open_settings(&mut self) {
         self.editor = None;
         self.review = None;
         let server = self.status.server.clone().unwrap_or_default();
-        self.settings = Some(Settings { server: TextEdit::new(server), error: None });
+        let (web, web_error) = match self.core.web_status() {
+            Ok(web) => (web, None),
+            Err(e) => (WebStatus::default(), Some(e)),
+        };
+        let (host, host_error) = match self.core.host_status() {
+            Ok(host) => (host, None),
+            Err(e) => (HostStatus::default(), Some(e)),
+        };
+        self.settings = Some(Settings {
+            server: TextEdit::new(server),
+            error: None,
+            web,
+            web_error,
+            show_token: false,
+            host,
+            host_error,
+            ticket: None,
+            host_at: self.clock,
+        });
+    }
+
+    /// Refetches the paired devices for Settings. A ticket on screen goes once a new device has paired with it.
+    fn refresh_host(&mut self) {
+        let Some(settings) = self.settings.as_ref() else { return };
+        if !settings.host.enabled && settings.ticket.is_none() {
+            return;
+        }
+        let host = self.core.host_status();
+        let clock = self.clock;
+        let Some(s) = self.settings.as_mut() else { return };
+        s.host_at = clock;
+        let Ok(host) = host else { return };
+        if let Some((_, paired)) = &s.ticket
+            && host.devices.len() > *paired
+        {
+            s.ticket = None;
+            if let Some(device) = host.devices.iter().max_by_key(|d| d.device.added_at) {
+                self.notice = Some(format!("Paired {}", device.device.name));
+            }
+        }
+        s.host = host;
+    }
+
+    /// Turns hosting phones on or off from Settings.
+    pub fn toggle_host(&mut self) {
+        let Some(on) = self.settings.as_ref().map(|s| !s.host.enabled) else { return };
+        let result = self.core.set_host(on);
+        let host = self.core.host_status();
+        if let Some(s) = self.settings.as_mut() {
+            s.host_error = result.err();
+            if !on {
+                s.ticket = None;
+            }
+            if let Ok(host) = host {
+                s.host = host;
+            }
+        }
+    }
+
+    /// Shows a new pairing ticket for a phone to scan.
+    pub fn pair_phone(&mut self) {
+        let ticket = self.core.host_pair();
+        let host = self.core.host_status();
+        let Some(s) = self.settings.as_mut() else { return };
+        if let Ok(host) = host {
+            s.host = host;
+        }
+        match ticket {
+            Ok(ticket) => {
+                s.ticket = Some((ticket, s.host.devices.len()));
+                s.host_error = None;
+            }
+            Err(e) => s.host_error = Some(e),
+        }
+    }
+
+    pub fn hide_ticket(&mut self) {
+        if let Some(s) = self.settings.as_mut() {
+            s.ticket = None;
+        }
+    }
+
+    /// Unpairs a phone. It keeps its decks, and stops syncing with this computer.
+    pub fn remove_device(&mut self, id: &str) {
+        let result = self.core.host_remove(id);
+        let host = self.core.host_status();
+        if let Some(s) = self.settings.as_mut() {
+            s.host_error = result.err();
+            if let Ok(host) = host {
+                s.host = host;
+            }
+        }
+    }
+
+    /// Turns web access on or off from Settings.
+    pub fn toggle_web(&mut self) {
+        let Some(on) = self.settings.as_ref().map(|s| !s.web.enabled) else { return };
+        let result = self.core.set_web(on);
+        // A failed start (the port is taken) still turned it on: show where it stands and why.
+        let web = self.core.web_status();
+        if let Some(s) = self.settings.as_mut() {
+            s.web_error = result.err();
+            if let Ok(web) = web {
+                s.web = web;
+            }
+        }
     }
 
     pub fn sign_in(&mut self) {
@@ -727,16 +1007,101 @@ impl App {
     }
 }
 
+/// "Imported 2 decks and 140 cards from Mochi.", and what was left behind.
+pub fn import_summary(i: &Imported) -> String {
+    let n = |count: u64, one: &str| if count == 1 { format!("1 {one}") } else { format!("{count} {one}s") };
+    let mut out = format!("Imported {} and {} from Mochi.", n(i.decks.len() as u64, "deck"), n(i.cards, "card"));
+    if i.skipped > 0 {
+        out.push_str(&format!(" {} in the trash or empty stayed behind.", n(i.skipped, "card")));
+    }
+    if i.attachments > 0 {
+        out.push_str(&format!(" Images and audio aren’t imported yet ({}).", n(i.attachments, "file")));
+    }
+    out
+}
+
+/// Each deck followed by its subdecks, alphabetical at every level (`decks` already is), with its depth. A deck whose
+/// parent isn't in the list is at the top.
+fn deck_tree(decks: &[DeckSummary]) -> Vec<(&DeckSummary, u8)> {
+    fn visit<'a>(decks: &'a [DeckSummary], parent: &str, depth: u8, out: &mut Vec<(&'a DeckSummary, u8)>) {
+        for d in decks.iter().filter(|d| d.deck.parent_id.as_deref() == Some(parent)) {
+            if out.iter().any(|(o, _)| o.deck.id == d.deck.id) {
+                continue;
+            }
+            out.push((d, depth));
+            visit(decks, &d.deck.id, depth.saturating_add(1), out);
+        }
+    }
+    let mut out = Vec::with_capacity(decks.len());
+    let top = |d: &&DeckSummary| d.deck.parent_id.as_ref().is_none_or(|p| !decks.iter().any(|o| &o.deck.id == p));
+    for d in decks.iter().filter(top) {
+        out.push((d, 0));
+        visit(decks, &d.deck.id, 1, &mut out);
+    }
+    out
+}
+
+/// Mochi's name for each sort, and what its two directions read as (`None` for Random, which has none).
+pub fn sort_label(by: CardSort) -> &'static str {
+    match by {
+        CardSort::Created => "Date created",
+        CardSort::Updated => "Last updated",
+        CardSort::Name => "Alphanumeric",
+        CardSort::Due => "Due date",
+        CardSort::Reviewed => "Last reviewed",
+        CardSort::Interval => "Last interval",
+        CardSort::Retention => "Retention rate",
+        CardSort::Random => "Random",
+    }
+}
+
+/// The sort button's name for `by`: one word, so the button barely changes width.
+pub fn sort_short_label(by: CardSort) -> &'static str {
+    match by {
+        CardSort::Created => "Created",
+        CardSort::Updated => "Updated",
+        CardSort::Name => "Name",
+        CardSort::Due => "Due",
+        CardSort::Reviewed => "Reviewed",
+        CardSort::Interval => "Interval",
+        CardSort::Retention => "Retention",
+        CardSort::Random => "Random",
+    }
+}
+
+/// What ascending and descending read as for `by`.
+pub fn sort_directions(by: CardSort) -> Option<(&'static str, &'static str)> {
+    Some(match by {
+        CardSort::Created | CardSort::Updated | CardSort::Reviewed => ("Oldest first", "Newest first"),
+        CardSort::Name => ("A to Z", "Z to A"),
+        CardSort::Due => ("Soonest first", "Latest first"),
+        CardSort::Interval => ("Shortest first", "Longest first"),
+        CardSort::Retention => ("Lowest first", "Highest first"),
+        CardSort::Random => return None,
+    })
+}
+
+fn sort_starts_desc(by: CardSort) -> bool {
+    matches!(by, CardSort::Updated | CardSort::Reviewed)
+}
+
+/// A new seed for Random, different each time it's asked for.
+fn shuffle_seed() -> u32 {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    (nanos as u32) ^ ((nanos >> 32) as u32)
+}
+
 /// The narrowest a grid tile gets before the grid drops a column.
-const TILE_MIN: f32 = 200.0;
+const TILE_MIN: f32 = 280.0;
 pub const GRID_GAP: f32 = 12.0;
 
-/// Columns of at least `TILE_MIN` that fit in `width`, from one to four; three before the width is known.
+/// Columns of at least `TILE_MIN` that fit in `width`, from one to eight; three before the width is known. Wide
+/// windows get more columns rather than wider tiles.
 pub fn grid_columns(width: f32) -> usize {
     if width <= 0.0 {
         return 3;
     }
-    (((width + GRID_GAP) / (TILE_MIN + GRID_GAP)).floor() as usize).clamp(1, 4)
+    (((width + GRID_GAP) / (TILE_MIN + GRID_GAP)).floor() as usize).clamp(1, 8)
 }
 
 /// Card `i` of `n` moved by an arrow in a grid of `cols` columns whose first cell is the "New card" tile.
@@ -760,9 +1125,10 @@ mod tests {
     #[test]
     fn grid_columns_follow_the_width() {
         assert_eq!(grid_columns(0.0), 3);
-        assert_eq!(grid_columns(720.0), 3);
-        assert_eq!(grid_columns(420.0), 2);
-        assert_eq!(grid_columns(150.0), 1);
+        assert_eq!(grid_columns(1000.0), 3);
+        assert_eq!(grid_columns(720.0), 2);
+        assert_eq!(grid_columns(420.0), 1);
+        assert_eq!(grid_columns(1300.0), 4);
     }
 
     #[test]
@@ -778,15 +1144,137 @@ mod tests {
     }
 
     #[test]
+    fn the_tag_menu_suggests_the_editors_deck_first() {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        let id = |s: &App, name: &str| s.decks.iter().find(|d| d.deck.name == name).map(|d| d.deck.id.clone());
+        s.select_deck(id(&s, "Rust"));
+        s.new_card();
+        let suggested = |s: &App| s.editor.as_ref().unwrap().known_tags.clone();
+        assert_eq!(suggested(&s)[..2], ["programming", "rust"], "Rust's tags first, though Spanish's are newer");
+        assert!(suggested(&s).contains(&"vocab".to_string()), "then the rest of the library");
+
+        s.editor.as_mut().unwrap().deck = id(&s, "Spanish").unwrap();
+        s.load_editor_tags();
+        let spanish = suggested(&s);
+        let rust_at = spanish.iter().position(|t| t == "rust").unwrap();
+        assert!(spanish[..rust_at].contains(&"vocab".to_string()), "moving the card moves its deck's tags up");
+    }
+
+    #[test]
     fn views_are_remembered_per_deck() {
         let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
         let spanish = s.decks.iter().find(|d| d.deck.name == "Spanish").map(|d| d.deck.id.clone());
+        let other = s.decks.iter().find(|d| d.deck.name != "Spanish").map(|d| d.deck.id.clone());
         s.select_deck(spanish.clone());
         s.set_view(CardsView::Column);
-        s.select_deck(None);
+        s.select_deck(other);
         assert_eq!(s.view, CardsView::Grid);
         s.select_deck(spanish);
         assert_eq!(s.view, CardsView::Column);
+    }
+
+    #[test]
+    fn sorts_are_remembered_per_deck_and_start_the_natural_way() {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        let spanish = s.decks.iter().find(|d| d.deck.name == "Spanish").map(|d| d.deck.id.clone());
+        let other = s.decks.iter().find(|d| d.deck.name != "Spanish").map(|d| d.deck.id.clone());
+        s.select_deck(spanish.clone());
+        s.set_sort(CardSort::Name);
+        let fronts: Vec<String> = s.cards.iter().map(|c| recall_core::sort::title_key(&c.sides[0])).collect();
+        assert_eq!(fronts.first().map(String::as_str), Some("aprovechar"));
+        assert!(fronts.windows(2).all(|w| w[0] <= w[1]), "{fronts:?}");
+        s.set_order(Order { desc: true, ..s.order });
+        s.set_sort(CardSort::Updated);
+        assert!(s.order.desc, "Last updated starts newest first");
+        s.set_sort(CardSort::Name);
+        s.select_deck(other);
+        assert_eq!(s.order, Order::default());
+        s.select_deck(spanish);
+        assert_eq!((s.order.by, s.order.desc), (CardSort::Name, false));
+    }
+
+    #[test]
+    fn never_reviewed_cards_stay_last() {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        let spanish = s.decks.iter().find(|d| d.deck.name == "Spanish").map(|d| d.deck.id.clone());
+        s.select_deck(spanish);
+        for desc in [false, true] {
+            s.set_order(Order { by: CardSort::Retention, desc, seed: 0 });
+            let seen: Vec<bool> = s.cards.iter().map(|c| c.schedule.reps > 0).collect();
+            assert!(seen.windows(2).all(|w| w[0] || !w[1]), "{seen:?}");
+        }
+    }
+
+    #[test]
+    fn a_deck_is_always_open() {
+        let s = App::new(Core::fixtures(Fixtures::LivedIn));
+        let first = s.deck_tree().first().map(|(d, _)| d.deck.id.clone());
+        assert!(s.deck.is_some() && s.deck == first);
+        assert_eq!(s.counts(), s.deck_summary().map(|d| (d.due, d.new)).unwrap());
+    }
+
+    #[test]
+    fn subdecks_follow_their_deck() {
+        let deck = |id: &str, name: &str, parent: Option<&str>| DeckSummary {
+            deck: crate::core::Deck {
+                id: id.into(),
+                name: name.into(),
+                parent_id: parent.map(String::from),
+                created_at: 0,
+                updated_at: 0,
+                deleted: false,
+            },
+            cards: 0,
+            due: 0,
+            new: 0,
+        };
+        // As the core sorts them: by name.
+        let decks = [
+            deck("v", "Verbs", Some("s")),
+            deck("a", "Arabic", None),
+            deck("i", "Irregular", Some("v")),
+            deck("s", "Spanish", None),
+            deck("o", "Orphan", Some("gone")),
+        ];
+        let tree: Vec<(&str, u8)> = deck_tree(&decks).iter().map(|(d, depth)| (d.deck.name.as_str(), *depth)).collect();
+        assert_eq!(tree, [("Arabic", 0), ("Spanish", 0), ("Verbs", 1), ("Irregular", 2), ("Orphan", 0)]);
+    }
+
+    #[test]
+    fn an_import_says_what_it_left_behind() {
+        let imported = Imported { decks: vec![], cards: 1, reviews: 0, skipped: 2, attachments: 3 };
+        assert_eq!(
+            import_summary(&imported),
+            "Imported 0 decks and 1 card from Mochi. 2 cards in the trash or empty stayed behind. \
+             Images and audio aren’t imported yet (3 files)."
+        );
+    }
+
+    #[test]
+    fn importing_on_sample_data_says_why_not() {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        s.import_mochi(Path::new("/tmp/deck.mochi"));
+        assert_eq!(s.error.as_deref(), Some("Importing isn’t available on sample data"));
+    }
+
+    #[test]
+    fn the_inbox_reviews_every_deck_and_answers_at_any_side() {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        let waiting = s.inbox_count();
+        s.open_inbox();
+        assert!(s.in_inbox());
+        let r = s.review.as_ref().unwrap();
+        assert_eq!(r.next.remaining.due + r.next.remaining.new, waiting);
+        let first = r.card().unwrap().card.id.clone();
+        assert!(!r.revealed());
+        s.answer(true);
+        let r = s.review.as_ref().unwrap();
+        assert_eq!(r.answered, 1, "answered from the front");
+        assert_ne!(r.card().map(|c| c.card.id.clone()), Some(first));
+        assert_eq!(s.inbox_count(), waiting - 1);
+        let deck = s.decks[0].deck.id.clone();
+        s.select_deck(Some(deck));
+        assert!(!s.in_inbox());
     }
 
     #[test]

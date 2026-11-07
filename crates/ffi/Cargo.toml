@@ -1,0 +1,24 @@
+[package]
+name = "recall-ffi"
+description = "Recall's core behind a C ABI, for the iOS and Android apps to link in"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["staticlib", "lib"]
+
+[features]
+default = ["hub"]
+# Self-hosted hub sync over Iroh. Builds for iOS as long as libc stays pinned below.
+hub = ["recall-core/hub"]
+
+[dependencies]
+recall-core = { path = "../core", default-features = false, features = ["import"] }
+serde_json = "=1.0.154"
+
+# Not used directly: pins Iroh's libc. libc 0.2.190 made `in6_ifreq` and the routing socket constants macOS-only, and
+# Iroh's `netdev` and `netwatch` need them on iOS too. Unpin once libc puts them back on iOS.
+[target.'cfg(target_os = "ios")'.dependencies]
+libc = "=0.2.189"

@@ -29,7 +29,11 @@ export const Card = Schema.Struct({
 export type Card = typeof Card.Type;
 
 export const Rating = Schema.Literals([1, 2, 3, 4]).annotate({
-  description: "1 again, 2 hard, 3 good, 4 easy.",
+  description: "The FSRS grade: 1 forgot, 3 remembered. Reviews from before answers were yes or no may be 2 or 4.",
+});
+
+export const Remembered = Schema.Boolean.annotate({
+  description: "Whether you remembered the card.",
 });
 
 export const Review = Schema.Struct({
@@ -113,6 +117,18 @@ export const CardUpdate = Schema.Struct({
 });
 export type CardUpdate = typeof CardUpdate.Type;
 
+export const CardSort = Schema.Literals([
+  "created",
+  "updated",
+  "name",
+  "due",
+  "reviewed",
+  "interval",
+  "retention",
+  "random",
+]);
+export type CardSort = typeof CardSort.Type;
+
 export interface CardQuery {
   readonly deck_id?: string | undefined;
   readonly q?: string | undefined;
@@ -120,6 +136,9 @@ export interface CardQuery {
   readonly due?: boolean | undefined;
   readonly limit?: number | undefined;
   readonly offset?: number | undefined;
+  readonly sort?: CardSort | undefined;
+  readonly desc?: boolean | undefined;
+  readonly seed?: number | undefined;
 }
 
 export const NextReview = Schema.Struct({
@@ -129,7 +148,7 @@ export const NextReview = Schema.Struct({
 export type NextReview = typeof NextReview.Type;
 
 export const Answer = Schema.Struct({
-  rating: Rating,
+  remembered: Remembered,
   duration_ms: Schema.optionalKey(Schema.NullOr(Schema.Int)),
 });
 
@@ -141,6 +160,9 @@ export const Stats = Schema.Struct({
   retention_30d: Schema.NullOr(Schema.Number),
 });
 export type Stats = typeof Stats.Type;
+
+export const TagSummary = Schema.Struct({ tag: Schema.String, cards: Schema.Int, last_used: Schema.Int });
+export type TagSummary = typeof TagSummary.Type;
 
 export const Ok = Schema.Struct({ ok: Schema.Literal(true) });
 

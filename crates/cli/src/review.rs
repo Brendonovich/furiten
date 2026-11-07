@@ -1,4 +1,4 @@
-//! Interactive review in a terminal: Enter (or Space) reveals, 1-4 grades, q quits.
+//! Interactive review in a terminal: Enter (or Space) reveals, 1 (or n) forgot, 2 (or y) remembered, q quits.
 
 use std::io::{IsTerminal, Read, Write};
 use std::process::{Command, Stdio};
@@ -35,16 +35,21 @@ pub fn interactive(client: &mut Client, deck_id: Option<&str>) -> Result<()> {
                 println!("\x1b[2m---\x1b[0m\n{side}");
             }
         }
-        prompt("[1] again  [2] hard  [3] good  [4] easy  [q] quit");
-        let mut rating = 0;
+        prompt("[1] forgot  [2] remembered  [q] quit");
+        let mut remembered = None;
         if !wait_for(|k| {
-            rating = if (b'1'..=b'4').contains(&k) { k - b'0' } else { 0 };
-            rating != 0
+            remembered = match k {
+                b'1' | b'n' | b'N' => Some(false),
+                b'2' | b'y' | b'Y' => Some(true),
+                _ => None,
+            };
+            remembered.is_some()
         })? {
             break;
         }
-        let answered = client.answer(&card.card.id, rating, Some(started.elapsed().as_millis() as i64))?;
-        println!("\x1b[2m{}\x1b[0m", output::answered(rating, &answered));
+        let remembered = remembered.expect("answered");
+        let answered = client.answer(&card.card.id, remembered, Some(started.elapsed().as_millis() as i64))?;
+        println!("\x1b[2m{}\x1b[0m", output::answered(remembered, &answered));
         reviewed += 1;
     }
     if reviewed > 0 {

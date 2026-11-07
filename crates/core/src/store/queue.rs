@@ -56,9 +56,6 @@ impl Store {
     }
 
     pub fn answer(&mut self, answer: Answer) -> Result<CardView> {
-        if Rating::from_u8(answer.rating).is_none() {
-            return Err(Error::invalid("rating must be 1 (again), 2 (hard), 3 (good) or 4 (easy)"));
-        }
         if answer.duration_ms.is_some_and(|d| d < 0) {
             return Err(Error::invalid("duration_ms can't be negative"));
         }
@@ -66,7 +63,7 @@ impl Store {
         let review = Review {
             id: ulid(),
             card_id: answer.card_id,
-            rating: answer.rating,
+            rating: if answer.remembered { Rating::Good } else { Rating::Again } as u8,
             reviewed_at: self.now(),
             duration_ms: answer.duration_ms,
         };

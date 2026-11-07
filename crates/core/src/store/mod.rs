@@ -4,7 +4,11 @@
 //! A store is either a device's or a hub's. A hub's store (see [`Store::open_hub`]) starts empty, answers sync
 //! requests with [`Store::serve_sync`], and never clears `dirty`: there, a row's `dirty` is the `seq` of the change
 //! that wrote its current value, since the outbox marker it comes from only ever increases.
+//!
+//! A device's store can also host (see [`Store::set_hosting`]): it serves sync to other devices the way a hub's
+//! does, with the same meaning of `dirty`, and doesn't sync anywhere itself while it hosts.
 
+mod importing;
 mod queue;
 mod schema;
 mod syncing;
@@ -15,7 +19,7 @@ use recall_srs::Scheduler;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::model::{Card, CardView, Deck, DeckSummary, Id, Schedule, State, normalize_tags, ulid};
-use crate::protocol::{CardQuery, CardUpdate, DeckUpdate, NewCard, NewDeck};
+use crate::protocol::{CardQuery, CardSort, CardUpdate, DeckUpdate, NewCard, NewDeck, TagSummary};
 use crate::{Error, Result};
 
 pub use syncing::{HubAddr, Outbox, SyncConfig};
@@ -24,6 +28,8 @@ pub struct Store {
     conn: Connection,
     scheduler: Scheduler,
     hub: bool,
+    /// A device's store serving sync to other devices.
+    hosting: bool,
     /// Fixed clock for tests.
     pub(crate) now: Option<i64>,
 }
@@ -58,8 +64,9 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        let mut store = Store { conn, scheduler: Scheduler::default(), hub, now: None };
+        let mut store = Store { conn, scheduler: Scheduler::default(), hub, hosting: false, now: None };
         schema::migrate(&mut store, hub)?;
+        store.hosting = !hub && syncing::meta::<bool>(&store.conn, "hosting")?.unwrap_or(false);
         let is_hub = syncing::meta::<bool>(&store.conn, "hub")?.unwrap_or(false);
         if is_hub != hub {
             let what = if is_hub { "a hub's store, not a device's" } else { "a device's store, not a hub's" };
@@ -70,6 +77,15 @@ impl Store {
 
     pub fn is_hub(&self) -> bool {
         self.hub
+    }
+
+    pub fn is_hosting(&self) -> bool {
+        self.hosting
+    }
+
+    /// Whether [`Store::serve_sync`] works: a hub's store, or a device's that hosts.
+    pub fn serves_sync(&self) -> bool {
+        self.hub || self.hosting
     }
 
     pub(crate) fn now(&self) -> i64 {
@@ -183,29 +199,62 @@ impl Store {
             }
             None => None,
         };
+        let by = query.sort.unwrap_or_default();
+        let desc = query.desc.unwrap_or(false);
         let sql = format!(
             "{CARD_VIEW} WHERE c.deleted = 0 \
              AND (?1 IS NULL OR c.deck_id IN (SELECT value FROM json_each(?1))) \
              AND (?2 IS NULL OR instr(lower(c.content), lower(?2)) > 0) \
              AND (?3 IS NULL OR EXISTS (SELECT 1 FROM json_each(c.tags) WHERE value = ?3)) \
              AND (?4 IS NULL OR s.due <= ?4) \
-             ORDER BY c.created_at, c.id LIMIT ?5 OFFSET ?6"
+             ORDER BY c.created_at {dir}, c.id {dir} LIMIT ?5 OFFSET ?6",
+            dir = if desc { "DESC" } else { "ASC" }
         );
         let tag = query.tag.as_deref().map(crate::model::normalize_tag);
         let due_before = query.due.unwrap_or(false).then(|| self.now());
         let q = query.q.as_deref().filter(|q| !q.is_empty());
-        let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
-        let offset = query.offset.unwrap_or(0);
-        let cards = self
+        let limit = i64::from(query.limit.unwrap_or(DEFAULT_LIMIT));
+        let offset = i64::from(query.offset.unwrap_or(0));
+        // Creation order pages in SQL; every other order sorts all the matches, then pages.
+        let (page_limit, page_offset) = if by == CardSort::Created { (limit, offset) } else { (-1, 0) };
+        let mut cards: Vec<CardView> = self
             .conn
             .prepare(&sql)?
-            .query_map(params![scope, q, tag, due_before, limit, offset], card_view_row)?
+            .query_map(params![scope, q, tag, due_before, page_limit, page_offset], card_view_row)?
             .collect::<rusqlite::Result<_>>()?;
+        if by != CardSort::Created {
+            crate::sort::sort(&mut cards, by, desc, query.seed.unwrap_or(0));
+            cards = cards.into_iter().skip(offset as usize).take(limit as usize).collect();
+        }
         Ok(cards)
     }
 
     pub fn card(&self, id: &str) -> Result<CardView> {
         card_view(&self.conn, id)?.filter(|c| !c.card.deleted).ok_or_else(|| Error::not_found("card", id))
+    }
+
+    /// Every tag on a live card, the most recently used first (ties by name). With `deck_id`, the tags on cards in
+    /// that deck or its subdecks come first, then the rest.
+    pub fn tags(&self, deck_id: Option<&str>) -> Result<Vec<TagSummary>> {
+        let scope = match deck_id {
+            Some(id) => {
+                self.deck(id)?;
+                Some(serde_json::to_string(&subtree(&self.conn, id)?)?)
+            }
+            None => None,
+        };
+        let tags = self
+            .conn
+            .prepare(
+                "SELECT t.value, COUNT(*), MAX(c.updated_at) FROM cards c, json_each(c.tags) t \
+                 WHERE c.deleted = 0 GROUP BY t.value \
+                 ORDER BY MAX(c.deck_id IN (SELECT value FROM json_each(?1))) DESC, MAX(c.updated_at) DESC, t.value",
+            )?
+            .query_map(params![scope.unwrap_or_else(|| "[]".into())], |row| {
+                Ok(TagSummary { tag: row.get(0)?, cards: row.get::<_, i64>(1)? as u64, last_used: row.get(2)? })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(tags)
     }
 
     pub fn create_card(&mut self, new: NewCard) -> Result<CardView> {

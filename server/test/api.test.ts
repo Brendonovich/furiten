@@ -141,6 +141,24 @@ describe("cards", () => {
     expect((await a.get("/v1/cards?limit=-1")).status).toBe(400);
   });
 
+  test("sort, reverse and shuffle", async () => {
+    const d = (await a.post("/v1/decks", { name: "Sorted" })).body.id;
+    const made = (
+      await a.post("/v1/cards", {
+        cards: ["Card 10", "card 9", "**Apple**"].map((content) => ({ deck_id: d, content })),
+      })
+    ).body.cards;
+    await a.post(`/v1/cards/${made[1].id}/reviews`, { remembered: true });
+    const fronts = async (query: string) =>
+      (await a.get(`/v1/cards?deck_id=${d}&${query}`)).body.cards.map((c: any) => c.sides[0]);
+    expect(await fronts("desc=true")).toEqual(["**Apple**", "card 9", "Card 10"]);
+    expect(await fronts("sort=name")).toEqual(["**Apple**", "card 9", "Card 10"]);
+    expect(await fronts("sort=name&limit=1&offset=1")).toEqual(["card 9"]);
+    expect(await fronts("sort=reviewed&desc=true")).toEqual(["card 9", "Card 10", "**Apple**"]);
+    expect(await fronts("sort=random&seed=3")).toEqual(await fronts("sort=random&seed=3"));
+    expect((await a.get(`/v1/cards?sort=shuffled`)).status).toBe(400);
+  });
+
   test("update and delete", async () => {
     const card = (await a.post("/v1/cards", { deck_id: deck, content: "old" })).body;
     const updated = await a.patch(`/v1/cards/${card.id}`, { content: "new\n---\nback", tags: ["X"], deck_id: other });
@@ -149,6 +167,18 @@ describe("cards", () => {
     expect((await a.delete(`/v1/cards/${card.id}`)).body).toEqual({ ok: true });
     expect((await a.get(`/v1/cards/${card.id}`)).status).toBe(404);
     expect((await a.patch(`/v1/cards/${card.id}`, { content: "x" })).status).toBe(404);
+  });
+
+  test("tags, the deck's first and then the most recently used", async () => {
+    const b = await account();
+    const one = (await b.post("/v1/decks", { name: "One" })).body.id;
+    const two = (await b.post("/v1/decks", { name: "Two" })).body.id;
+    await b.post("/v1/cards", { deck_id: one, content: "a", tags: ["old", "shared"] });
+    await b.post("/v1/cards", { deck_id: two, content: "b", tags: ["new", "shared"] });
+    const tags = async (query = "") => (await b.get(`/v1/tags${query}`)).body.tags.map((t: any) => t.tag);
+    expect(await tags()).toEqual(["new", "shared", "old"]);
+    expect(await tags(`?deck_id=${one}`)).toEqual(["shared", "old", "new"]);
+    expect((await b.get("/v1/tags")).body.tags[1]).toEqual({ tag: "shared", cards: 2, last_used: expect.any(Number) });
   });
 });
 
@@ -169,7 +199,7 @@ describe("reviewing", () => {
     expect(next.body.card.id).toBe(first.id);
     expect(next.body.remaining).toEqual({ due: 0, new: 2 });
 
-    const answered = await a.post(`/v1/cards/${first.id}/reviews`, { rating: 3, duration_ms: 1200 });
+    const answered = await a.post(`/v1/cards/${first.id}/reviews`, { remembered: true, duration_ms: 1200 });
     expect(answered.status).toBe(200);
     expect(answered.body.schedule).toMatchObject({ state: "learning", reps: 1 });
     expect(answered.body.schedule.due - answered.body.schedule.last_review).toBe(10 * 60_000);
@@ -178,9 +208,10 @@ describe("reviewing", () => {
     expect(after.body.card.id).toBe(second.id);
     expect(after.body.remaining).toEqual({ due: 0, new: 1 });
 
-    expect((await a.post(`/v1/cards/${first.id}/reviews`, { rating: 5 })).status).toBe(400);
-    expect((await a.post(`/v1/cards/${first.id}/reviews`, { rating: 3, duration_ms: -1 })).status).toBe(400);
-    expect((await a.post(`/v1/cards/01M683DAPX00AV4285VSMKDMEC/reviews`, { rating: 3 })).status).toBe(404);
+    expect((await a.post(`/v1/cards/${first.id}/reviews`, { rating: 3 })).status).toBe(400);
+    expect((await a.post(`/v1/cards/${first.id}/reviews`, { remembered: "yes" })).status).toBe(400);
+    expect((await a.post(`/v1/cards/${first.id}/reviews`, { remembered: true, duration_ms: -1 })).status).toBe(400);
+    expect((await a.post(`/v1/cards/01M683DAPX00AV4285VSMKDMEC/reviews`, { remembered: true })).status).toBe(404);
 
     const stats = await a.get(`/v1/stats?deck_id=${deck}`);
     expect(stats.body).toEqual({ cards: 2, due: 0, new: 1, reviews_today: 1, retention_30d: null });

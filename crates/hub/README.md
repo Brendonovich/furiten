@@ -8,6 +8,10 @@ It connects over [Iroh](https://www.iroh.computer): each side is dialled by its 
 end-to-end encrypted, direct where possible and through a relay otherwise. You don't open ports, set up DNS or get
 certificates. Only devices you paired can connect. The protocol is in `docs/contract.md` ("Self-hosted hub").
 
+If all you want is your phone in step with your computer, you may not need it: the Recall desktop app can host its
+own library over the same protocol (`recall host pair`, or Settings → "Sync with your phone"). A hub is for when you
+want sync that doesn't depend on that computer being on.
+
 ## Install
 
 ```sh

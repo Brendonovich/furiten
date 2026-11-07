@@ -1,0 +1,1997 @@
+/*
+ * Anomaly's look, from OpenCode's design system (@opencode/ui): its colour palette and tokens, its Inter and mono
+ * fonts, and its button and text-input styles on the same markup. Always dark, with OpenCode's dark values (the
+ * package applies them from JS, so they're set here). The app's own variables below are aliases of those tokens.
+ */
+@import "@opencode/ui/styles/tokens";
+@import "@opencode/ui/button.css";
+@import "@opencode/ui/text-input.css";
+
+@font-face {
+  font-family: "Inter";
+  src: url("@opencode/ui/fonts/Inter.ttf") format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("@opencode/ui/fonts/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --font-family-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* OpenCode's default dark theme (packages/ui/src/theme/themes/oc-2.json, which overrides v2/mapping.ts). */
+  --v2-background-bg-base: var(--v2-grey-1100);
+  --v2-background-bg-deep: var(--v2-grey-1200);
+  --v2-background-bg-layer-01: var(--v2-grey-1000);
+  --v2-background-bg-layer-02: var(--v2-grey-900);
+  --v2-background-bg-layer-03: var(--v2-grey-800);
+  --v2-background-bg-layer-04: var(--v2-grey-700);
+  --v2-background-bg-inverse: var(--v2-grey-50);
+  --v2-background-bg-contrast: var(--v2-grey-700);
+  --v2-background-bg-button-neutral: var(--v2-alpha-light-6);
+  --v2-background-bg-accent: var(--v2-blue-600);
+  --v2-text-text-base: var(--v2-grey-100);
+  --v2-text-text-muted: var(--v2-grey-500);
+  --v2-text-text-faint: var(--v2-grey-600);
+  --v2-text-text-inverse: var(--v2-grey-1100);
+  --v2-text-text-contrast: var(--v2-grey-50);
+  --v2-text-text-accent: var(--v2-blue-400);
+  --v2-text-text-accent-hover: var(--v2-blue-300);
+  --v2-icon-icon-base: var(--v2-grey-400);
+  --v2-icon-icon-muted: var(--v2-grey-600);
+  --v2-icon-icon-faint: var(--v2-grey-700);
+  --v2-icon-icon-inverse: var(--v2-grey-1100);
+  --v2-icon-icon-contrast: var(--v2-grey-100);
+  --v2-border-border-muted: var(--v2-alpha-light-8);
+  --v2-border-border-base: var(--v2-alpha-light-10);
+  --v2-border-border-strong: var(--v2-alpha-light-20);
+  --v2-border-border-inverse: var(--v2-grey-100);
+  --v2-border-border-focus: var(--v2-blue-500);
+  --v2-overlay-simple-overlay-hover: var(--v2-alpha-light-6);
+  --v2-overlay-simple-overlay-pressed: var(--v2-alpha-light-10);
+  --v2-overlay-simple-overlay-contrast-hover: var(--v2-alpha-dark-24);
+  --v2-overlay-simple-overlay-contrast-pressed: var(--v2-alpha-dark-40);
+  --v2-overlay-simple-overlay-scrim: var(--v2-alpha-dark-60);
+  --v2-state-bg-danger: var(--v2-red-1200);
+  --v2-state-fg-danger: var(--v2-red-500);
+  --v2-state-border-danger: var(--v2-red-900);
+  --v2-elevation-raised:
+    0px 2px 4px 0px var(--v2-alpha-dark-30), 0px 1px 2px 0px var(--v2-alpha-dark-30),
+    0px 0px 0px 0.5px var(--v2-alpha-light-16), 0px -0.5px 0px 0px var(--v2-alpha-light-6);
+  --v2-elevation-floating:
+    0px 8px 16px 0px var(--v2-alpha-dark-30), 0px 4px 8px 0px var(--v2-alpha-dark-30),
+    0px 0px 0px 0.5px var(--v2-alpha-light-16), 0px -0.5px 0px 0px var(--v2-alpha-light-6);
+  --v2-elevation-overlay:
+    0px 16px 32px 0px var(--v2-alpha-dark-30), 0px 8px 16px 0px var(--v2-alpha-dark-30),
+    0px 0px 0px 0.5px var(--v2-alpha-light-16), 0px -0.5px 0px 0px var(--v2-alpha-light-6);
+  --v2-elevation-input:
+    0px 1px 2px 0px var(--v2-alpha-dark-0), 0px 0px 0px 0.5px var(--v2-alpha-light-16),
+    0px -0.5px 0px 0px var(--v2-alpha-light-6);
+  --v2-elevation-button-neutral:
+    0px 1px 2px 0px var(--v2-alpha-dark-40), 0px 0px 0px 0.5px var(--v2-alpha-light-20),
+    0px -0.5px 0px 0px var(--v2-alpha-light-10);
+  --v2-elevation-button-contrast:
+    0px 1px 2px 0px var(--v2-alpha-dark-40), 0px 0px 0px 0.5px var(--v2-alpha-light-40),
+    0px -0.5px 0px 0px var(--v2-alpha-light-30);
+
+  /*
+   * The app's names for them, laid out like OpenCode's desktop app: the drawer sits on its deep background (the
+   * sidebar and titlebar) and the page is a panel of its base background, with each layer a shade lighter.
+   */
+  --page: var(--v2-background-bg-base);
+  --surface: var(--v2-background-bg-deep);
+  --bg: var(--v2-background-bg-base);
+  --layer-1: var(--v2-background-bg-layer-01);
+  --layer-2: var(--v2-background-bg-layer-02);
+  --layer-3: var(--v2-background-bg-layer-03);
+  --text: var(--v2-text-text-base);
+  --muted: var(--v2-text-text-muted);
+  --faint: var(--v2-text-text-faint);
+  --accent: var(--v2-text-text-accent);
+  --accent-soft: color-mix(in srgb, var(--v2-blue-400) 14%, transparent);
+  --border-muted: var(--v2-border-border-muted);
+  --border: var(--v2-border-border-base);
+  --border-strong: var(--v2-border-border-strong);
+  --focus: var(--v2-border-border-focus);
+  --danger: var(--v2-state-fg-danger);
+  --forgot: var(--v2-red-500);
+  --remembered: var(--v2-green-500);
+  --shadow: var(--v2-elevation-floating);
+  /* Lit edges, as OpenCode's surfaces have: a hairline ring with a brighter line on top, as if lit from above. Use
+     these rather than a solid border on anything that sits on the page; keep solid or dashed lines for dividers. */
+  --edge: var(--v2-elevation-input);
+  --edge-raised: var(--v2-elevation-raised);
+  --edge-control: var(--v2-elevation-button-neutral);
+  --radius: 10px;
+  --font: var(--font-family-sans);
+  --mono: var(--font-family-mono);
+  --top: env(safe-area-inset-top);
+  --bottom: env(safe-area-inset-bottom);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--page);
+  color: var(--text);
+  font: 15px/1.45 var(--font);
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#root {
+  height: 100%;
+}
+
+/* An iOS home-screen app drawn under the status bar lays out in a viewport one status bar short of the screen, so
+   fixed layers stop above a strip at the bottom. There 100vh is the whole screen: size the page to it, and transform
+   body so it, not the short viewport, holds the fixed layers. */
+:root[data-standalone],
+:root[data-standalone] body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+:root[data-standalone] body {
+  transform: translateZ(0);
+}
+
+/* Resets sit in the base layer, under OpenCode's component layer, so its buttons and fields keep their styles. */
+@layer base {
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  a.deck-row,
+  a.sync-row {
+    text-decoration: none;
+    touch-action: manipulation;
+  }
+
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* iOS zooms into inputs under 16px. */
+  input,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+.icon {
+  flex: none;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.faint {
+  color: var(--faint);
+}
+
+.accent {
+  color: var(--accent);
+}
+
+.small {
+  font-size: 13px;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.center {
+  text-align: center;
+  margin-top: 30vh;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.smallcaps {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.smallcaps.accent,
+.smallcaps .accent {
+  color: var(--accent);
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0;
+}
+
+/* OpenCode's buttons and fields at phone size: their colours, shadows and states, on a 44 px target. */
+
+[data-component="button-v2"][data-size="touch"] {
+  height: 44px;
+  padding: 0 16px;
+  gap: 8px;
+  border-radius: 10px;
+  font-size: 15px;
+  line-height: 20px;
+  white-space: nowrap;
+  transition:
+    transform 0.12s,
+    background-color 85ms ease-out,
+    box-shadow 85ms ease-out;
+}
+
+[data-component="button-v2"][data-size="touch"]:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+[data-component="button-v2"][data-size="touch"]:disabled {
+  opacity: 0.45;
+}
+
+/* A focus ring is for keyboards; on a touch screen it only marks whatever was focused in code. */
+@media (hover: none) and (pointer: coarse) {
+  [data-component="button-v2"]:focus-visible {
+    outline: none;
+  }
+}
+
+[data-component="button-v2"].wide {
+  width: 100%;
+}
+
+.button-detail {
+  font-weight: 400;
+  opacity: 0.6;
+  font-size: 13px;
+}
+
+[data-component="text-input-v2"][data-appearance="touch"] {
+  width: 100%;
+  height: 44px;
+  border-radius: 10px;
+  padding-inline-end: 4px;
+}
+
+[data-component="text-input-v2"][data-appearance="touch"] [data-slot="text-input-v2-input"] {
+  /* 16 px keeps iOS from zooming into the field. */
+  font-size: 16px;
+  line-height: 20px;
+  padding-inline: 12px 0;
+  color: var(--text);
+}
+
+[data-component="text-input-v2"][data-appearance="touch"][data-leading-icon] [data-slot="text-input-v2-input"] {
+  padding-inline-start: 0;
+}
+
+[data-component="text-input-v2"][data-appearance="touch"] [data-slot="text-input-v2-leading-icon"] {
+  padding-inline-start: 12px;
+  color: var(--faint);
+}
+
+[data-component="text-input-v2"] [data-slot="text-input-v2-input"].mono {
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+[data-component="text-input-v2"] [data-slot="text-input-v2-trailing"] {
+  display: flex;
+  align-items: center;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--muted);
+}
+
+.icon-button:active {
+  background: var(--layer-2);
+}
+
+.icon-button.small {
+  width: 32px;
+  height: 32px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--layer-2);
+  box-shadow: var(--edge-control);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chip.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 14px;
+}
+
+/* The shell: drawer under the page, the page slides right to show it. */
+
+.shell {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+/* Closed and open here; a drag moves them inline (Drawer.tsx). Each is its own layer, so moving one repaints nothing. */
+.drawer {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--drawer-width);
+  transform: translate3d(calc(var(--drawer-width) * -0.3), 0, 0);
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.page {
+  position: absolute;
+  inset: 0;
+  background: var(--page);
+  transform: translate3d(0, 0, 0);
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: -1px 0 0 var(--border-muted), -12px 0 32px #0000001a;
+  will-change: transform;
+}
+
+.shell.open .drawer {
+  transform: translate3d(0, 0, 0);
+}
+
+.shell.open .page {
+  transform: translate3d(var(--drawer-width), 0, 0);
+}
+
+.shell.dragging .drawer,
+.shell.dragging .page,
+.shell.dragging .scrim {
+  transition: none;
+}
+
+/* Always there, so a drag never has to lay it out; it only takes taps while the drawer is open. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: #0000004d;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.32s;
+  z-index: 20;
+  will-change: opacity;
+}
+
+.shell.open .scrim {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (min-width: 900px) {
+  .shell .drawer,
+  .shell.open .drawer {
+    width: 280px;
+    transform: none;
+  }
+  .shell .page,
+  .shell.open .page {
+    inset: 8px 8px 8px 280px;
+    transform: none;
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--v2-elevation-raised);
+  }
+  .scrim,
+  .toolbar-balance,
+  .toolbar > .icon-button[aria-label="Decks"] {
+    display: none;
+  }
+}
+
+/* Sidebar */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: calc(var(--top) + 8px) 10px calc(var(--bottom) + 8px);
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 4px 10px;
+}
+
+.deck-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.deck-row,
+.sync-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px 0 calc(12px + var(--depth, 0) * 18px);
+  border-radius: 10px;
+  text-align: left;
+  color: var(--muted);
+}
+
+.deck-row.selected,
+.sync-row.selected {
+  background: var(--layer-2);
+  color: var(--text);
+}
+
+.deck-row:active,
+.sync-row:active {
+  background: var(--layer-3);
+}
+
+.deck-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.deck-counts {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-counts .due {
+  color: var(--accent);
+}
+
+.deck-counts .new {
+  color: var(--faint);
+}
+
+.inbox-row {
+  margin-bottom: 8px;
+}
+
+.deck-row.naming input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  padding: 8px 0;
+}
+
+.sync-row {
+  border-top: 1px solid var(--border-muted);
+  border-radius: 0;
+  padding-top: 6px;
+}
+
+.sync-row span:nth-of-type(1) {
+  flex: 1;
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Screens */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: calc(var(--top) + 4px) 6px 4px;
+  min-height: calc(var(--top) + 56px);
+  background: var(--page);
+  z-index: 2;
+}
+
+.toolbar-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.toolbar-title.stacked {
+  display: flex;
+  flex-direction: column;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.toolbar-title.stacked .small {
+  font-weight: 450;
+  letter-spacing: 0;
+}
+
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* The search field's edge is a box-shadow ring outside it; the toolbar above paints over anything touching it. */
+  padding: 2px 14px 8px;
+}
+
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Sorting sits at the row's far end, away from the view switcher. */
+.sort-controls {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--layer-2);
+}
+
+.segmented button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 40px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--faint);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.segmented button.active {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--edge-control);
+}
+
+.select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 11px;
+  background: var(--layer-2);
+  box-shadow: var(--edge-control);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.select span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  font-size: 16px;
+}
+
+.select.icon-only {
+  justify-content: center;
+  width: 40px;
+  padding: 0;
+}
+
+/* Sort and direction as segments: the picker is a native select laid over a segment. */
+.sortbar button,
+.sort-pick {
+  color: var(--muted);
+}
+
+.sort-pick {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  min-width: 40px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.sort-pick select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  font-size: 16px;
+}
+
+.sort-pick.labelled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 0 10px;
+}
+
+/* A tag filter that's on is lit, like the current view, and long tags are cut short. */
+.sort-pick.active {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--edge-control);
+}
+
+.sort-pick span {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sortbar > * + *::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--border-muted);
+}
+
+.sortbar > * + * {
+  position: relative;
+}
+
+/* Vertical scrollers the drawer is dragged over only pan up and down, so a sideways drag goes straight to Drawer.tsx;
+   otherwise iOS starts a scroll first and then hands over touch moves late and in bursts, and the drawer stutters. */
+.cards-scroll,
+.detail,
+.deck-tree {
+  touch-action: pan-y;
+}
+
+.cards-scroll {
+  flex: 1;
+  overflow-y: auto;
+  /* 2 px up top so the first row's lit edge isn't clipped by the scroller. */
+  padding: 2px 14px calc(var(--bottom) + 96px);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Grid and list tiles */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: 10px;
+}
+
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 150px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--layer-1);
+  box-shadow: var(--edge-raised);
+  text-align: left;
+  overflow: hidden;
+  transition: transform 0.12s;
+}
+
+.tile:active {
+  transform: scale(0.98);
+}
+
+.list .tile {
+  min-height: 0;
+  padding: 18px;
+}
+
+.tile .markdown {
+  flex: 1;
+  max-height: 168px;
+  overflow: hidden;
+  /* Fades only where a long front reaches the cap. */
+  mask-image: linear-gradient(to bottom, #000 136px, transparent 168px);
+}
+
+.list .tile .markdown {
+  max-height: 216px;
+  mask-image: linear-gradient(to bottom, #000 184px, transparent 216px);
+}
+
+.tile-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.new-tile,
+.new-compact {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: none;
+  box-shadow: none;
+  border: 1.5px dashed var(--border-strong);
+  color: var(--faint);
+  font-weight: 500;
+  flex-direction: row;
+}
+
+.list .new-tile {
+  min-height: 52px;
+  padding: 0;
+}
+
+.grid .new-tile {
+  min-height: 150px;
+}
+
+.size-xl {
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 500;
+}
+
+.size-l {
+  font-size: 22px;
+  line-height: 29px;
+}
+
+.size-m {
+  font-size: 18px;
+  line-height: 26px;
+}
+
+.size-s {
+  font-size: 16px;
+  line-height: 23px;
+}
+
+.grid .size-xl {
+  font-size: 25px;
+  line-height: 31px;
+}
+
+.grid .size-l {
+  font-size: 19px;
+  line-height: 26px;
+}
+
+.grid .size-m,
+.grid .size-s {
+  font-size: 16px;
+  line-height: 22px;
+}
+
+/* Column view: a list, and the selected card's detail beside it (over it on a phone). */
+
+.columns {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.compact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.compact.selected {
+  background: var(--layer-2);
+}
+
+.new-compact {
+  flex-direction: row;
+  min-height: 48px;
+  margin-bottom: 6px;
+}
+
+.compact-front {
+  font-size: 15px;
+  font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.detail {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  overflow-y: auto;
+  background: var(--page);
+  padding: calc(var(--top) + 8px) 20px calc(var(--bottom) + 32px);
+  font-size: 21px;
+  line-height: 1.5;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  margin: 0 -8px 12px;
+}
+
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+@media (min-width: 700px) {
+  .column-list {
+    flex: 0 0 min(340px, 38%);
+    position: sticky;
+    top: 0;
+  }
+  .detail {
+    position: sticky;
+    top: 0;
+    flex: 1;
+    z-index: auto;
+    padding: 20px 24px;
+    border-radius: var(--radius);
+    background: var(--layer-1);
+    box-shadow: var(--edge-raised);
+  }
+  .only-narrow {
+    visibility: hidden;
+  }
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badge {
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.side-rule {
+  border: 0;
+  border-top: 1px solid var(--border-strong);
+  margin: 20px 0;
+}
+
+/* Deck footer: search on the left and New card on the right float over the cards; search opens into a field across
+   it, which rides up on the keyboard (the viewport resizes for it, index.html). */
+
+.deck-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px calc(var(--bottom) + 14px);
+  background: linear-gradient(to top, var(--page) 55%, transparent);
+  pointer-events: none;
+  /* Padding with translate, so leaving the keyboard is one movement rather than a jump up and a slide down. */
+  transition: opacity 0.15s, translate 0.15s, padding-bottom 0.15s;
+}
+
+.deck-footer > * {
+  pointer-events: auto;
+}
+
+/* On the keyboard (DeckFooter sets --keyboard): lifted by what it covers, and without the home indicator's room. */
+.deck-footer.over-keyboard {
+  translate: 0 calc(-1 * var(--keyboard));
+  padding-bottom: 8px;
+  background: linear-gradient(to top, var(--page) 70%, transparent);
+}
+
+/* Fills the page from the lifted footer down to where it rests (under the keyboard), so its background doesn't end in
+   mid-air over the cards. Its height follows the lift, so its foot stays put while the footer moves. */
+.deck-footer::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: var(--keyboard, 0px);
+  background: var(--page);
+  pointer-events: none;
+  transition: height 0.15s;
+}
+
+/* As tall and round as the buttons beside it. */
+.deck-footer [data-component="text-input-v2"][data-appearance="touch"].search {
+  height: 52px;
+  border-radius: 14px;
+}
+
+/* The field takes the footer's width, between nothing on the left and the close button on the right. */
+.deck-footer.searching .search {
+  flex: 1;
+  animation: search-open 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.deck-footer.searching .spacer {
+  display: none;
+}
+
+@keyframes search-open {
+  from {
+    opacity: 0;
+    clip-path: inset(0 calc(100% - 52px) 0 0 round 14px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck-footer.searching .search {
+    animation: none;
+  }
+}
+
+[data-component="button-v2"].fab {
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border-radius: 14px;
+  background: var(--layer-2);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 360px;
+  margin: 12vh auto 0;
+  padding: 0 20px;
+  text-align: center;
+}
+
+.empty h2 {
+  margin: 0;
+  font-size: 21px;
+  letter-spacing: -0.02em;
+}
+
+.empty p {
+  margin: 0;
+}
+
+/* Markdown */
+
+.markdown {
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown pre,
+.markdown table {
+  margin: 0 0 0.6em;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 0 0 0.4em;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.markdown h1 {
+  font-size: 1.4em;
+}
+
+.markdown h2 {
+  font-size: 1.25em;
+}
+
+.markdown h3 {
+  font-size: 1.12em;
+}
+
+.markdown strong {
+  font-weight: 600;
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+.markdown code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--layer-3);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.markdown pre {
+  background: var(--layer-3);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown blockquote {
+  color: var(--muted);
+  border-left: 3px solid var(--border-strong);
+  padding-left: 12px;
+  margin-left: 0;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 1.3em;
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Review */
+
+.review {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+  animation: rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.review.inline {
+  position: relative;
+  z-index: auto;
+  height: 100%;
+  animation: none;
+}
+
+.review-deck {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px 4px;
+  line-height: 1.3;
+}
+
+.review-deck .icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+.review-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Top-anchored, so revealing a side grows the card downward without moving the front. */
+  padding: 8px 16px;
+  overflow: hidden;
+}
+
+/* As wide as its card's text needs, up to a comfortable measure; the deck lines up with the card's left edge. */
+.review-column {
+  display: flex;
+  flex-direction: column;
+  /* On a phone that's the full width, as far in from the edges as the answer buttons. */
+  min-width: min(100%, 420px);
+  max-width: min(100%, 620px);
+  min-height: 0;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+}
+
+@media (min-width: 900px) {
+  .review-column {
+    max-width: min(100%, 760px);
+  }
+}
+
+.review-card {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 24px;
+  border-radius: 18px;
+  background: var(--layer-1);
+  /* --swipe is the answer's colour as the card is dragged (Review.tsx): a thin edge with a glow either side of it.
+     The glow outside stays within the stage's padding, which clips anything further. */
+  --swipe: transparent;
+  outline: 1px solid var(--swipe);
+  box-shadow:
+    var(--shadow),
+    0 0 8px color-mix(in srgb, var(--swipe) 50%, transparent),
+    inset 0 0 20px color-mix(in srgb, var(--swipe) 30%, transparent);
+  font-size: 26px;
+  line-height: 36px;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Only the card comes in; the deck above it stays put. */
+  animation: card-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.review-card.settling {
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    outline-color 0.3s ease-out,
+    box-shadow 0.3s ease-out;
+}
+
+/* An answered card goes fast and slows as it reaches the edge, and is off the screen as it ends (FLY_OFF in
+   Review.tsx). The iOS app uses these same curves (`ReviewCurve` in apps/ios/Recall/Views/ReviewView.swift). */
+.review-card.leaving {
+  transition:
+    transform 0.22s cubic-bezier(0.25, 0.6, 0.4, 1),
+    outline-color 0.15s ease-out,
+    box-shadow 0.15s ease-out;
+}
+
+.reveal-in {
+  animation: reveal 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+.review-card .side-rule {
+  margin: 22px -24px;
+  border: 0;
+  height: 1px;
+  background: repeating-linear-gradient(to right, var(--border-strong) 0 3px, transparent 3px 7px);
+}
+
+.review-tags {
+  margin-top: 24px;
+  line-height: 1.3;
+}
+
+.tap-hint {
+  flex: none;
+  margin: 20px 0 0;
+  font-size: 14px;
+  text-align: center;
+  animation: fade-in 0.32s ease-out;
+}
+
+.tap-hint.settling {
+  transition: opacity 0.2s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.review-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px calc(var(--bottom) + 12px);
+}
+
+.review-controls [data-component="button-v2"][data-size="touch"].wide {
+  max-width: 620px;
+  min-height: 54px;
+  border-radius: 16px;
+  font-size: 16px;
+}
+
+.answers {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  width: 100%;
+  max-width: 620px;
+}
+
+@media (min-width: 900px) {
+  .answers {
+    max-width: 760px;
+  }
+}
+
+/* --press (how far a swipe is toward this answer) fades in the pressed look; --dim (toward the other) fades it out. */
+[data-component="button-v2"].answer {
+  --press: 0;
+  --dim: 0;
+  position: relative;
+  height: 54px;
+  padding: 0;
+  border-radius: 12px;
+  transform: scale(calc(1 - 0.03 * var(--press)));
+  opacity: calc(1 - 0.6 * var(--dim));
+  transition:
+    transform 0.12s,
+    opacity 0.12s,
+    color 0.12s,
+    background-color 85ms ease-out,
+    box-shadow 85ms ease-out;
+}
+
+[data-component="button-v2"].answer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--v2-overlay-simple-overlay-pressed);
+  opacity: var(--press);
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+/* Busy only while an answer saves, so the buttons keep their swipe look rather than flashing disabled. */
+[data-component="button-v2"][data-size="touch"].answer:disabled {
+  opacity: calc(1 - 0.6 * var(--dim));
+}
+
+[data-component="button-v2"].answer-forgot {
+  color: color-mix(in srgb, var(--forgot) calc(var(--press) * 100%), var(--v2-text-text-base));
+}
+
+[data-component="button-v2"].answer-remembered {
+  color: color-mix(in srgb, var(--remembered) calc(var(--press) * 100%), var(--v2-text-text-base));
+}
+
+[data-component="button-v2"].answer .icon {
+  width: 24px;
+  height: 24px;
+}
+
+[data-component="button-v2"].answer-forgot:active {
+  color: var(--forgot);
+}
+
+[data-component="button-v2"].answer-remembered:active {
+  color: var(--remembered);
+}
+
+@media (hover: hover) {
+  [data-component="button-v2"].answer-forgot:hover {
+    color: var(--forgot);
+  }
+  [data-component="button-v2"].answer-remembered:hover {
+    color: var(--remembered);
+  }
+}
+
+/* Sheets: Kobalte's drawer sets the transform (and drag position); these give it a place and its timing. */
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: #00000059;
+  transition: opacity 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.sheet {
+  will-change: transform;
+  position: fixed;
+  z-index: 41;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 640px;
+  max-height: calc(100% - var(--top) - 24px);
+  overflow-y: auto;
+  padding: 8px 16px calc(var(--bottom) + 16px);
+  border-radius: 20px 20px 0 0;
+  background: var(--bg);
+  box-shadow: var(--v2-elevation-overlay);
+  outline: none;
+  transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.sheet[data-closing] {
+  transition-duration: 0.3s;
+}
+
+.sheet-overlay[data-closing] {
+  transition-duration: 0.3s;
+}
+
+.sheet.tall {
+  min-height: 50%;
+  max-height: min(75%, calc(100% - var(--top) - 12px));
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+}
+
+/* The keyboard covers the home indicator, so while typing the sheet sits right on it. */
+.sheet:has(:is(input, textarea, [contenteditable="true"]):focus) {
+  padding-bottom: 8px;
+}
+
+.sheet:has(:is(input, textarea, [contenteditable="true"]):focus) .editor-body {
+  padding-bottom: 2px;
+}
+
+@media (min-width: 700px) {
+  .sheet.tall {
+    max-height: min(760px, 90%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .sheet-overlay {
+    transition-duration: 0s;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.sheet-grip {
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border-strong);
+  margin: 0 auto 10px;
+}
+
+.sheet-title {
+  margin: 4px 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.sheet-detail {
+  margin: 0 0 12px;
+}
+
+.sheet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sheet-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sheet-buttons .button {
+  flex: 1;
+}
+
+.action-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+}
+
+.action-list.scroll {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.action-list button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 0 16px;
+  border-radius: 12px;
+  text-align: left;
+  font-size: 16px;
+}
+
+.action-list button:active,
+.action-list button.selected {
+  background: var(--layer-2);
+}
+
+.menu-rule {
+  border: 0;
+  border-top: 1px solid var(--border-muted);
+  margin: 6px 16px;
+}
+
+.action-list .danger {
+  color: var(--danger);
+}
+
+/* Editor */
+
+/* Delete on the left (when editing) and Save on the right, above the card, rounded like the chips under it. */
+.editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.editor-head [data-component="button-v2"] {
+  border-radius: 999px;
+  padding: 0 14px;
+}
+
+/* A ghost Delete's icon lines up with the card's edge, as Save's edge does on the right. */
+.editor-head .editor-delete[data-variant^="ghost"] {
+  margin-left: -14px;
+}
+
+.editor-save {
+  margin-left: auto;
+}
+
+.editor-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 -16px;
+  /* Room for the card's lit edge, a shadow the scroll would clip. */
+  padding: 2px 16px 16px;
+}
+
+.segmented.text button {
+  min-width: 0;
+}
+
+/* The card fills the sheet, which starts at half the screen, and they grow with what's written on it; past the
+   sheet's tallest the card scrolls. */
+.well {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 2px 18px 0;
+  border-radius: 18px;
+  background: var(--layer-1);
+  box-shadow: var(--edge);
+}
+
+.well .side-rule {
+  margin: 0;
+  border-color: var(--border);
+}
+
+.side-field {
+  padding: 14px 0;
+  font-size: 17px;
+  line-height: 26px;
+}
+
+/* The first side is the prompt, so it's written larger, as review shows it. */
+.well > .side-field:first-child {
+  padding-top: 16px;
+  font-size: 22px;
+  line-height: 30px;
+}
+
+.side-field .cm-editor {
+  background: none;
+  color: var(--text);
+}
+
+.side-field .cm-editor.cm-focused {
+  outline: none;
+}
+
+.side-field .cm-scroller {
+  font-family: var(--font);
+  line-height: inherit;
+  overflow: visible;
+}
+
+.side-field .cm-content {
+  min-height: 26px;
+  padding: 0;
+  caret-color: var(--text);
+}
+
+.side-field .cm-line {
+  padding: 0;
+}
+
+.side-field .cm-placeholder {
+  color: var(--faint);
+}
+
+/* Markdown styled in place (livePreview.ts), as .markdown renders it. */
+
+.cm-md-mark {
+  color: var(--faint);
+}
+
+.cm-md-strong {
+  font-weight: 600;
+}
+
+.cm-md-em {
+  font-style: italic;
+}
+
+.cm-md-strike {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.cm-md-code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--layer-3);
+  border-radius: 4px;
+}
+
+.cm-md-link {
+  color: var(--accent);
+}
+
+.cm-md-url {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.cm-md-quote {
+  color: var(--muted);
+}
+
+.side-field .cm-md-line-h1,
+.side-field .cm-md-line-h2,
+.side-field .cm-md-line-h3,
+.side-field .cm-md-line-h4 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.side-field .cm-md-line-h1 {
+  font-size: 1.4em;
+  line-height: 1.3;
+}
+
+.side-field .cm-md-line-h2 {
+  font-size: 1.25em;
+  line-height: 1.3;
+}
+
+.side-field .cm-md-line-h3 {
+  font-size: 1.12em;
+}
+
+.side-field .cm-md-line-code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--layer-3);
+  padding: 0 8px;
+}
+
+.side-field .cm-md-line-bullet {
+  padding-left: calc((var(--depth) + 1) * 1.3em);
+  text-indent: -1.3em;
+}
+
+.cm-bullet {
+  display: inline-block;
+  width: 1.3em;
+  text-indent: 0;
+}
+
+.well-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 56px;
+}
+
+/* A 32 px button with a 44 px target. */
+.add-side {
+  position: relative;
+  gap: 6px;
+}
+
+.add-side::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+.add-side .icon,
+.editor-meta .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* The deck and tags, as one row of 32 px pills under the card, in reach of a thumb and right above the keyboard. */
+.editor-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-meta .select {
+  min-height: 32px;
+  border-radius: 999px;
+  color: var(--text);
+}
+
+.editor-meta .select .icon {
+  color: var(--muted);
+}
+
+.chip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.chip-tag button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+.editor-meta .chip-tag .icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* A ghost pill until it's tapped, then it widens into the rest of the row to type in. */
+.tag-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 84px;
+  height: 32px;
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--muted);
+  cursor: text;
+}
+
+.tag-add:focus-within {
+  flex: 1;
+  min-width: 110px;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.tag-add input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: none;
+  padding: 0;
+  font-size: 16px;
+}
+
+/* The text stays 16 px so iOS doesn't zoom in; the placeholder matches the pills beside it. */
+.tag-add input::placeholder {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.suggestions .chip {
+  min-height: 32px;
+  font-size: 14px;
+}
+
+.suggestions {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+/* Settings and sign-in */
+
+.settings {
+  overflow-y: auto;
+  padding: 0 20px calc(var(--bottom) + 24px);
+  max-width: 620px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.settings section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.settings section:last-child {
+  border: 0;
+}
+
+.settings p {
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.token,
+.command {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--layer-2);
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.signin {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--top) + 24px) 24px calc(var(--bottom) + 24px);
+}
+
+.signin-card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.signin-card h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.03em;
+}
+
+.signin-card form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.signin-card img {
+  border-radius: 16px;
+}
+
+.server {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.server summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.server .field {
+  margin-top: 8px;
+}
+
+.toast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(var(--bottom) + 84px);
+  z-index: 50;
+  margin: 0 auto;
+  max-width: 480px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  box-shadow: var(--shadow);
+  animation: up 0.25s;
+}
+
+@keyframes up {
+  from {
+    transform: translateY(100%);
+  }
+}

@@ -1,11 +1,14 @@
-//! Recall's core: the store, review queue and sync client, plus the `recall core` socket server and a blocking
-//! client for it. See `docs/contract.md` for the formats and protocol implemented here.
+//! Recall's core: the store, review queue and sync client, plus the socket server a host process (the desktop app,
+//! or the CLI) runs it with and a blocking client for it. See `docs/contract.md` for the formats and protocol
+//! implemented here.
 
 #[cfg(feature = "hub")]
 pub mod hub;
+pub mod import;
 pub mod model;
 pub mod protocol;
 mod seed;
+pub mod sort;
 pub mod store;
 pub mod sync;
 

@@ -1,7 +1,8 @@
 //! Syncing with a self-hosted `recall-hub` over Iroh: the `recall/sync/1` and `recall/pair/1` wire format, pairing
-//! tickets, endpoint keys and network settings, and a device's [`HubLink`]. The hub itself is `crates/hub`, which
-//! shares everything here.
+//! tickets, endpoint keys and network settings, a device's [`HubLink`], and [`host`], the hub's side, which
+//! `recall-hub` (`crates/hub`) and a hosting desktop both run.
 
+pub mod host;
 mod link;
 mod ticket;
 mod wire;

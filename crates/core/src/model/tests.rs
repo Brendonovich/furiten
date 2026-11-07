@@ -25,6 +25,15 @@ fn sides_split_on_lines_that_are_exactly_three_dashes() {
 }
 
 #[test]
+fn sides_join_back_into_content() {
+    assert_eq!(content_from_sides(&["\nq\n", "", "  code\n", "more"]), "q\n---\n  code\n---\nmore");
+    assert_eq!(content_from_sides(&["", "note", "\n"]), "note");
+    assert_eq!(content_from_sides::<&str>(&[]), "");
+    let content = "q\n---\na\n---\nmore";
+    assert_eq!(content_from_sides(&sides(content)), content);
+}
+
+#[test]
 fn tags_are_normalized() {
     assert_eq!(normalize_tags([" Spanish", "#verbs", "spanish", "", "#", "B"]), ["b", "spanish", "verbs"]);
 }

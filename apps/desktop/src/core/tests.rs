@@ -33,7 +33,7 @@ fn fixtures_advance_the_queue() {
     let first = core.next_review(None).unwrap();
     assert_eq!(first.remaining, Remaining { due: 0, new: 5 });
     let card = first.card.unwrap();
-    core.answer(Answer { card_id: card.card.id.clone(), rating: 3, duration_ms: None }).unwrap();
+    core.answer(Answer { card_id: card.card.id.clone(), remembered: true, duration_ms: None }).unwrap();
     let next = core.next_review(None).unwrap();
     assert_eq!(next.remaining.new, 4);
     assert_ne!(next.card.unwrap().card.id, card.card.id);

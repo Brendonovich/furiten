@@ -131,7 +131,7 @@ test("API writes and deletes reach devices through sync", async () => {
   await device.sync();
   const deck = (await api.post("/v1/decks", { name: "From the API" })).body;
   const card = (await api.post("/v1/cards", { deck_id: deck.id, content: "q\n---\na", tags: ["#T"] })).body;
-  await api.post(`/v1/cards/${card.id}/reviews`, { rating: 3 });
+  await api.post(`/v1/cards/${card.id}/reviews`, { remembered: true });
   await api.delete(`/v1/decks/${deck.id}`);
 
   const pulled = await device.sync();

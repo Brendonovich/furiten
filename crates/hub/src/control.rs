@@ -4,17 +4,17 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use iroh::Endpoint;
-use recall_core::{Error, Result};
+use recall_core::hub::host::Host;
+use recall_core::{Error, Result, Store};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tokio::task::JoinHandle;
 
-use crate::{Shared, data};
+use crate::data;
 
 #[derive(Deserialize)]
 struct Request {
@@ -24,7 +24,7 @@ struct Request {
 }
 
 /// Binds the socket (replacing a stale one; the caller holds the data directory's lock) and serves it.
-pub(crate) async fn serve(data: &Path, shared: Arc<Shared>, endpoint: Endpoint) -> Result<JoinHandle<()>> {
+pub(crate) async fn serve(data: &Path, host: Arc<Host>, store: Arc<Mutex<Store>>) -> Result<JoinHandle<()>> {
     let path = data.join(data::SOCKET);
     if path.exists() {
         std::fs::remove_file(&path)?;
@@ -35,9 +35,10 @@ pub(crate) async fn serve(data: &Path, shared: Arc<Shared>, endpoint: Endpoint) 
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
+    let data = data.to_path_buf();
     Ok(tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
-            let (shared, endpoint) = (shared.clone(), endpoint.clone());
+            let (host, store, data) = (host.clone(), store.clone(), data.clone());
             tokio::spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut line = String::new();
@@ -45,7 +46,7 @@ pub(crate) async fn serve(data: &Path, shared: Arc<Shared>, endpoint: Endpoint) 
                     return;
                 }
                 let reply = match serde_json::from_str::<Request>(&line) {
-                    Ok(request) => match dispatch(&shared, &endpoint, &request.method, request.params).await {
+                    Ok(request) => match dispatch(&host, &store, &data, &request.method, request.params).await {
                         Ok(result) => json!({ "result": result }),
                         Err(error) => json!({ "error": error }),
                     },
@@ -61,15 +62,15 @@ fn value(result: Result<impl serde::Serialize>) -> Result<Value> {
     result.and_then(|v| serde_json::to_value(v).map_err(Error::internal))
 }
 
-async fn dispatch(shared: &Shared, endpoint: &Endpoint, method: &str, params: Value) -> Result<Value> {
+async fn dispatch(host: &Host, store: &Mutex<Store>, data: &Path, method: &str, params: Value) -> Result<Value> {
     match method {
-        "status" => value(shared.status(endpoint)),
-        "pair" => value(shared.pair(endpoint).await),
-        "devices.list" => value(Ok(shared.devices())),
+        "status" => value(crate::status(host, store, data)),
+        "pair" => value(host.pair().await),
+        "devices.list" => value(Ok(host.devices())),
         "devices.rm" => {
             let device =
                 params.get("device").and_then(Value::as_str).ok_or_else(|| Error::invalid("device is required"))?;
-            value(shared.remove_device(device))
+            value(host.remove_device(device))
         }
         _ => Err(Error::new("unknown_method", format!("unknown method {method}"))),
     }

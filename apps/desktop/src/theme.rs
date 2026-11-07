@@ -3,8 +3,10 @@
 use rune::{Color, TextStyle};
 use rune_kit::Kit;
 
-/// The type a card's face is set in during review.
+/// The type a card's face is set in on the first-run stack.
 pub const CARD_FACE: TextStyle = TextStyle::new(20.0, 400.0).lh(30.0);
+/// The type a card's face is set in during review.
+pub const REVIEW_FACE: TextStyle = TextStyle::new(26.0, 400.0).lh(36.0);
 /// Large headings (the first-run deck title, empty states).
 pub const DISPLAY: TextStyle = TextStyle::new(26.0, 600.0).lh(32.0).tracking(-0.3);
 /// Small capitals in a tile's footer ("+ 1 HIDDEN SIDE", "DUE").

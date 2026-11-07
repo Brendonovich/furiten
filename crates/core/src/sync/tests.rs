@@ -43,7 +43,7 @@ fn two_devices_converge_without_duplicating_the_sample_deck() {
     assert_eq!(lock(&b).decks().unwrap().len(), 2);
 
     set_now(&b, T0 + 1000);
-    lock(&b).answer(Answer { card_id: card.card.id.clone(), rating: 3, duration_ms: None }).unwrap();
+    lock(&b).answer(Answer { card_id: card.card.id.clone(), remembered: true, duration_ms: None }).unwrap();
     lock(&b)
         .update_card(CardUpdate { id: card.card.id.clone(), tags: Some(vec!["greeting".into()]), ..Default::default() })
         .unwrap();
@@ -100,13 +100,13 @@ fn offline_reviews_on_two_devices_merge_into_one_schedule() {
     sync(&a, &server);
     sync(&b, &server);
 
-    let review = |s: &Mutex<Store>, at: i64, rating: u8| {
+    let review = |s: &Mutex<Store>, at: i64, remembered: bool| {
         set_now(s, at);
-        lock(s).answer(Answer { card_id: id.clone(), rating, duration_ms: None }).unwrap();
+        lock(s).answer(Answer { card_id: id.clone(), remembered, duration_ms: None }).unwrap();
     };
-    review(&a, T0 + DAY, 4);
-    review(&b, T0 + 2 * DAY, 1);
-    review(&a, T0 + 3 * DAY, 3);
+    review(&a, T0 + DAY, true);
+    review(&b, T0 + 2 * DAY, true);
+    review(&a, T0 + 3 * DAY, false);
     // b syncs first, so a receives a review older than its latest one.
     sync(&b, &server);
     sync(&a, &server);
@@ -250,4 +250,60 @@ fn a_hub_answers_a_losing_write_with_the_stored_version_and_never_echoes_what_it
     drop(Store::open(&dir.join("device.db")).unwrap());
     assert_eq!(Store::open_hub(&dir.join("device.db")).err().unwrap().code, "wrong_store");
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_hosting_device_is_its_librarys_hub() {
+    let (desk, phone) = (device(T0), device(T0));
+    let deck = lock(&desk).create_deck(NewDeck { name: "Spanish".into(), parent_id: None }).unwrap();
+    let card = lock(&desk)
+        .create_card(NewCard { deck_id: deck.id.clone(), content: "hola\n---\nhello".into(), tags: vec![] })
+        .unwrap();
+    // Synced once before, so its rows are out of the outbox (`dirty = 0`): hosting must still serve them.
+    sync(&desk, &MemoryServer::default());
+    assert!(lock(&desk).pending().unwrap().changes.is_empty());
+    lock(&desk).set_hosting(true).unwrap();
+    assert!(lock(&desk).is_hosting());
+
+    let first = sync(&phone, &desk);
+    assert_eq!(first.pulled, 2, "the phone gets the deck and card; the identical sample deck isn't echoed");
+    assert_eq!(everything(&desk), everything(&phone));
+
+    // Offline on the phone: a new card and a review, then one sync.
+    set_now(&phone, T0 + 1000);
+    let added = lock(&phone)
+        .create_card(NewCard { deck_id: deck.id.clone(), content: "adiós\n---\nbye".into(), tags: vec![] })
+        .unwrap();
+    lock(&phone).answer(Answer { card_id: card.card.id.clone(), remembered: true, duration_ms: None }).unwrap();
+    assert_eq!(sync(&phone, &desk).pushed, 2);
+    assert_eq!(lock(&desk).card(&added.card.id).unwrap().card.content, "adiós\n---\nbye");
+    assert_eq!(lock(&desk).card(&card.card.id).unwrap().schedule.reps, 1);
+
+    // The desktop's own edits reach the phone.
+    set_now(&desk, T0 + 2000);
+    lock(&desk)
+        .update_card(CardUpdate {
+            id: added.card.id.clone(),
+            content: Some("adiós\n---\ngoodbye".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(sync(&phone, &desk).pulled, 1);
+    assert_eq!(everything(&desk), everything(&phone));
+    assert_eq!(sync(&phone, &desk), SyncResult { pushed: 0, pulled: 0 });
+
+    // A library syncs with one hub: no signing in while hosting, or hosting while signed in.
+    let config = crate::store::SyncConfig {
+        server: "https://example.com".into(),
+        token: "rc_u_s".into(),
+        user_id: "u".into(),
+        hub: None,
+    };
+    assert_eq!(lock(&desk).set_sync_config(&config).unwrap_err().code, "conflict");
+    assert_eq!(sync_once(&desk, &MemoryServer::default()).unwrap_err().code, "conflict");
+    lock(&phone).set_sync_config(&config).unwrap();
+    assert_eq!(lock(&phone).set_hosting(true).unwrap_err().code, "conflict");
+
+    lock(&desk).set_hosting(false).unwrap();
+    assert_eq!(sync_once(&phone, &desk).unwrap_err().code, "wrong_store");
 }

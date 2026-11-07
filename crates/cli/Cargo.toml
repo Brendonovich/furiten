@@ -11,6 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "=4.6.7", features = ["derive"] }
+# `recall host pair` prints the ticket as a QR code for the phone's camera, as `recall-hub pair` does.
+qrcode = { version = "=0.14.1", default-features = false }
 recall-core = { path = "../core" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"

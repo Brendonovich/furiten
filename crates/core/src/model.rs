@@ -29,7 +29,7 @@ pub struct Card {
 pub struct Review {
     pub id: Id,
     pub card_id: Id,
-    /// 1 again, 2 hard, 3 good, 4 easy.
+    /// The FSRS grade: 1 forgot, 3 remembered. Reviews from before answers were yes or no may be 2 or 4.
     pub rating: u8,
     pub reviewed_at: i64,
     pub duration_ms: Option<i64>,
@@ -164,6 +164,13 @@ pub fn sides(content: &str) -> Vec<String> {
         side.push('\n');
     }
     sides.iter().map(|s| trim_blank_lines(s)).collect()
+}
+
+/// The content with these sides: each trimmed of blank lines and joined by `---` lines, the inverse of [`sides`].
+/// Empty sides are dropped.
+pub fn content_from_sides<S: AsRef<str>>(sides: &[S]) -> String {
+    let kept: Vec<String> = sides.iter().map(|s| trim_blank_lines(s.as_ref())).filter(|s| !s.is_empty()).collect();
+    kept.join("\n---\n")
 }
 
 fn trim_blank_lines(side: &str) -> String {

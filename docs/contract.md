@@ -14,7 +14,9 @@ Card   { id, deck_id, content: string, tags: string[], created_at, updated_at, d
 Review { id, card_id, rating: 1 | 2 | 3 | 4, reviewed_at, duration_ms: number | null }
 ```
 
-- Ratings: `1` again, `2` hard, `3` good, `4` easy.
+- A review's answer is yes or no: you remembered the card or you didn't. `rating` stores it as the FSRS grade it
+  schedules as, `3` (Good) for remembered and `1` (Again) for forgot; nothing records `2` (Hard) or `4` (Easy) any
+  more, but reviews made before answers were yes or no may hold them and still fold as those grades.
 - Reviews are immutable and append-only. Decks and cards are soft-deleted (`deleted: true`) so deletes sync.
 - `tags` are lowercase, trimmed, deduplicated and sorted; `#` is stripped.
 
@@ -50,9 +52,10 @@ the cards in it first reviewed today).
 
 ## Sync
 
-Each device keeps its own SQLite store and syncs with one hub: the user's Durable Object on Recall Cloud, or a
-self-hosted `recall-hub` reached over Iroh (see Self-hosted hub). Both speak the same request and response and
-apply the same rules; only the transport differs.
+Each device keeps its own SQLite store and syncs with one hub: the user's Durable Object on Recall Cloud, a
+self-hosted `recall-hub` reached over Iroh (see Self-hosted hub), or the user's desktop app hosting its own library
+over the same Iroh protocol (see Hosting). All speak the same request and response and apply the same rules; only
+the transport differs.
 
 ```
 Change = { kind: "deck", value: Deck } | { kind: "card", value: Card } | { kind: "review", value: Review }
@@ -141,14 +144,15 @@ IANA zone in `X-Recall-Timezone`, and a server without one uses UTC. (The Worker
 | POST | `/v1/decks` | `{ name, parent_id? }` | `Deck` |
 | PATCH | `/v1/decks/:id` | `{ name?, parent_id? }` | `Deck` |
 | DELETE | `/v1/decks/:id` | | `{ ok: true }` (soft-deletes its subdecks and all their cards too) |
-| GET | `/v1/cards` | `?deck_id&q&tag&due=true&limit=50&offset` | `{ cards: CardView[] }` |
+| GET | `/v1/cards` | `?deck_id&q&tag&due=true&limit=50&offset&sort=created&desc=true&seed` | `{ cards: CardView[] }` |
 | POST | `/v1/cards` | `{ deck_id, content, tags? }` or `{ cards: [...] }` | `CardView` or `{ cards: CardView[] }` |
 | GET | `/v1/cards/:id` | | `CardView` |
 | PATCH | `/v1/cards/:id` | `{ content?, tags?, deck_id? }` | `CardView` |
 | DELETE | `/v1/cards/:id` | | `{ ok: true }` |
 | GET | `/v1/review/next` | `?deck_id` | `{ card: CardView \| null, remaining: { due, new } }` |
-| POST | `/v1/cards/:id/reviews` | `{ rating, duration_ms? }` | `CardView` |
+| POST | `/v1/cards/:id/reviews` | `{ remembered: bool, duration_ms? }` | `CardView` |
 | GET | `/v1/stats` | `?deck_id` | `{ cards, due, new, reviews_today, retention_30d }` |
+| GET | `/v1/tags` | `?deck_id` | `{ tags: TagSummary[] }`, ordered as `tags.list` |
 | POST | `/v1/sync` | see Sync | see Sync |
 
 ```
@@ -161,6 +165,25 @@ CardView    = Card & { sides: string[], schedule: Schedule }
 counts reviewed cards with `due <= now`; `new` counts new cards available today under the cap; `remaining` includes
 the returned card. `retention_30d` is `null` when there is nothing to measure.
 
+### Card order
+
+`sort` orders `/v1/cards` (and `cards.list`, `search_cards`); it is Mochi's deck-page sort and never changes the
+review queue. `limit` and `offset` page the sorted result. Ties go by `(created_at, id)`, oldest first.
+
+| `sort` | Orders by |
+| --- | --- |
+| `created` (default) | `created_at` |
+| `updated` | `updated_at` |
+| `name` | the front's first non-blank line with the characters `#*_` `` ` `` `~>` removed, trimmed, a leading run of `-` removed, trimmed again, lowercased; compared by code point, except that runs of ASCII digits compare by value (leading zeros ignored), so `card 9` comes before `card 10` |
+| `due` | `schedule.due` |
+| `reviewed` | `schedule.last_review` |
+| `interval` | the last interval, `schedule.due - schedule.last_review` |
+| `retention` | `(reps - lapses) / reps`, the share of reviews that weren't lapses |
+| `random` | 32-bit FNV-1a of the UTF-8 bytes of `"<seed>:<id>"`; `seed` is a `u32`, default 0, so the same seed gives the same order |
+
+`desc=true` reverses the order, ties included. Cards with no value for the sort (never reviewed, under `reviewed`,
+`interval` and `retention`) come after the rest either way, oldest first. An unknown `sort` is `invalid_params`.
+
 ## MCP
 
 The Worker and the hub serve MCP over Streamable HTTP at `/mcp` with the same bearer token, and `recall mcp` serves
@@ -172,10 +195,18 @@ two-sided cards.
 
 ## Local core protocol
 
-On a desktop the `recall core` process owns the store and sync; the CLI and the desktop app are its clients. It
+On a desktop the core owns the store and sync, and the desktop app hosts it: there is no separate core process. It
 listens on a Unix socket at `$RECALL_HOME/core.sock` (mode `0600`; `RECALL_HOME` defaults to
-`~/Library/Application Support/Recall` on macOS and `$XDG_DATA_HOME/recall` elsewhere). Clients start it if it isn't
-running.
+`~/Library/Application Support/Recall` on macOS and `$XDG_DATA_HOME/recall` elsewhere), and the CLI, MCP and the
+app's own window are its clients. One core runs per home (`core.lock`).
+
+- **Starting it.** A client that finds no core starts the app without a window, `recall-desktop --background`
+  (`$RECALL_APP`, else next to the client's binary, else on `PATH`), logging to `$RECALL_HOME/app.log`. On macOS
+  that app has no Dock icon until its window opens. With no app installed, the CLI hosts the core itself for the
+  length of the command.
+- **One app.** An app launched while a core is running sends it `app.open` and exits, so the running app shows its
+  window; a background launch exits either way. A window opened on a background app closes back to no window, and
+  the core keeps serving. A window opened by launching the app normally quits the app, and its core, when it closes.
 
 Each message is one line of JSON. Requests are `{ id, method, params }`; replies are `{ id, result }` or
 `{ id, error: { code, message } }`. The core also pushes `{ event: "changed" }` to every open connection after any
@@ -183,16 +214,111 @@ write, including writes arriving through sync, so clients refetch.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `status` | | `{ version, home, signed_in, last_sync: ms \| null, server: string \| null, sync_error: string \| null, connected: bool \| null }` |
+| `status` | | `{ version, home, signed_in, last_sync: ms \| null, server: string \| null, sync_error: string \| null, connected: bool \| null, hosting: bool }` |
 | `decks.list` | | `DeckSummary[]` |
 | `decks.create` / `decks.update` / `decks.delete` | as the HTTP bodies, plus `id` for update/delete | as HTTP |
 | `cards.list` / `cards.get` / `cards.create` / `cards.update` / `cards.delete` | as HTTP | as HTTP |
+| `tags.list` | `{ deck_id? }` | `TagSummary[]`, every tag on a live card, the most recently used first (ties by tag); with `deck_id`, the tags on cards in that deck or its subdecks come first, then the rest |
 | `review.next` | `{ deck_id? }` | as `GET /v1/review/next` |
-| `review.answer` | `{ card_id, rating, duration_ms? }` | `CardView` |
+| `review.answer` | `{ card_id, remembered: bool, duration_ms? }` | `CardView` |
 | `stats` | `{ deck_id? }` | as HTTP |
 | `sync.login` | `{ server, token? }` (creates an account when `token` is omitted), or `{ hub: ticket, name? }` (name defaults to the host name) | `{ user_id, token }` or `{ library_id }` |
 | `sync.now` | | `{ pushed, pulled }` |
-| `shutdown` | | `{ ok: true }` |
+| `sync.logout` | | `{ ok: true }`: stops syncing and forgets the cursor; the data stays, and a later sign-in sends all of it |
+| `host.status` | | `HostStatus` (see Hosting) |
+| `host.enable` / `host.disable` | | `HostStatus`; `conflict` while signed in; error `host_failed` when it can't start |
+| `host.pair` | | `{ ticket, expires_at }`, a pairing ticket as `recall-hub pair` makes; turns hosting on first |
+| `host.remove` | `{ device }` (id, id prefix or name) | `{ id, name, added_at }`, and closes its connections |
+| `import.mochi` | `{ path, parent_id? }` (`path` absolute, on the core's machine) | `Imported` (see Import) |
+| `web.status` | | `WebStatus` (see Web access) |
+| `web.enable` | `{ port?, bind? }` | `WebStatus`; error `web_failed` when it can't listen |
+| `web.disable` | | `WebStatus` |
+| `app.open` | | `{ ok: true }`: the app hosting the core shows its window; `unsupported` when no app hosts it |
+| `shutdown` | | `{ ok: true }` (the app hosting the core quits) |
+
+```
+TagSummary = { tag, cards: number, last_used: ms }
+```
+
+A tag's `cards` counts the live cards carrying it, and `last_used` is the newest `updated_at` among them: when one of
+them was last created or edited; both count the whole library, `deck_id` or not. `recall tags [--deck <deck>]`
+prints the same list.
 
 The core syncs on its own after each write (debounced 2 s) and every 60 s while signed in, and with a hub also as
 soon as the hub reports a change.
+
+**Web access.** The desktop app's core can serve the HTTP API itself, so a phone or browser uses this library
+directly instead of through a hub: `web.enable` (Settings → "Use this library from your phone", or `recall web on`).
+
+```
+WebStatus = { enabled, running, bind, port, token: string | null, urls: string[], link: string | null, error: string | null }
+```
+
+- It listens on `bind:port`, default `0.0.0.0:8787` (every network, Tailscale included), and stays on across
+  restarts until `web.disable`. Only the desktop app listens; a core the CLI hosts for one command reports
+  `running: false` with an `error`. Settings live in `$RECALL_HOME/web.json` (mode `0600`).
+- One token, `rw_` and 32 Crockford base32 characters (160 random bits), made the first time and kept, sent as
+  `Authorization: Bearer`. Turning web access off disconnects every browser.
+- `urls` are where to open it, best first: the Tailscale name and IP when Tailscale is up, then the LAN address and
+  `<host>.local`. `link` is the first with `#token=<token>`, which the web app reads to sign in (Settings shows it
+  as a QR code).
+- Routes are the HTTP API's, each answered by the protocol method underneath, so results match the local core's
+  exactly; `POST /v1/sync` and `POST /v1/accounts` aren't served. `GET /v1/events?token=` streams `data: changed`
+  as server-sent events after any write (`: ping` every 25 s). Other paths serve the web app when the desktop
+  bundles it (`$RECALL_WEB_DIR`, else the app's `Resources/web`, else a checkout's `apps/web/dist`), with
+  `index.html` for anything that isn't a file.
+
+**Hosting.** The desktop app's core can be its library's hub, so a phone keeps a library of its own (linked core,
+offline) and syncs with the desktop over Iroh, on any network, with no Cloud and no separate `recall-hub`:
+`host.enable` or `host.pair` (Settings → "Sync with your phone", or `recall host pair`).
+
+```
+HostStatus = { enabled, running, endpoint_id: string | null, devices: DeviceInfo[], error: string | null }
+DeviceInfo = { id, name, added_at, connected: bool, last_sync: ms | null }
+```
+
+- It's the Self-hosted hub's protocol, served by the desktop: `recall/sync/1` and `recall/pair/1` on the device's
+  own endpoint key (`$RECALL_HOME/iroh.key`), the same tickets, device allowlist (`$RECALL_HOME/devices.json`),
+  close codes and `changed` events, which it also sends after the desktop's own writes. A phone pairs with
+  `sync.login { hub: ticket }` as with any hub, and its `status.server` is `hub:<the desktop's endpoint id>`.
+- A hosting store serves sync itself, so there's one copy of the library: turning hosting on gives every row that
+  had synced a fresh `seq` (rows still in the outbox already hold one), and from then on every write takes the next
+  `seq`, as in a hub's store. A library syncs with one hub, so hosting is refused (`conflict`) while signed in, and
+  signing in is refused while hosting; `host.disable` first. Devices stay paired across `host.disable`.
+- It stays on across restarts until `host.disable` (kept in the store). Only the desktop app hosts; a core the
+  CLI hosts for one command reports `running: false` with an `error`. Pairing tickets live in the app's memory, so
+  restarting it voids unused ones.
+- The pairing QR code the desktop shows holds `recall://pair/<TICKET>` (the ticket uppercased, which reads the
+  same), so a phone's camera opens the app to pair.
+
+**Mobile.** iOS and Android link the core in (`crates/ffi`, C ABI in `crates/ffi/include/recall.h`) and host it in
+the app process with no socket: `recall_request` takes one request line and returns its reply line, and the
+`on_change` callback stands in for the `changed` event. The home is the app container's Application Support
+`Recall` directory. `shutdown` is `unsupported` (the app closes the core with `recall_close`), and so is `app.open`.
+The phone's library is its own: it works offline, and syncs with a hosting desktop or a `recall-hub` (paired with
+`sync.login { hub }`), or Recall Cloud (`sync.login { server, token? }`). The app asks for a sync
+(`recall_sync_soon`) when it comes to the foreground and runs `sync.now` as it goes to the background.
+
+## Import
+
+`import.mochi` (and `recall import mochi <file> [--parent <deck>]`) adds a Mochi export as new decks under
+`parent_id`, or at the top level, in one transaction. Importing the same file twice makes two copies.
+
+```
+Imported = { decks: Deck[], cards: number, reviews: number, skipped: number, attachments: number }
+```
+
+- **File.** A `.mochi` zip holding `data.json` (Transit JSON, compact or verbose) or the older `data.edn`; a bare
+  `data.json` or `data.edn` also reads. `decks` lists the new decks with every parent before its children.
+- **Decks.** Each Mochi deck becomes a deck named the same, nested as its `parent-id` says; a parent the file lacks
+  puts the deck at the top of the import. Trashed decks are left out with everything under them.
+- **Cards.** Content is Mochi's Markdown, whose `---` sides are Recall's. A card with a template (its own
+  `template-id`, else its deck's) is rendered through it: `<< Field >>` by field name or id, `<<#field>>…<</field>>`
+  when the field is filled and `<<^field>>…<</field>>` when it isn't; fields it can't fill render as nothing.
+  `tags` carry over, and trailing lines made only of `#tags` (Mochi's inline tags) become tags rather than text; a
+  `# Heading` isn't one. Dates may be ISO 8601 or Unix ms (Mochi writes `~t` with ms). Cards keep Mochi's order (`pos`) and `created-at`, moved back to the first review if that's
+  earlier. Trashed cards, cards left empty, and cards whose deck isn't in the file count as `skipped`.
+- **Reviews.** Each Mochi review becomes a review at its `date`, remembered or forgot as `remembered?` says, with
+  `duration` (seconds) as `duration_ms`. The schedule is then derived as usual, so cards come due from their history.
+- **Attachments.** Files in the zip other than the data aren't imported (cards have no attachments yet); their count
+  is `attachments`, and the cards' links to them are left as written.

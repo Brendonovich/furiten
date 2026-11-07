@@ -93,8 +93,8 @@ describe("MCP (2025-06-18, with a session)", () => {
     expect((await mcp.call("list_decks")).value.decks).toMatchObject([{ id: deck.id, cards: 2, new: 2 }]);
     expect((await mcp.call("search_cards", { tag: "europe" })).value.cards.map((c: any) => c.id)).toEqual([france.id]);
     expect((await mcp.call("next_review", { deck_id: deck.id })).value.card.id).toBe(france.id);
-    const reviewed = await mcp.call("review_card", { id: france.id, rating: 4 });
-    expect(reviewed.value.schedule.state).toBe("review");
+    const reviewed = await mcp.call("review_card", { id: france.id, remembered: true });
+    expect(reviewed.value.schedule.state).toBe("learning");
     const updated = await mcp.call("update_card", { id: japan.id, content: "Japan?\n---\nTōkyō" });
     expect(updated.value.sides).toEqual(["Japan?", "Tōkyō"]);
     expect((await mcp.call("delete_card", { id: japan.id })).value).toEqual({ ok: true });

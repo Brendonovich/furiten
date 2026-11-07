@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::model::{CardView, Change, Id};
+use crate::model::{CardView, Change, Deck, Id};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Status {
@@ -17,6 +17,9 @@ pub struct Status {
     /// With a self-hosted hub, whether the core holds a live connection to it; `None` otherwise.
     #[serde(default)]
     pub connected: Option<bool>,
+    /// Whether this library is its own hub for paired phones (see `host.status`).
+    #[serde(default)]
+    pub hosting: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -56,6 +59,60 @@ pub struct CardQuery {
     pub limit: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u32>,
+    /// Defaults to `created`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<CardSort>,
+    /// Reverses the sort; cards without a value for it stay last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desc: Option<bool>,
+    /// Picks the `random` order; the same seed gives the same order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u32>,
+}
+
+/// How `cards.list` orders cards (Mochi's deck-page sorts). It never changes the review queue.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CardSort {
+    #[default]
+    Created,
+    Updated,
+    Name,
+    Due,
+    Reviewed,
+    Interval,
+    Retention,
+    Random,
+}
+
+impl CardSort {
+    pub const ALL: [CardSort; 8] = [
+        CardSort::Created,
+        CardSort::Updated,
+        CardSort::Name,
+        CardSort::Due,
+        CardSort::Reviewed,
+        CardSort::Interval,
+        CardSort::Retention,
+        CardSort::Random,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CardSort::Created => "created",
+            CardSort::Updated => "updated",
+            CardSort::Name => "name",
+            CardSort::Due => "due",
+            CardSort::Reviewed => "reviewed",
+            CardSort::Interval => "interval",
+            CardSort::Retention => "retention",
+            CardSort::Random => "random",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<CardSort> {
+        CardSort::ALL.into_iter().find(|s| s.as_str() == value)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -110,7 +167,7 @@ pub struct Remaining {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Answer {
     pub card_id: Id,
-    pub rating: u8,
+    pub remembered: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
 }
@@ -123,6 +180,15 @@ pub struct Stats {
     pub reviews_today: u64,
     /// `null` when there were no reviews of cards in review state in the last 30 days.
     pub retention_30d: Option<f64>,
+}
+
+/// A tag on live cards: how many, and when one of them last changed (`updated_at`), which is when the tag was last
+/// used.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagSummary {
+    pub tag: String,
+    pub cards: u64,
+    pub last_used: i64,
 }
 
 /// `{ server, token? }` signs in to Recall Cloud; `{ hub, name? }` pairs with a self-hosted hub.
@@ -150,6 +216,99 @@ pub struct LoggedIn {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HubLoggedIn {
     pub library_id: String,
+}
+
+/// Params of `import.mochi`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ImportFile {
+    /// An absolute path on the core's machine: a `.mochi` export, or a bare `data.json` or `data.edn`.
+    pub path: String,
+    /// Where the imported decks go; the top level when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<Id>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Imported {
+    /// The new decks, every parent before its children.
+    pub decks: Vec<Deck>,
+    pub cards: u64,
+    pub reviews: u64,
+    /// Cards in the export that weren't imported: trashed, or with nothing on them.
+    pub skipped: u64,
+    /// Files in the export (images, audio) that weren't imported.
+    pub attachments: u64,
+}
+
+/// Web access: whether the desktop serves its library over HTTP, where, and the one token that opens it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebStatus {
+    pub enabled: bool,
+    /// Whether it's listening now: only the desktop app serves it, so a core the CLI hosts never does.
+    pub running: bool,
+    pub bind: String,
+    pub port: u16,
+    /// `None` until web access is first turned on.
+    pub token: Option<String>,
+    /// Addresses a browser can open it at, the best first: Tailscale's name and IP, then the LAN's.
+    pub urls: Vec<String>,
+    /// The first of `urls` with `#token=`, which signs a browser in when opened (or scanned).
+    pub link: Option<String>,
+    /// Why it isn't running though enabled (the port is taken, say).
+    pub error: Option<String>,
+}
+
+/// Params of `web.enable`: what to change, or nothing to keep the current (or default) address.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebEnable {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+}
+
+/// Hosting: whether this desktop is its library's hub, so phones pair with it and sync over Iroh.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostStatus {
+    pub enabled: bool,
+    /// Whether it's accepting devices now: only the desktop app hosts, so a core the CLI hosts never does.
+    pub running: bool,
+    /// The endpoint id devices dial; `None` before this device has a key.
+    pub endpoint_id: Option<String>,
+    pub devices: Vec<DeviceInfo>,
+    /// Why it isn't running though enabled.
+    pub error: Option<String>,
+}
+
+/// A device paired with a hub, or with a hosting desktop.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Device {
+    /// Its endpoint id (hex).
+    pub id: String,
+    pub name: String,
+    pub added_at: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    #[serde(flatten)]
+    pub device: Device,
+    pub connected: bool,
+    /// When it last synced since the hub (or the desktop app) started.
+    pub last_sync: Option<i64>,
+}
+
+/// A one-time pairing ticket (`rchub1...`) and when it stops working.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PairTicket {
+    pub ticket: String,
+    pub expires_at: i64,
+}
+
+/// Params of `host.remove`: a device's id, id prefix or name.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceQuery {
+    pub device: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

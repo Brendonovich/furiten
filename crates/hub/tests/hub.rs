@@ -150,15 +150,15 @@ fn two_devices_converge_through_the_hub_after_offline_edits_and_reviews() {
             .update_card(CardUpdate { id: id.clone(), content: Some(content.into()), ..Default::default() })
             .unwrap();
     };
-    let review = |d: &Device, at: i64, rating: u8| {
+    let review = |d: &Device, at: i64, remembered: bool| {
         d.set_now(at);
-        lock(&d.store).answer(Answer { card_id: id.clone(), rating, duration_ms: None }).unwrap();
+        lock(&d.store).answer(Answer { card_id: id.clone(), remembered, duration_ms: None }).unwrap();
     };
     edit(&a, T0 + 10, "from a");
     edit(&b, T0 + 20, "from b");
-    review(&a, T0 + DAY, 4);
-    review(&b, T0 + 2 * DAY, 1);
-    review(&a, T0 + 3 * DAY, 3);
+    review(&a, T0 + DAY, true);
+    review(&b, T0 + 2 * DAY, true);
+    review(&a, T0 + 3 * DAY, false);
 
     sync(&a, &link_a);
     sync(&b, &link_b);
@@ -246,7 +246,7 @@ fn two_cores_pair_with_a_hub_and_see_each_others_cards_live() {
     let card = a.create_card(&NewCard { deck_id: deck.id, content: "q\n---\na".into(), tags: vec![] }).unwrap();
     // Well within the 60 s periodic sync: a pushes after its 2 s debounce, the hub tells b, b pulls.
     wait_until("b has a's card", || b.card(&card.card.id).is_ok());
-    b.answer(&card.card.id, 3, None).unwrap();
+    b.answer(&card.card.id, true, None).unwrap();
     wait_until("a has b's review", || a.card(&card.card.id).unwrap().schedule.reps == 1);
 
     let names: Vec<String> = hub.hub().devices().into_iter().map(|d| d.device.name).collect();
