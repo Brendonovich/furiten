@@ -62,7 +62,10 @@ impl HubLink {
 
     /// Whether the link holds an open connection to the hub right now.
     pub fn is_connected(&self) -> bool {
-        self.inner.connected.load(Ordering::SeqCst)
+        // A device's side of the handshake can finish before the hub refuses it, so a connection the hub has
+        // already closed doesn't count, even before the live task notices.
+        let closed = self.inner.conn.try_lock().is_ok_and(|c| c.as_ref().is_none_or(|c| c.close_reason().is_some()));
+        self.inner.connected.load(Ordering::SeqCst) && !closed
     }
 
     fn runtime(&self) -> &Runtime {
