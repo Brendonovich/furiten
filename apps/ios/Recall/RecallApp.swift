@@ -6,6 +6,7 @@ struct RecallApp: App {
     @State private var library = Library()
     /// A pairing code from a `recall://pair/…` link (the computer's QR code, scanned with the Camera app).
     @State private var link: Link?
+    @AppStorage(Theme.key) private var theme = Theme.system
 
     var body: some Scene {
         WindowGroup {
@@ -23,6 +24,8 @@ struct RecallApp: App {
                     }
                 }
                 .environment(library)
+                .environment(\.palette, theme.palette)
+                .preferredColorScheme(theme.scheme)
         }
     }
 

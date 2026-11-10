@@ -1,13 +1,14 @@
 import SwiftUI
 
-// Small pieces the screens share. The app uses the system's own look: semantic colours, text styles and Liquid Glass
-// for controls. Content (cards, sides) sits on opaque grouped surfaces with a lit edge; glass is only for controls and
+// Small pieces the screens share. The app uses the system's own look: semantic colours (or the Recall theme's
+// palette, see Theme.swift), text styles and Liquid Glass for controls. Content (cards, sides) sits on opaque grouped surfaces with a lit edge; glass is only for controls and
 // navigation.
 
 /// A card's surface, with the lit edge the web app's cards have (its `--edge-raised`): a hairline ring, brighter
 /// along the top as if lit from above, and a soft shadow.
 struct CardSurface: ViewModifier {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.palette) private var palette
     var radius: CGFloat = 16
     var raised = false
 
@@ -15,7 +16,7 @@ struct CardSurface: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         let dark = scheme == .dark
         content
-            .background(Color(.secondarySystemGroupedBackground), in: shape)
+            .background(palette.card, in: shape)
             .overlay {
                 shape.strokeBorder(
                     LinearGradient(

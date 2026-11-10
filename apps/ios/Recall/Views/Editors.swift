@@ -6,6 +6,7 @@ import SwiftUI
 /// the library.
 struct CardEditor: View {
     @Environment(Library.self) private var library
+    @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     let editing: Editing
 
@@ -67,7 +68,7 @@ struct CardEditor: View {
                 .padding(.bottom, 8)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(Color(.systemGroupedBackground))
+            .background(palette.page)
             .navigationTitle(initial == nil ? "New card" : "Edit card")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

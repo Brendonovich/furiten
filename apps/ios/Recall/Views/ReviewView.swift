@@ -7,6 +7,7 @@ import SwiftUI
 /// and scheduling are the desktop's; this only asks for the next card.
 struct ReviewView: View {
     @Environment(Library.self) private var library
+    @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(\.showSidebar) private var showSidebar
     let deckId: String?
@@ -39,7 +40,7 @@ struct ReviewView: View {
                     ProgressView("Loading…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(palette.page.ignoresSafeArea())
             .navigationTitle(deckId.flatMap { id in library.decks.first { $0.id == id }?.name } ?? "Review")
             .navigationSubtitle(next.map { counts($0.remaining.due, $0.remaining.new) } ?? "")
             .navigationBarTitleDisplayMode(.inline)
@@ -174,7 +175,7 @@ struct ReviewView: View {
             Color.clear.frame(height: 26).layoutValue(key: Stretches.self, value: true)
         }
         .cardSurface(radius: 24, raised: true)
-        .overlay { SwipeEdge(colour: intent > 0 ? .green : .red, strength: edge, radius: 24) }
+        .overlay { SwipeEdge(colour: intent > 0 ? palette.remembered : palette.forgot, strength: edge, radius: 24) }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityAction(named: "Remembered") { Task { await answer(.remembered) } }
@@ -219,7 +220,7 @@ struct ReviewView: View {
                     Task { await answer(recalled) }
                 }
                 .buttonStyle(AnswerButtonStyle(
-                    colour: recalled == .remembered ? .green : .red,
+                    colour: recalled == .remembered ? palette.remembered : palette.forgot,
                     press: toward(recalled), dim: toward(recalled == .remembered ? .forgot : .remembered)))
                 .disabled(busy)
                 .keyboardShortcut(recalled == .remembered ? "2" : "1", modifiers: [])

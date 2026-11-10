@@ -15,7 +15,9 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 - `crates/ffi`: the core behind a C ABI (`include/recall.h`), linked into the mobile apps.
 - `apps/ios`: the SwiftUI app (iOS 26), native rather than themed: a sidebar with Review (every due card from
   every deck) above the decks (a drawer on iPhone, a split view on iPad), system colours and text styles, Liquid Glass
-  for controls and navigation only, opaque grouped surfaces with the web app's lit edge for cards. It has the web app's
+  for controls and navigation only, opaque grouped surfaces with the web app's lit edge for cards. Settings → Theme
+  swaps the system colours for the web app's palette (`Recall`, always dark) and keeps the system accent and glass;
+  screens paint from `\.palette` (`Views/Theme.swift`), never fixed colours. It has the web app's
   features and concepts one for one (`apps/web` is the reference; port changes there to here). It links the core
   (`crates/ffi`, built by `apps/ios/scripts/core.sh` before each build) and keeps a library of its own, offline, which
   syncs with the desktop it's paired with over Iroh (the desktop hosts: Settings → "Sync with your phone", or

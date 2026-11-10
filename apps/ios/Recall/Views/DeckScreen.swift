@@ -5,6 +5,7 @@ import SwiftUI
 /// card in the bottom toolbar.
 struct DeckScreen: View {
     @Environment(Library.self) private var library
+    @Environment(\.palette) private var palette
     @Environment(\.showSidebar) private var showSidebar
     @State private var editing: Editing?
     @State private var deleting: CardView?
@@ -54,7 +55,7 @@ struct DeckScreen: View {
 
     private func page(_ deck: DeckSummary) -> some View {
         cards(deck)
-            .background(Color(.systemGroupedBackground))
+            .background(palette.page)
             .refreshable { await library.refresh() }
             .navigationTitle(deck.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -98,10 +99,12 @@ struct DeckScreen: View {
             } else {
                 List {
                     newCardRow(deck)
+                        .listRowBackground(palette.row)
                     ForEach(cards) { card in
                         NavigationLink(value: card) { CompactRow(card: card) }
                             .contextMenu { menu(card) }
                             .swipeActions { swipe(card) }
+                            .listRowBackground(palette.row)
                     }
                 }
                 .scrollContentBackground(.hidden)
@@ -376,10 +379,11 @@ private struct CompactRow: View {
 private struct CardDetail: View {
     let card: CardView
     let edit: () -> Void
+    @Environment(\.palette) private var palette
 
     var body: some View {
         ScrollView { CardSides(card: card).padding(16) }
-            .background(Color(.systemGroupedBackground))
+            .background(palette.page)
             .navigationTitle(plain(card.sides.first ?? ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

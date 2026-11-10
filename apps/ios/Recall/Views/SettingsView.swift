@@ -6,21 +6,38 @@ import VisionKit
 struct SettingsView: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
+    @AppStorage(Theme.key) private var theme = Theme.system
     @State private var pairing = false
     @State private var confirmDisconnect = false
 
     var body: some View {
         NavigationStack {
             Form {
-                if let sync = library.sync, sync.signedIn {
-                    syncing(sync)
-                } else {
-                    notSyncing
+                Group {
+                    if let sync = library.sync, sync.signedIn {
+                        syncing(sync)
+                    } else {
+                        notSyncing
+                    }
+                    Section {
+                        Picker("Theme", selection: $theme) {
+                            ForEach(Theme.allCases) { Text($0.name).tag($0) }
+                        }
+                    } header: {
+                        Text("Appearance")
+                    } footer: {
+                        Text(theme == .recall
+                             ? "Recall’s own colours, as on the web, always dark."
+                             : "The system’s colours, light or dark as your phone is.")
+                    }
+                    Section {
+                        LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+                    }
                 }
-                Section {
-                    LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
-                }
+                .listRowBackground(palette.row)
             }
+            .listBackground(palette.list)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -97,6 +114,7 @@ struct SettingsView: View {
 struct PairView: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
     /// A ticket to pair with straight away, from a `recall://pair/…` link.
     var ticket: String?
     @State private var code = ""
@@ -166,7 +184,9 @@ struct PairView: View {
                         Text("From a terminal, `recall host pair` prints one too. Each code works once, for 10 minutes.")
                     }
                 }
+                .listRowBackground(palette.row)
             }
+            .listBackground(palette.list)
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Pair with your computer")
             .navigationBarTitleDisplayMode(.inline)
@@ -220,6 +240,7 @@ struct PairView: View {
 private struct CloudSignIn: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
     @State private var server = ""
     @State private var token = ""
     @State private var busy = false
@@ -229,29 +250,33 @@ private struct CloudSignIn: View {
 
     var body: some View {
         Form {
-            if let created {
-                Section {
-                    Text(created).font(.footnote.monospaced()).textSelection(.enabled)
-                    Button("Copy token") { UIPasteboard.general.string = created }
-                    Button("Done") { dismiss() }
-                } header: {
-                    Text("Your account token")
-                } footer: {
-                    Text("It signs you in on your other devices. Keep it secret.")
-                }
-            } else {
-                Section {
-                    field("Server (recall.example.com)", text: $server).keyboardType(.URL)
-                    field("rc_…", text: $token).monospaced()
-                    Button("Sign in") { Task { await signIn(token: token) } }
-                        .disabled(busy || url == nil || token.trimmingCharacters(in: .whitespaces).isEmpty)
-                    Button("Create a new account") { Task { await signIn(token: nil) } }
-                        .disabled(busy || url == nil)
-                } footer: {
-                    if let error { Text(error).foregroundStyle(.red) }
+            Group {
+                if let created {
+                    Section {
+                        Text(created).font(.footnote.monospaced()).textSelection(.enabled)
+                        Button("Copy token") { UIPasteboard.general.string = created }
+                        Button("Done") { dismiss() }
+                    } header: {
+                        Text("Your account token")
+                    } footer: {
+                        Text("It signs you in on your other devices. Keep it secret.")
+                    }
+                } else {
+                    Section {
+                        field("Server (recall.example.com)", text: $server).keyboardType(.URL)
+                        field("rc_…", text: $token).monospaced()
+                        Button("Sign in") { Task { await signIn(token: token) } }
+                            .disabled(busy || url == nil || token.trimmingCharacters(in: .whitespaces).isEmpty)
+                        Button("Create a new account") { Task { await signIn(token: nil) } }
+                            .disabled(busy || url == nil)
+                    } footer: {
+                        if let error { Text(error).foregroundStyle(.red) }
+                    }
                 }
             }
+            .listRowBackground(palette.row)
         }
+        .listBackground(palette.list)
         .navigationTitle("Recall Cloud")
         .navigationBarTitleDisplayMode(.inline)
     }

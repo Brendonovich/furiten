@@ -4,6 +4,7 @@ import SwiftUI
 struct MarkdownView: View {
     let text: String
     var selectable = false
+    @Environment(\.palette) private var palette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -15,12 +16,12 @@ struct MarkdownView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(code).font(.callout.monospaced()).padding(12)
                     }
-                    .background(Color(.tertiarySystemFill), in: .rect(cornerRadius: 8))
+                    .background(palette.inset, in: .rect(cornerRadius: 8))
                 case .quote(let text):
                     inline(text)
                         .foregroundStyle(.secondary)
                         .padding(.leading, 12)
-                        .overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 3) }
+                        .overlay(alignment: .leading) { Rectangle().fill(palette.rule).frame(width: 3) }
                 case .paragraph(let text):
                     inline(text)
                 }

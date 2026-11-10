@@ -17,6 +17,7 @@ extension EnvironmentValues {
 struct Shell: View {
     @Environment(Library.self) private var library
     @Environment(\.horizontalSizeClass) private var size
+    @Environment(\.palette) private var palette
     /// What's on screen. Unlike `library.deckId` (the last deck opened, which the library keeps), it's nil while
     /// iPad's split view has nothing chosen.
     @State private var selection: SidebarItem? = .review
@@ -30,6 +31,7 @@ struct Shell: View {
                 Drawer(open: $drawer, edgeSwipe: path.isEmpty) {
                     NavigationStack {
                         DeckList(selection: Binding(get: { selection }, set: { pick($0) }), settings: $settings)
+                            .listBackground(palette.sidebar)
                     }
                 } content: {
                     detail.environment(\.showSidebar, { withAnimation(drawerSpring) { drawer = true } })
@@ -73,6 +75,8 @@ struct Shell: View {
         case nil:
             NavigationStack {
                 ContentUnavailableView("Choose a deck", systemImage: "book.closed", description: Text("Its cards show up here."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .listBackground(palette.list)
             }
         }
     }
