@@ -10,7 +10,7 @@ use crate::model::{Card, Change, Review, normalize_tags};
 use crate::protocol::{SyncRequest, SyncResponse};
 use crate::{Error, Result};
 
-/// Where a device syncs. For Recall Cloud, `server` is its URL and `token` the account's; for a self-hosted hub,
+/// Where a device syncs. For Furiten Cloud, `server` is its URL and `token` the account's; for a self-hosted hub,
 /// `server` is `hub:<endpoint id>`, `token` is empty, `user_id` is the hub's library id and `hub` says how to reach
 /// it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -335,7 +335,7 @@ fn review_row(r: &rusqlite::Row) -> rusqlite::Result<Review> {
     Ok(Review { id: r.get(0)?, card_id: r.get(1)?, rating: r.get(2)?, reviewed_at: r.get(3)?, duration_ms: r.get(4)? })
 }
 
-fn apply(conn: &Connection, scheduler: &recall_srs::Scheduler, changes: &[Change]) -> Result<u64> {
+fn apply(conn: &Connection, scheduler: &furiten_srs::Scheduler, changes: &[Change]) -> Result<u64> {
     let mut applied = 0;
     let mut touched = BTreeSet::new();
     for change in changes {

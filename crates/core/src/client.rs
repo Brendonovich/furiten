@@ -1,10 +1,10 @@
 //! A blocking client for the local core.
 //!
 //! ```no_run
-//! # fn main() -> recall_core::Result<()> {
-//! use recall_core::client::{Client, Event};
+//! # fn main() -> furiten_core::Result<()> {
+//! use furiten_core::client::{Client, Event};
 //!
-//! let home = recall_core::default_home();
+//! let home = furiten_core::default_home();
 //! let mut client = Client::connect_or_spawn(&home)?; // starts the desktop app, windowless, if no core is running
 //! let next = client.next_review(None)?;
 //! if let Some(card) = next.card {
@@ -56,9 +56,9 @@ impl Client {
         Ok(Client { home: home.to_path_buf(), reader: BufReader::new(stream), next_id: 0 })
     }
 
-    /// Connects, first starting the desktop app without a window (`recall-desktop --background`) to host the core
-    /// if none is running. The app is `$RECALL_APP`, else `recall-desktop` next to the current executable, else
-    /// `recall-desktop` on `PATH`; when there's none the error's code is `no_app`.
+    /// Connects, first starting the desktop app without a window (`furiten-desktop --background`) to host the core
+    /// if none is running. The app is `$FURITEN_APP`, else `furiten-desktop` next to the current executable, else
+    /// `furiten-desktop` on `PATH`; when there's none the error's code is `no_app`.
     pub fn connect_or_spawn(home: &Path) -> Result<Client> {
         if let Ok(client) = Client::connect(home) {
             return Ok(client);
@@ -68,7 +68,7 @@ impl Client {
         let failed = |why: String| {
             Err(Error::new(
                 "core_unavailable",
-                format!("started the Recall app but its core didn't answer ({why}); see {}", log_path(home).display()),
+                format!("started the Furiten app but its core didn't answer ({why}); see {}", log_path(home).display()),
             ))
         };
         loop {
@@ -332,7 +332,7 @@ fn log_path(home: &Path) -> PathBuf {
     home.join("app.log")
 }
 
-const APP: &str = "recall-desktop";
+const APP: &str = "furiten-desktop";
 
 fn spawn_app(home: &Path) -> Result<Child> {
     let bin = find_app()?;
@@ -340,7 +340,7 @@ fn spawn_app(home: &Path) -> Result<Child> {
     let log = std::fs::OpenOptions::new().create(true).append(true).open(log_path(home))?;
     Command::new(&bin)
         .arg("--background")
-        .env("RECALL_HOME", home)
+        .env("FURITEN_HOME", home)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(log)
@@ -351,18 +351,16 @@ fn spawn_app(home: &Path) -> Result<Child> {
 }
 
 fn find_app() -> Result<PathBuf> {
-    if let Some(bin) = std::env::var_os("RECALL_APP").filter(|v| !v.is_empty()).map(PathBuf::from) {
+    if let Some(bin) = std::env::var_os("FURITEN_APP").filter(|v| !v.is_empty()).map(PathBuf::from) {
         return match bin.is_file() {
             true => Ok(bin),
-            false => Err(Error::new("no_app", format!("RECALL_APP is {}, which isn't a file", bin.display()))),
+            false => Err(Error::new("no_app", format!("FURITEN_APP is {}, which isn't a file", bin.display()))),
         };
     }
     let sibling = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join(APP)));
     let on_path = std::env::var_os("PATH")
         .and_then(|path| std::env::split_paths(&path).map(|dir| dir.join(APP)).find(|p| p.is_file()));
-    [sibling, on_path]
-        .into_iter()
-        .flatten()
-        .find(|p| p.is_file())
-        .ok_or_else(|| Error::new("no_app", format!("can't find the Recall app; put {APP} on PATH or set RECALL_APP")))
+    [sibling, on_path].into_iter().flatten().find(|p| p.is_file()).ok_or_else(|| {
+        Error::new("no_app", format!("can't find the Furiten app; put {APP} on PATH or set FURITEN_APP"))
+    })
 }

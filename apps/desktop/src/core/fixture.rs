@@ -14,12 +14,12 @@ const BASICS: [&str; 5] = [
      question; the rest are revealed when you flip it.",
     "How do you answer a card while reviewing?\n---\nPress Space (Enter in the terminal) to reveal the answer, \
      then say whether you remembered it: 1 forgot, 2 remembered.",
-    "Why is a card you know well shown less often?\n---\nRecall schedules with FSRS. Each answer updates how well \
+    "Why is a card you know well shown less often?\n---\nFuriten schedules with FSRS. Each answer updates how well \
      you know the card, so cards you keep remembering wait longer and ones you forget come back sooner.",
-    "Can other tools use Recall?\n---\nYes. The `recall` command line does everything the app does (add `--json` \
+    "Can other tools use Furiten?\n---\nYes. The `furiten` command line does everything the app does (add `--json` \
      for scripts), and agents can connect through the MCP server.",
     "How do you make your own deck?\n---\nCreate a deck, then add cards: write the question, a line with `---`, \
-     then the answer. From a terminal: `printf 'hola\\n---\\nhello' | recall add --deck Spanish -`.",
+     then the answer. From a terminal: `printf 'hola\\n---\\nhello' | furiten add --deck Spanish -`.",
 ];
 
 /// When a sample card is due, relative to now, with its review and lapse counts; `None` is a new card.
@@ -85,9 +85,9 @@ impl Fixture {
     /// A brand-new store: only the sample deck, nothing reviewed.
     pub fn first_run() -> Fixture {
         let mut f = Fixture { decks: Vec::new(), cards: Vec::new(), next_id: 0 };
-        let basics = f.add_deck("Recall basics", 1_767_225_600_000);
+        let basics = f.add_deck("Furiten basics", 1_767_225_600_000);
         for (i, content) in BASICS.iter().enumerate() {
-            f.add_card(&basics, content, &["recall"], 1_767_225_600_000 + i as i64, None);
+            f.add_card(&basics, content, &["furiten"], 1_767_225_600_000 + i as i64, None);
         }
         f
     }
@@ -222,7 +222,7 @@ impl Fixture {
             .filter(|c| q.is_empty() || c.card.content.to_lowercase().contains(&q))
             .cloned()
             .collect();
-        recall_core::sort::sort(&mut cards, order.by, order.desc, order.seed);
+        furiten_core::sort::sort(&mut cards, order.by, order.desc, order.seed);
         cards
     }
 

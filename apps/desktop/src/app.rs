@@ -126,7 +126,7 @@ const SLOW_CONNECT: f64 = 0.4;
 const SEPARATE_SIDES: &str = "experiment.separate-sides";
 
 /// Where the app keeps its preferences (`rune::prefs`).
-const PREFS_ID: &str = "recall-desktop";
+const PREFS_ID: &str = "furiten-desktop";
 
 pub struct Review {
     /// The deck (with its subdecks) being reviewed, or `None` for the inbox: every due card from every deck.
@@ -510,7 +510,7 @@ impl App {
 
     pub fn toggle_separate_sides(&mut self) {
         if let Err(e) = self.prefs.set(SEPARATE_SIDES, &!self.separate_sides()) {
-            eprintln!("recall-desktop: {e}");
+            eprintln!("furiten-desktop: {e}");
         }
     }
 
@@ -532,7 +532,7 @@ impl App {
         self.view = view;
         let key = self.view_pref();
         if let Err(e) = self.prefs.set(&key, view.id()) {
-            eprintln!("recall-desktop: {e}");
+            eprintln!("furiten-desktop: {e}");
         }
     }
 
@@ -567,7 +567,7 @@ impl App {
         let value = if order.desc { format!("{id}-desc") } else { id.to_string() };
         let key = self.order_pref();
         if let Err(e) = self.prefs.set(&key, &value) {
-            eprintln!("recall-desktop: {e}");
+            eprintln!("furiten-desktop: {e}");
         }
         self.load_cards();
     }
@@ -760,7 +760,7 @@ impl App {
         let tags = match self.core.tags(&deck) {
             Ok(tags) => tags.into_iter().map(|t| t.tag).collect(),
             Err(e) => {
-                eprintln!("recall-desktop: no tag suggestions: {e}");
+                eprintln!("furiten-desktop: no tag suggestions: {e}");
                 Vec::new()
             }
         };
@@ -1180,7 +1180,7 @@ mod tests {
         let other = s.decks.iter().find(|d| d.deck.name != "Spanish").map(|d| d.deck.id.clone());
         s.select_deck(spanish.clone());
         s.set_sort(CardSort::Name);
-        let fronts: Vec<String> = s.cards.iter().map(|c| recall_core::sort::title_key(&c.sides[0])).collect();
+        let fronts: Vec<String> = s.cards.iter().map(|c| furiten_core::sort::title_key(&c.sides[0])).collect();
         assert_eq!(fronts.first().map(String::as_str), Some("aprovechar"));
         assert!(fronts.windows(2).all(|w| w[0] <= w[1]), "{fronts:?}");
         s.set_order(Order { desc: true, ..s.order });

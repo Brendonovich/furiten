@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use recall_srs::{Rating, Scheduler};
+use furiten_srs::{Rating, Scheduler};
 use rusqlite::{Connection, OptionalExtension, named_params, params};
 
 use super::{Store, next_dirty, subtree};
@@ -183,7 +183,7 @@ pub(super) fn recompute(conn: &Connection, scheduler: &Scheduler, card_id: &str)
         )?
         .query_map([card_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    let mut schedule = recall_srs::Schedule::new(created_at);
+    let mut schedule = furiten_srs::Schedule::new(created_at);
     let mut first_review = None;
     for (id, rating, at, prior) in reviews {
         // Ratings outside 1-4 can only come from a bad sync peer; they don't count.

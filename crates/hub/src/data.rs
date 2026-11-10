@@ -1,24 +1,24 @@
-//! The hub's data directory. Its device list is `recall_core::hub::host::Devices`.
+//! The hub's data directory. Its device list is `furiten_core::hub::host::Devices`.
 
 use std::path::{Path, PathBuf};
 
-use recall_core::{Error, Result};
+use furiten_core::{Error, Result};
 
 pub const KEY: &str = "iroh.key";
 pub const LIBRARY: &str = "library.db";
 pub const SOCKET: &str = "hub.sock";
 pub const LOCK: &str = "hub.lock";
 
-/// `$XDG_DATA_HOME/recall-hub` (default `~/.local/share/recall-hub`), or `~/Library/Application Support/recall-hub`
+/// `$XDG_DATA_HOME/furiten-hub` (default `~/.local/share/furiten-hub`), or `~/Library/Application Support/furiten-hub`
 /// on macOS.
 pub fn default_data_dir() -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
     if cfg!(target_os = "macos") {
-        return home.join("Library/Application Support/recall-hub");
+        return home.join("Library/Application Support/furiten-hub");
     }
     match std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
-        Some(data) => PathBuf::from(data).join("recall-hub"),
-        None => home.join(".local/share/recall-hub"),
+        Some(data) => PathBuf::from(data).join("furiten-hub"),
+        None => home.join(".local/share/furiten-hub"),
     }
 }
 
@@ -37,5 +37,5 @@ pub fn lock(data: &Path) -> Result<std::fs::File> {
     Ok(lock)
 }
 
-pub use recall_core::hub::host::{DEVICES, Devices};
-pub use recall_core::protocol::Device;
+pub use furiten_core::hub::host::{DEVICES, Devices};
+pub use furiten_core::protocol::Device;

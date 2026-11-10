@@ -1,5 +1,5 @@
-//! Being a hub: serving `recall/sync/1` and `recall/pair/1` to paired devices from a store that serves sync. A
-//! `recall-hub` runs one over its own store; the desktop app runs one over its own library while it hosts phones
+//! Being a hub: serving `furiten/sync/1` and `furiten/pair/1` to paired devices from a store that serves sync. A
+//! `furiten-hub` runs one over its own store; the desktop app runs one over its own library while it hosts phones
 //! (see "Hosting" in docs/contract.md).
 
 mod devices;
@@ -225,7 +225,7 @@ impl Shared {
         }
         let device = Device { id: device.to_string(), name: name.to_string(), added_at: now_ms() };
         self.gate().devices.add(device.clone())?;
-        eprintln!("recall: paired {} ({})", device.name, device.id);
+        eprintln!("furiten: paired {} ({})", device.name, device.id);
         (self.on_change)();
         Ok(Paired { library_id: self.library_id.clone() })
     }
@@ -251,7 +251,7 @@ impl Shared {
         gate.devices.remove(&device.id)?;
         let closed = gate.close(&device.id);
         drop(gate);
-        eprintln!("recall: removed {} ({}), closed {closed} connection(s)", device.name, device.id);
+        eprintln!("furiten: removed {} ({}), closed {closed} connection(s)", device.name, device.id);
         Ok(device)
     }
 }

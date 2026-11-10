@@ -1,4 +1,4 @@
-//! The control socket, `hub.sock` in the data directory (mode 0600): how `recall-hub pair`, `status` and
+//! The control socket, `hub.sock` in the data directory (mode 0600): how `furiten-hub pair`, `status` and
 //! `devices` reach a running hub. One JSON line in (`{ method, params }`), one out (`{ result }` or
 //! `{ error: { code, message } }`).
 
@@ -6,8 +6,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use recall_core::hub::host::Host;
-use recall_core::{Error, Result, Store};
+use furiten_core::hub::host::Host;
+use furiten_core::{Error, Result, Store};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};

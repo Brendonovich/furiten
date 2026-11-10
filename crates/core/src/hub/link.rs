@@ -201,5 +201,9 @@ async fn connect(endpoint: &Endpoint, addr: EndpointAddr, alpn: &[u8]) -> Result
 }
 
 fn runtime() -> Result<Runtime> {
-    Ok(tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_name("recall-iroh").enable_all().build()?)
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_name("furiten-iroh")
+        .enable_all()
+        .build()?)
 }

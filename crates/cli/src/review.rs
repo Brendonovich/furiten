@@ -4,15 +4,15 @@ use std::io::{IsTerminal, Read, Write};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
-use recall_core::client::Client;
-use recall_core::{Error, Result};
+use furiten_core::client::Client;
+use furiten_core::{Error, Result};
 
 use crate::output;
 
 pub fn interactive(client: &mut Client, deck_id: Option<&str>) -> Result<()> {
     if !std::io::stdin().is_terminal() {
         return Err(Error::invalid(
-            "interactive review needs a terminal; use `recall review next` and `review answer`",
+            "interactive review needs a terminal; use `furiten review next` and `review answer`",
         ));
     }
     let _raw = RawMode::enable()?;

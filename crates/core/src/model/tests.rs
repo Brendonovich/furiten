@@ -49,7 +49,7 @@ fn json_matches_the_contract() {
         updated_at: 2,
         deleted: false,
     };
-    let view = CardView::new(card.clone(), recall_srs::Schedule::new(1).into());
+    let view = CardView::new(card.clone(), furiten_srs::Schedule::new(1).into());
     let json = serde_json::to_value(&view).unwrap();
     assert_eq!(
         json,

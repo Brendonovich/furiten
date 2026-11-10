@@ -31,7 +31,7 @@ fn tickets_roundtrip_and_reject_garbage() {
 
 #[test]
 fn keys_are_created_once_with_mode_0600() {
-    let dir = std::env::temp_dir().join(format!("recall-key-{}", crate::model::ulid()));
+    let dir = std::env::temp_dir().join(format!("furiten-key-{}", crate::model::ulid()));
     let path = dir.join("iroh.key");
     let key = load_or_create_key(&path).unwrap();
     assert_eq!(load_or_create_key(&path).unwrap().public(), key.public());

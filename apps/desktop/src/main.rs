@@ -1,4 +1,4 @@
-//! Recall's desktop app, which also hosts the core the CLI talks to.
+//! Furiten's desktop app, which also hosts the core the CLI talks to.
 //!
 //! `cargo run` opens the window. `cargo run -- --background` hosts the core without one (the CLI starts the app this
 //! way when nothing is running). `cargo run -- --fixtures [first-run|lived-in|caught-up]` runs on sample data.
@@ -12,7 +12,7 @@ mod ui;
 
 use std::sync::{Mutex, OnceLock};
 
-use recall_core::server::Hosted;
+use furiten_core::server::Hosted;
 use rune::{AppHandle, AppSpec, Chrome, Key, KeyEvent, Tx};
 use rune_kit::shell;
 
@@ -227,7 +227,7 @@ fn host_core(app: rune::App<App>, background: bool) -> rune::App<App> {
     let start = move || {
         let handle = handle.clone();
         std::thread::Builder::new()
-            .name("recall-host".into())
+            .name("furiten-host".into())
             .spawn(move || {
                 let (opener, quitter) = (handle.clone(), handle.clone());
                 let core = Core::host(move || show(&opener), move || quitter.quit()).map(|(core, hosted)| {
@@ -261,7 +261,7 @@ fn main() {
         match core::running() {
             Running::App => return,
             Running::Windowless if background => {
-                eprintln!("recall-desktop: a core is already running for {}", recall_core::default_home().display());
+                eprintln!("furiten-desktop: a core is already running for {}", furiten_core::default_home().display());
                 return;
             }
             Running::Windowless | Running::Nothing => {}
@@ -279,7 +279,7 @@ fn main() {
         on_key: Some(on_key),
         fonts: rune_theme_opencode::FONTS,
         families: rune_theme_opencode::FAMILIES,
-        ..AppSpec::new("Recall", (1040.0, 680.0), app::init, ui::view)
+        ..AppSpec::new("Furiten", (1040.0, 680.0), app::init, ui::view)
     };
     let mut app = rune::App::new(spec).chrome(chrome);
     if background {
@@ -289,7 +289,7 @@ fn main() {
     host_core(app, background).run();
     let hosted = HOSTED.lock().unwrap_or_else(|e| e.into_inner()).take();
     if let Some(Err(e)) = hosted.map(Hosted::stop) {
-        eprintln!("recall-desktop: the core didn't stop cleanly: {}", e.message);
+        eprintln!("furiten-desktop: the core didn't stop cleanly: {}", e.message);
     }
 }
 

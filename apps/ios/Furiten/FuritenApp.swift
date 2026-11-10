@@ -1,10 +1,10 @@
 import SwiftUI
 
 @main
-struct RecallApp: App {
+struct FuritenApp: App {
     @Environment(\.scenePhase) private var phase
     @State private var library = Library()
-    /// A pairing code from a `recall://pair/…` link (the computer's QR code, scanned with the Camera app).
+    /// A pairing code from a `furiten://pair/…` link (the computer's QR code, scanned with the Camera app).
     @State private var link: Link?
     @AppStorage(Theme.key) private var theme = Theme.system
 

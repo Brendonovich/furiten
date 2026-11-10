@@ -114,7 +114,7 @@ fn an_embedded_core_answers_lines_and_reports_changes() {
 
     let reply: Value = serde_json::from_str(&core.request(r#"{"id":1,"method":"decks.list"}"#)).unwrap();
     assert_eq!(reply["id"], 1);
-    assert_eq!(reply["result"][0]["name"], "Recall basics", "a new store starts with the sample deck");
+    assert_eq!(reply["result"][0]["name"], "Furiten basics", "a new store starts with the sample deck");
     let reply: Value =
         serde_json::from_str(&core.request(r#"{"id":2,"method":"decks.create","params":{"name":"Spanish"}}"#)).unwrap();
     assert_eq!(reply["result"]["name"], "Spanish");
@@ -227,7 +227,7 @@ mod web_access {
         let t = Some(token.as_str());
         let (status, decks) = http(port, "GET", "/v1/decks", t, None);
         assert_eq!(status, 200);
-        assert_eq!(decks["decks"][0]["name"], "Recall basics");
+        assert_eq!(decks["decks"][0]["name"], "Furiten basics");
         let (_, deck) = http(port, "POST", "/v1/decks", t, Some(json!({ "name": "Spanish" })));
         let deck = deck["id"].as_str().unwrap().to_string();
 

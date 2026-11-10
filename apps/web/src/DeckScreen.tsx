@@ -37,8 +37,8 @@ type SortBar = "icons" | "sort" | "short" | "split";
 const SORT_BAR: SortBar = (() => {
   const all: SortBar[] = ["icons", "sort", "short", "split"];
   const asked = new URLSearchParams(location.search).get("sortbar") as SortBar | null;
-  if (asked && all.includes(asked)) localStorage.setItem("recall.sortbar", asked);
-  const kept = localStorage.getItem("recall.sortbar") as SortBar | null;
+  if (asked && all.includes(asked)) localStorage.setItem("furiten.sortbar", asked);
+  const kept = localStorage.getItem("furiten.sortbar") as SortBar | null;
   return kept && all.includes(kept) ? kept : "short";
 })();
 
@@ -93,7 +93,7 @@ export function DeckScreen() {
         <button class="icon-button" aria-label="Decks" onClick={() => app.setState((s) => void (s.drawer = true))}>
           <Icon name="menu" />
         </button>
-        <h1 class="toolbar-title">{deck()?.name ?? "Recall"}</h1>
+        <h1 class="toolbar-title">{deck()?.name ?? "Furiten"}</h1>
         <Show when={deck()}>
           <button class="icon-button" aria-label="Deck actions" onClick={() => overlay.open(overlay.with({ actions: "menu" }))}>
             <Icon name="more" />

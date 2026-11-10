@@ -1,27 +1,27 @@
-//! `recall-hub`: serve one Recall library to paired devices over Iroh.
+//! `furiten-hub`: serve one Furiten library to paired devices over Iroh.
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use furiten_core::hub::Net;
+use furiten_core::{Error, Result, now_ms};
+use furiten_hub::data::Device;
+use furiten_hub::{Config, DeviceInfo, Hub, PairTicket, Status, control};
 use qrcode::render::unicode::Dense1x2;
 use qrcode::{EcLevel, QrCode};
-use recall_core::hub::Net;
-use recall_core::{Error, Result, now_ms};
-use recall_hub::data::Device;
-use recall_hub::{Config, DeviceInfo, Hub, PairTicket, Status, control};
 use serde::Serialize;
 use serde_json::{Value, json};
 
 #[derive(Parser)]
 #[command(
-    name = "recall-hub",
+    name = "furiten-hub",
     version,
-    about = "Recall's self-hosted hub: one library, synced to paired devices over Iroh."
+    about = "Furiten's self-hosted hub: one library, synced to paired devices over Iroh."
 )]
 struct Cli {
-    /// The hub's data directory [default: $XDG_DATA_HOME/recall-hub, or ~/Library/Application Support/recall-hub]
+    /// The hub's data directory [default: $XDG_DATA_HOME/furiten-hub, or ~/Library/Application Support/furiten-hub]
     #[arg(long, global = true)]
     data: Option<PathBuf>,
     /// Print JSON instead of text.
@@ -35,12 +35,12 @@ struct Cli {
 enum Command {
     /// Run the hub in the foreground.
     Serve {
-        /// Use this self-hosted iroh-relay instead of n0's public relays (also RECALL_RELAY). RECALL_NET=local
+        /// Use this self-hosted iroh-relay instead of n0's public relays (also FURITEN_RELAY). FURITEN_NET=local
         /// serves on loopback only, with no relay, for trying it out on one machine.
         #[arg(long)]
         relay: Option<String>,
     },
-    /// Make a one-time pairing ticket (valid 10 minutes) for `recall sync login --hub <ticket>`.
+    /// Make a one-time pairing ticket (valid 10 minutes) for `furiten sync login --hub <ticket>`.
     Pair,
     /// List paired devices, or remove one.
     Devices {
@@ -68,7 +68,7 @@ fn main() -> ExitCode {
             if json {
                 println!("{}", json!({ "error": error }));
             } else {
-                eprintln!("recall-hub: {}", error.message);
+                eprintln!("furiten-hub: {}", error.message);
             }
             ExitCode::FAILURE
         }
@@ -76,7 +76,7 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    let data = cli.data.unwrap_or_else(recall_hub::data::default_data_dir);
+    let data = cli.data.unwrap_or_else(furiten_hub::data::default_data_dir);
     let json = cli.json;
     match cli.command {
         Command::Serve { relay } => {
@@ -98,7 +98,7 @@ fn run(cli: Cli) -> Result<()> {
                 }
                 let minutes = ((t.expires_at - now_ms()) as f64 / 60_000.0).round();
                 out.push_str(&format!(
-                    "{}\n\nOn the device to pair (valid {minutes} minutes, once):\n  recall sync login --hub {}",
+                    "{}\n\nOn the device to pair (valid {minutes} minutes, once):\n  furiten sync login --hub {}",
                     t.ticket, t.ticket
                 ));
                 out
@@ -108,14 +108,14 @@ fn run(cli: Cli) -> Result<()> {
             DevicesCommand::List => {
                 let devices: Vec<DeviceInfo> = match control::call(&data, "devices.list", json!({}))? {
                     Some(value) => from_value(value)?,
-                    None => recall_hub::offline_status(&data)?.1,
+                    None => furiten_hub::offline_status(&data)?.1,
                 };
                 emit(json, &devices, |d| devices_text(d))
             }
             DevicesCommand::Rm { device } => {
                 let removed: Device = match control::call(&data, "devices.rm", json!({ "device": device }))? {
                     Some(value) => from_value(value)?,
-                    None => recall_hub::offline_remove_device(&data, &device)?,
+                    None => furiten_hub::offline_remove_device(&data, &device)?,
                 };
                 emit(json, &removed, |d| format!("Removed {} ({})", d.name, d.id))
             }
@@ -126,7 +126,7 @@ fn run(cli: Cli) -> Result<()> {
                     let devices = control::call(&data, "devices.list", json!({}))?.unwrap_or(Value::Null);
                     (from_value(value)?, from_value(devices)?)
                 }
-                None => recall_hub::offline_status(&data)?,
+                None => furiten_hub::offline_status(&data)?,
             };
             emit(json, &status, |s| status_text(s, &devices))
         }
@@ -140,13 +140,13 @@ fn serve(config: Config, json: bool) -> Result<()> {
         let status = hub.status()?;
         emit(json, &status, |s| {
             format!(
-                "recall-hub {} serving library {}\n  endpoint {}\n  network  {}\n  data     {}\n  devices  {} paired\nPair a \
-                 device with: recall-hub pair",
+                "furiten-hub {} serving library {}\n  endpoint {}\n  network  {}\n  data     {}\n  devices  {} paired\nPair a \
+                 device with: furiten-hub pair",
                 s.version, s.library_id, s.endpoint_id, s.net, s.data, s.devices
             )
         })?;
         wait_for_signal().await;
-        eprintln!("recall-hub: stopping");
+        eprintln!("furiten-hub: stopping");
         hub.shutdown().await;
         Ok(())
     })
@@ -173,7 +173,7 @@ fn running<T: serde::de::DeserializeOwned>(data: &std::path::Path, method: &str,
         Some(value) => from_value(value),
         None => Err(Error::new(
             "not_running",
-            format!("no hub is running for {}; start it with recall-hub serve", data.display()),
+            format!("no hub is running for {}; start it with furiten-hub serve", data.display()),
         )),
     }
 }
@@ -194,7 +194,7 @@ fn emit<T: Serialize>(json: bool, value: &T, human: impl FnOnce(&T) -> String) -
 fn status_text(s: &Status, devices: &[DeviceInfo]) -> String {
     let state = if s.running { "running" } else { "not running" };
     let mut out = format!(
-        "recall-hub {} ({state})\n  endpoint {}\n  library  {}\n  data     {}\n  cursor   {}",
+        "furiten-hub {} ({state})\n  endpoint {}\n  library  {}\n  data     {}\n  cursor   {}",
         s.version, s.endpoint_id, s.library_id, s.data, s.cursor
     );
     if s.running {
@@ -213,7 +213,7 @@ fn status_text(s: &Status, devices: &[DeviceInfo]) -> String {
 
 fn devices_text(devices: &[DeviceInfo]) -> String {
     if devices.is_empty() {
-        return "No devices. Pair one with: recall-hub pair".to_string();
+        return "No devices. Pair one with: furiten-hub pair".to_string();
     }
     let width = devices.iter().map(|d| d.device.name.chars().count()).max().unwrap_or(0);
     devices

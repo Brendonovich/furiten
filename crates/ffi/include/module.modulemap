@@ -1,5 +1,5 @@
-module RecallCore {
-    header "recall.h"
-    link "recall_ffi"
+module FuritenCore {
+    header "furiten.h"
+    link "furiten_ffi"
     export *
 }

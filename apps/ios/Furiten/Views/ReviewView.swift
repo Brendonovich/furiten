@@ -174,6 +174,8 @@ struct ReviewView: View {
             }
             Color.clear.frame(height: 26).layoutValue(key: Stretches.self, value: true)
         }
+        // A new side is laid out at its place straight away while the card grows to it, so keep it inside the card.
+        .clipShape(.rect(cornerRadius: 24, style: .continuous))
         .cardSurface(radius: 24, raised: true)
         .overlay { SwipeEdge(colour: intent > 0 ? palette.remembered : palette.forgot, strength: edge, radius: 24) }
         .contentShape(.rect)

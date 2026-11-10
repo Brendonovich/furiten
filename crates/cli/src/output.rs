@@ -1,16 +1,16 @@
 //! Human-readable output.
 
-use recall_core::model::{CardView, DeckSummary};
+use furiten_core::model::{CardView, DeckSummary};
 use std::io::IsTerminal;
 
+use furiten_core::protocol::{HostStatus, Imported, NextReview, PairTicket, Stats, Status, TagSummary, WebStatus};
+use furiten_core::{State, now_ms};
 use qrcode::render::unicode::Dense1x2;
 use qrcode::{EcLevel, QrCode};
-use recall_core::protocol::{HostStatus, Imported, NextReview, PairTicket, Stats, Status, TagSummary, WebStatus};
-use recall_core::{State, now_ms};
 
 pub fn status(s: &Status) -> String {
     let sync = match &s.server {
-        None if s.hosting => "hosting: paired phones sync with this desktop (recall host)".to_string(),
+        None if s.hosting => "hosting: paired phones sync with this desktop (furiten host)".to_string(),
         None => "not signed in".to_string(),
         Some(server) => {
             let last = s.last_sync.map_or("never synced".to_string(), |t| format!("synced {}", relative(t)));
@@ -23,7 +23,7 @@ pub fn status(s: &Status) -> String {
             }
         }
     };
-    let mut out = format!("recall core {} at {}\nsync: {sync}", s.version, s.home);
+    let mut out = format!("furiten core {} at {}\nsync: {sync}", s.version, s.home);
     if let Some(error) = &s.sync_error {
         out.push_str(&format!("\nlast sync failed: {error}"));
     }
@@ -32,7 +32,7 @@ pub fn status(s: &Status) -> String {
 
 pub fn web(w: &WebStatus) -> String {
     if !w.enabled {
-        return "Web access is off. Turn it on with: recall web on".to_string();
+        return "Web access is off. Turn it on with: furiten web on".to_string();
     }
     let mut out = String::from(if w.running { "Web access is on." } else { "Web access is on but not serving." });
     if let Some(error) = &w.error {
@@ -55,7 +55,7 @@ pub fn web(w: &WebStatus) -> String {
 
 pub fn host(h: &HostStatus) -> String {
     let mut out = String::from(match (h.enabled, h.running) {
-        (false, _) => "Hosting is off. Pair a phone with: recall host pair",
+        (false, _) => "Hosting is off. Pair a phone with: furiten host pair",
         (true, true) => "Hosting: phones paired with this desktop sync with it.",
         (true, false) => "Hosting is on but not running.",
     });
@@ -93,9 +93,9 @@ No devices paired.",
 /// The ticket, as a QR code for the phone's camera when printing to a terminal.
 pub fn pair(t: &PairTicket) -> String {
     let mut out = String::new();
-    // A link, so the phone's Camera app opens Recall to pair; the ticket in uppercase fits QR's alphanumeric
+    // A link, so the phone's Camera app opens Furiten to pair; the ticket in uppercase fits QR's alphanumeric
     // mode, a smaller code, and tickets read case-insensitively.
-    let link = format!("recall://pair/{}", t.ticket.to_uppercase());
+    let link = format!("furiten://pair/{}", t.ticket.to_uppercase());
     if std::io::stdout().is_terminal()
         && let Ok(code) = QrCode::with_error_correction_level(link, EcLevel::L)
     {
@@ -104,8 +104,8 @@ pub fn pair(t: &PairTicket) -> String {
     }
     let minutes = ((t.expires_at - now_ms()) as f64 / 60_000.0).round();
     out.push_str(&format!(
-        "{}\n\nScan it in Recall on your phone (Settings → Pair with your computer), valid {minutes} minutes, once. \
-         Or on another device: recall sync login --hub <ticket>",
+        "{}\n\nScan it in Furiten on your phone (Settings → Pair with your computer), valid {minutes} minutes, once. \
+         Or on another device: furiten sync login --hub <ticket>",
         t.ticket
     ));
     out
@@ -113,7 +113,7 @@ pub fn pair(t: &PairTicket) -> String {
 
 pub fn decks(decks: &[DeckSummary]) -> String {
     if decks.is_empty() {
-        return "No decks. Add a card with: recall add --deck <name> \"question\\n---\\nanswer\"".to_string();
+        return "No decks. Add a card with: furiten add --deck <name> \"question\\n---\\nanswer\"".to_string();
     }
     let mut rows = Vec::new();
     let is_root = |d: &DeckSummary| d.deck.parent_id.as_ref().is_none_or(|p| !decks.iter().any(|o| &o.deck.id == p));
@@ -126,7 +126,7 @@ pub fn decks(decks: &[DeckSummary]) -> String {
 
 pub fn tags(tags: &[TagSummary]) -> String {
     if tags.is_empty() {
-        return "No tags. Tag a card with: recall edit <id> --tags <tag>".to_string();
+        return "No tags. Tag a card with: furiten edit <id> --tags <tag>".to_string();
     }
     let width = tags.iter().map(|t| t.tag.chars().count()).max().unwrap_or(0);
     let rows = tags.iter().map(|t| format!("{:width$}  {:>4} cards  used {}", t.tag, t.cards, relative(t.last_used)));
@@ -211,7 +211,7 @@ pub fn imported(i: &Imported) -> String {
     }
     if i.attachments > 0 {
         out.push_str(&format!(
-            "\nLeft out {}: Recall can't show images or audio yet",
+            "\nLeft out {}: Furiten can't show images or audio yet",
             plural(i.attachments, "attachment")
         ));
     }

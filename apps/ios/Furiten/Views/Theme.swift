@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// How the app looks, chosen in Settings. System is the system's own look, light or dark as the phone is. Recall is the
+/// How the app looks, chosen in Settings. System is the system's own look, light or dark as the phone is. Furiten is the
 /// web app's palette (always dark, OpenCode's greys, its answer colours) under the same system accent and Liquid Glass.
 enum Theme: String, CaseIterable, Identifiable {
     case system
-    case recall
+    case furiten
 
     /// Where the choice is kept, in `UserDefaults`.
     static let key = "theme"
@@ -14,13 +14,13 @@ enum Theme: String, CaseIterable, Identifiable {
     var name: String {
         switch self {
         case .system: "System"
-        case .recall: "Recall"
+        case .furiten: "Furiten"
         }
     }
 
-    var scheme: ColorScheme? { self == .recall ? .dark : nil }
+    var scheme: ColorScheme? { self == .furiten ? .dark : nil }
 
-    var palette: Palette { self == .recall ? .recall : .system }
+    var palette: Palette { self == .furiten ? .furiten : .system }
 }
 
 /// The colours the screens paint with. Lists and forms keep the system's own backgrounds where these are nil.
@@ -48,7 +48,7 @@ struct Palette {
 
     /// The web app's colours (apps/web/src/styles.css, from OpenCode's dark theme): the page is `--page`, cards and rows
     /// `--layer-1`, code `--layer-2`, the sidebar `--surface`.
-    static let recall = Palette(
+    static let furiten = Palette(
         page: Color(hex: 0x161616), card: Color(hex: 0x242424), inset: Color(hex: 0x2E2E2E), rule: .white.opacity(0.1),
         forgot: Color(hex: 0xF17471), remembered: Color(hex: 0x6BD586), list: Color(hex: 0x161616),
         sidebar: Color(hex: 0x080808), row: Color(hex: 0x242424))

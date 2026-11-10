@@ -11,7 +11,7 @@ const serverLabel = (server: string) => server || location.host;
 
 /**
  * Signing in. The web app has no library of its own: it uses your desktop's (with web access on in its Settings)
- * or a Recall Cloud account.
+ * or a Furiten Cloud account.
  */
 export function SignIn() {
   const app = useContext(AppContext);
@@ -57,7 +57,7 @@ export function SignIn() {
     <div class="signin">
       <div class="signin-card">
         <img src="/icon.svg" alt="" width="64" height="64" />
-        <h1>Recall</h1>
+        <h1>Furiten</h1>
         <div class="segmented text" role="radiogroup" aria-label="Where your decks are">
           <button
             role="radio"
@@ -73,7 +73,7 @@ export function SignIn() {
             class={{ active: mode() === "cloud" }}
             onClick={() => setMode("cloud")}
           >
-            Recall Cloud
+            Furiten Cloud
           </button>
         </div>
         <Show
@@ -113,7 +113,7 @@ export function SignIn() {
           }
         >
           <p class="muted">
-            On your computer, open Recall’s Settings and turn on <b>Use this library from your phone</b>. Then scan
+            On your computer, open Furiten’s Settings and turn on <b>Use this library from your phone</b>. Then scan
             its code, or paste its link here.
           </p>
           <form
@@ -157,7 +157,7 @@ export function Settings() {
   const [copied, setCopied] = createSignal(false);
   const session = () => app.state.session!;
   const server = () => session().server || location.origin;
-  const command = () => `recall sync login --server ${server()} --token ${session().token}`;
+  const command = () => `furiten sync login --server ${server()} --token ${session().token}`;
 
   return (
     <div class="screen">
@@ -175,7 +175,7 @@ export function Settings() {
             when={isDesktop(session())}
             fallback={
               <>
-                <p>Signed in to Recall Cloud at {serverLabel(session().server)}</p>
+                <p>Signed in to Furiten Cloud at {serverLabel(session().server)}</p>
                 <p class="muted">
                   {app.state.lastSync ? `Last synced ${ago(app.state.lastSync)}` : "Not synced yet"}. Changes save
                   straight to the server, so your other devices get them on their next sync.
@@ -185,7 +185,7 @@ export function Settings() {
           >
             <p>Connected to your desktop at {serverLabel(session().server)}</p>
             <p class="muted">
-              This is your computer’s library, live: changes show up on both straight away. It works while the Recall
+              This is your computer’s library, live: changes show up on both straight away. It works while the Furiten
               app is open there, on the same network or over Tailscale.
             </p>
           </Show>

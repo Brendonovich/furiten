@@ -9,9 +9,9 @@ import { McpProtocol, McpServer } from "effect/ai";
 import { Etag, HttpPlatform, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { HttpApiSchemaError } from "effect/http-api/HttpApiError";
-import srsWasm from "../build/recall_srs.wasm";
+import srsWasm from "../build/furiten_srs.wasm";
 import { parseToken, verifySecret } from "./Auth.ts";
-import { BadRequest, Conflict, NotFound, RecallApi, Unauthorized } from "./HttpApi.ts";
+import { BadRequest, Conflict, NotFound, FuritenApi, Unauthorized } from "./HttpApi.ts";
 import * as Mcp from "./Mcp.ts";
 import { ApiError } from "./Model.ts";
 import { makeScheduler } from "./srs.ts";
@@ -56,7 +56,7 @@ const makeApp = (store: Store) => {
   const tool = <A>(f: () => A) =>
     attempt(f).pipe(Effect.mapError((e) => ({ code: e.code, message: e.message })));
 
-  const decks = HttpApiBuilder.group(RecallApi, "decks", (h) =>
+  const decks = HttpApiBuilder.group(FuritenApi, "decks", (h) =>
     h
       .handle("list", () => http(() => ({ decks: store.decks() })))
       .handle("create", ({ payload }) => http(() => store.createDeck(payload)))
@@ -64,7 +64,7 @@ const makeApp = (store: Store) => {
       .handle("delete", ({ params }) => http(() => (store.deleteDeck(params.id), { ok: true as const }))),
   );
 
-  const cards = HttpApiBuilder.group(RecallApi, "cards", (h) =>
+  const cards = HttpApiBuilder.group(FuritenApi, "cards", (h) =>
     h
       .handle("list", ({ query }) =>
         http(() => {
@@ -81,7 +81,7 @@ const makeApp = (store: Store) => {
       .handle("tags", ({ query }) => http(() => ({ tags: store.tags(query.deck_id) }))),
   );
 
-  const review = HttpApiBuilder.group(RecallApi, "review", (h) =>
+  const review = HttpApiBuilder.group(FuritenApi, "review", (h) =>
     h
       .handle("next", ({ query }) => http(() => store.nextReview(query.deck_id)))
       .handle("answer", ({ params, payload }) =>
@@ -90,11 +90,11 @@ const makeApp = (store: Store) => {
       .handle("stats", ({ query }) => http(() => store.stats(query.deck_id))),
   );
 
-  const sync = HttpApiBuilder.group(RecallApi, "sync", (h) =>
+  const sync = HttpApiBuilder.group(FuritenApi, "sync", (h) =>
     h.handle("sync", ({ payload }) => http(() => store.sync(payload))),
   );
 
-  const api = HttpApiBuilder.layer(RecallApi).pipe(
+  const api = HttpApiBuilder.layer(FuritenApi).pipe(
     Layer.provide([decks, cards, review, sync]),
     Layer.provide([Etag.layer, HttpPlatformStub, Path.layer, FileSystem.layerNoop({})]),
   );
@@ -115,10 +115,10 @@ const makeApp = (store: Store) => {
     Layer.provide(tools),
     Layer.provideMerge(
       McpServer.layerHttp({
-        name: "Recall",
+        name: "Furiten",
         version: VERSION,
         instructions:
-          "Recall is a spaced-repetition flashcard app. Cards are Markdown; a line containing only `---` splits " +
+          "Furiten is a spaced-repetition flashcard app. Cards are Markdown; a line containing only `---` splits " +
           "a card into its front and back.",
         path: "/mcp",
         protocols: [McpProtocol.v2026_07_28, McpProtocol.v2025_11_25, McpProtocol.v2025_06_18, McpProtocol.v2025_03_26],

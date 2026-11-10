@@ -1,6 +1,6 @@
-# XcodeGen spec for the iOS app. `apps/ios/scripts/deploy.sh` generates Recall.xcodeproj from it (the project
+# XcodeGen spec for the iOS app. `apps/ios/scripts/deploy.sh` generates Furiten.xcodeproj from it (the project
 # itself isn't committed), builds, and installs on a paired iPhone.
-name: Recall
+name: Furiten
 options:
   bundleIdPrefix: co.anomaly
   deploymentTarget:
@@ -14,11 +14,11 @@ settings:
     MARKETING_VERSION: 0.1.0
     CURRENT_PROJECT_VERSION: 1
 targets:
-  Recall:
+  Furiten:
     type: application
     platform: iOS
     sources:
-      - path: Recall
+      - path: Furiten
     # Iroh needs these on iOS (network interfaces and reachability, the keychain's TLS roots).
     dependencies:
       - sdk: SystemConfiguration.framework
@@ -33,17 +33,17 @@ targets:
       path: build/Info.plist
       properties:
         # Iroh connects straight to the computer when both are on one network, and through a relay otherwise.
-        NSLocalNetworkUsageDescription: Recall syncs directly with the Recall app on your computer when they're on the same network.
-        NSCameraUsageDescription: Recall scans the code in your computer's Recall Settings to pair with it.
-        # `recall://pair/<ticket>`, which the computer's pairing QR code holds, opens pairing.
+        NSLocalNetworkUsageDescription: Furiten syncs directly with the Furiten app on your computer when they're on the same network.
+        NSCameraUsageDescription: Furiten scans the code in your computer's Furiten Settings to pair with it.
+        # `furiten://pair/<ticket>`, which the computer's pairing QR code holds, opens pairing.
         CFBundleURLTypes:
-          - CFBundleURLName: co.anomaly.recall
-            CFBundleURLSchemes: [recall]
+          - CFBundleURLName: co.anomaly.furiten
+            CFBundleURLSchemes: [furiten]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: co.anomaly.recall
+        PRODUCT_BUNDLE_IDENTIFIER: co.anomaly.furiten
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Recall
+        INFOPLIST_KEY_CFBundleDisplayName: Furiten
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait

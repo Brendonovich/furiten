@@ -2,7 +2,7 @@ import Observation
 import UIKit
 
 /// What the screens show, and the UI's own state (the web app's apps/web/src/state.ts). Data comes from this phone's
-/// own core, which syncs with your computer (or Recall Cloud) in the background; it's refetched after every write and
+/// own core, which syncs with your computer (or Furiten Cloud) in the background; it's refetched after every write and
 /// whenever the core reports a change, including changes that arrive through sync. Nothing here decides scheduling
 /// or order.
 @MainActor
@@ -208,7 +208,7 @@ final class Library {
 
     // MARK: Syncing
 
-    /// Pairs with a computer by the ticket its Settings show (or `recall host pair` prints), then syncs.
+    /// Pairs with a computer by the ticket its Settings show (or `furiten host pair` prints), then syncs.
     func pair(ticket: String) async throws {
         guard let core else { return }
         try await core.pair(ticket: ticket, name: UIDevice.current.name)
@@ -216,7 +216,7 @@ final class Library {
         await refresh()
     }
 
-    /// Signs in to Recall Cloud, creating an account without a token. Returns the account's token.
+    /// Signs in to Furiten Cloud, creating an account without a token. Returns the account's token.
     @discardableResult
     func signIn(server: String, token: String?) async throws -> String {
         guard let core else { return "" }
@@ -254,9 +254,9 @@ final class Library {
     private var defaults: UserDefaults { .standard }
 
     private enum Keys {
-        static let deck = "recall.deck"
-        static func layout(_ deck: String) -> String { "recall.view.\(deck)" }
-        static func sort(_ deck: String) -> String { "recall.sort.\(deck)" }
+        static let deck = "furiten.deck"
+        static func layout(_ deck: String) -> String { "furiten.view.\(deck)" }
+        static func sort(_ deck: String) -> String { "furiten.sort.\(deck)" }
     }
 }
 

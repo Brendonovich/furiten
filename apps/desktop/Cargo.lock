@@ -1058,6 +1058,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "furiten-core"
+version = "0.1.0"
+dependencies = [
+ "furiten-srs",
+ "getrandom 0.2.17",
+ "iroh",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tiny_http",
+ "tokio",
+ "ureq",
+ "zip",
+]
+
+[[package]]
+name = "furiten-desktop"
+version = "0.1.0"
+dependencies = [
+ "furiten-core",
+ "pulldown-cmark",
+ "qrcode",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "serde_json",
+]
+
+[[package]]
+name = "furiten-srs"
+version = "0.1.0"
+
+[[package]]
 name = "futures"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3559,39 +3592,6 @@ dependencies = [
  "font-types",
  "once_cell",
 ]
-
-[[package]]
-name = "recall-core"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.2.17",
- "iroh",
- "recall-srs",
- "rusqlite",
- "serde",
- "serde_json",
- "tiny_http",
- "tokio",
- "ureq",
- "zip",
-]
-
-[[package]]
-name = "recall-desktop"
-version = "0.1.0"
-dependencies = [
- "pulldown-cmark",
- "qrcode",
- "recall-core",
- "rune",
- "rune-kit",
- "rune-theme-opencode",
- "serde_json",
-]
-
-[[package]]
-name = "recall-srs"
-version = "0.1.0"
 
 [[package]]
 name = "redox_syscall"

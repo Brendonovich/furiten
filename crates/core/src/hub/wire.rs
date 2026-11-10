@@ -1,4 +1,4 @@
-//! Frames and messages of `recall/sync/1` and `recall/pair/1`: a big-endian `u32` length, then that many bytes of
+//! Frames and messages of `furiten/sync/1` and `furiten/pair/1`: a big-endian `u32` length, then that many bytes of
 //! JSON.
 
 use iroh::endpoint::{ConnectionError, VarInt};
@@ -25,7 +25,7 @@ pub mod close {
     pub const BUSY: VarInt = VarInt::from_u32(503);
 }
 
-/// What a device sends on `recall/pair/1`: the ticket's secret (32 hex characters) and a name for the device list.
+/// What a device sends on `furiten/pair/1`: the ticket's secret (32 hex characters) and a name for the device list.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PairRequest {
     pub secret: String,

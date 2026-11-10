@@ -5,13 +5,13 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use furiten_core::client::Client;
+use furiten_core::hub::{self, HubLink, Net, Ticket};
+use furiten_core::protocol::{Answer, CardQuery, CardUpdate, NewCard, NewDeck};
+use furiten_core::sync::{lock, sync_once};
+use furiten_core::{Store, server::Server};
+use furiten_hub::{Config, Hub, control};
 use iroh::SecretKey;
-use recall_core::client::Client;
-use recall_core::hub::{self, HubLink, Net, Ticket};
-use recall_core::protocol::{Answer, CardQuery, CardUpdate, NewCard, NewDeck};
-use recall_core::sync::{lock, sync_once};
-use recall_core::{Store, server::Server};
-use recall_hub::{Config, Hub, control};
 use serde_json::json;
 
 const T0: i64 = 1_800_000_000_000;
@@ -20,7 +20,7 @@ const WAIT: Duration = Duration::from_secs(15);
 
 fn temp(prefix: &str) -> PathBuf {
     // Short: Unix socket paths are limited to about 100 bytes.
-    let id = recall_core::model::ulid();
+    let id = furiten_core::model::ulid();
     std::env::temp_dir().join(format!("{prefix}-{}", &id[16..]))
 }
 
@@ -75,7 +75,7 @@ impl Device {
 
     fn link(&self, hub: &TestHub, on_changed: impl Fn() + Send + Sync + 'static) -> HubLink {
         let addr = hub::hub_addr(&iroh::EndpointAddr::new(hub.hub().endpoint_id()));
-        let addr = recall_core::store::HubAddr { direct_addrs: hub.ticket().addr.direct_addrs, ..addr };
+        let addr = furiten_core::store::HubAddr { direct_addrs: hub.ticket().addr.direct_addrs, ..addr };
         HubLink::start(self.key.clone(), &Net::Local, &addr, on_changed).unwrap()
     }
 
@@ -114,12 +114,12 @@ fn a_ticket_pairs_one_device_once_and_only_while_fresh() {
     let devices = hub.hub().devices();
     assert_eq!(devices.iter().map(|d| d.device.name.as_str()).collect::<Vec<_>>(), ["laptop"]);
     // The device list survives a restart.
-    assert_eq!(recall_hub::data::Devices::load(&hub.data).unwrap().list().len(), 1);
+    assert_eq!(furiten_hub::data::Devices::load(&hub.data).unwrap().list().len(), 1);
 }
 
 #[test]
 fn a_device_that_is_not_paired_is_refused() {
-    let hub = TestHub::start(recall_hub::TICKET_TTL);
+    let hub = TestHub::start(furiten_hub::TICKET_TTL);
     let stranger = Device { key: SecretKey::generate(), store: Mutex::new(Store::open_in_memory().unwrap()) };
     let link = stranger.link(&hub, || {});
     let error = sync_once(&stranger.store, &link).unwrap_err();
@@ -130,7 +130,7 @@ fn a_device_that_is_not_paired_is_refused() {
 
 #[test]
 fn two_devices_converge_through_the_hub_after_offline_edits_and_reviews() {
-    let hub = TestHub::start(recall_hub::TICKET_TTL);
+    let hub = TestHub::start(furiten_hub::TICKET_TTL);
     let (a, b) = (Device::paired(&hub, "a"), Device::paired(&hub, "b"));
     let (link_a, link_b) = (a.link(&hub, || {}), b.link(&hub, || {}));
     let sync = |d: &Device, link: &HubLink| sync_once(&d.store, link).unwrap().0;
@@ -174,7 +174,7 @@ fn two_devices_converge_through_the_hub_after_offline_edits_and_reviews() {
 
 #[test]
 fn a_connected_device_hears_about_other_devices_writes() {
-    let hub = TestHub::start(recall_hub::TICKET_TTL);
+    let hub = TestHub::start(furiten_hub::TICKET_TTL);
     let (a, b) = (Device::paired(&hub, "a"), Device::paired(&hub, "b"));
     let (tx_a, rx_a) = mpsc::channel();
     let (tx_b, rx_b) = mpsc::channel();
@@ -199,14 +199,14 @@ fn a_connected_device_hears_about_other_devices_writes() {
 
 #[test]
 fn removing_a_device_closes_its_connection() {
-    let hub = TestHub::start(recall_hub::TICKET_TTL);
+    let hub = TestHub::start(furiten_hub::TICKET_TTL);
     let a = Device::paired(&hub, "phone");
     let link = a.link(&hub, || {});
     wait_until("the phone is connected", || link.is_connected());
     sync_once(&a.store, &link).unwrap();
     assert!(hub.hub().devices()[0].connected);
 
-    // Through the control socket, as `recall-hub devices rm phone` does.
+    // Through the control socket, as `furiten-hub devices rm phone` does.
     let status = control::call(&hub.data, "status", json!({})).unwrap().unwrap();
     assert_eq!(status["connected"], 1);
     let removed = control::call(&hub.data, "devices.rm", json!({ "device": "PHONE" })).unwrap().unwrap();
@@ -220,7 +220,7 @@ fn removing_a_device_closes_its_connection() {
 
 #[test]
 fn two_cores_pair_with_a_hub_and_see_each_others_cards_live() {
-    let hub = TestHub::start(recall_hub::TICKET_TTL);
+    let hub = TestHub::start(furiten_hub::TICKET_TTL);
     let homes = [temp("rc"), temp("rc")];
     let cores: Vec<_> = homes
         .iter()

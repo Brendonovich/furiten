@@ -281,12 +281,12 @@ private struct DeckList: View {
             }
         }
         .refreshable { await library.refresh() }
-        .navigationTitle("Recall")
+        .navigationTitle("Furiten")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: .title)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Text("Recall").font(.title2.bold()).fixedSize().padding(.leading, 8)
+                Text("Furiten").font(.title2.bold()).fixedSize().padding(.leading, 8)
             }
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {

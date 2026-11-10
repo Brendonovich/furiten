@@ -15,7 +15,7 @@ mod syncing;
 
 use std::path::Path;
 
-use recall_srs::Scheduler;
+use furiten_srs::Scheduler;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::model::{Card, CardView, Deck, DeckSummary, Id, Schedule, State, normalize_tags, ulid};

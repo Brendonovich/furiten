@@ -1289,7 +1289,7 @@ body {
 }
 
 /* An answered card goes fast and slows as it reaches the edge, and is off the screen as it ends (FLY_OFF in
-   Review.tsx). The iOS app uses these same curves (`ReviewCurve` in apps/ios/Recall/Views/ReviewView.swift). */
+   Review.tsx). The iOS app uses these same curves (`ReviewCurve` in apps/ios/Furiten/Views/ReviewView.swift). */
 .review-card.leaving {
   transition:
     transform 0.22s cubic-bezier(0.25, 0.6, 0.4, 1),

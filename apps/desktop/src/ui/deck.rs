@@ -396,7 +396,7 @@ fn empty(k: &Kit, title: &str) -> El {
 /// The very first screen: the sample deck and one thing to do.
 fn first_run(s: &App, k: &Kit) -> El {
     let deck = s.deck_summary();
-    let name = deck.map_or("Recall basics".to_string(), |d| d.deck.name.clone());
+    let name = deck.map_or("Furiten basics".to_string(), |d| d.deck.name.clone());
     let count = deck.map_or(0, |d| d.cards);
     let front = s.cards.first().and_then(|c| c.sides.first()).cloned().unwrap_or_default();
     let start = row().key("start-row").gap(10.0).center_y().child(
@@ -425,7 +425,7 @@ fn first_run(s: &App, k: &Kit) -> El {
                 .child(text(name).key("title").font(theme::DISPLAY).color(k.c.text_base))
                 .child(
                     text(format!(
-                        "{count} cards that show you how Recall works. Reveal each answer, then say how well you knew it."
+                        "{count} cards that show you how Furiten works. Reveal each answer, then say how well you knew it."
                     ))
                     .key("lede")
                     .font(k.ty.body.lh(21.0))
@@ -444,7 +444,7 @@ fn first_run(s: &App, k: &Kit) -> El {
 
 /// Said plainly when the core couldn't be reached and the app shows sample data instead.
 pub fn offline_note(k: &Kit, why: &str) -> El {
-    text(format!("Couldn’t start the Recall core, so this is sample data. {why}"))
+    text(format!("Couldn’t start the Furiten core, so this is sample data. {why}"))
         .key("offline")
         .font(k.ty.caption())
         .color(k.c.text_faint)

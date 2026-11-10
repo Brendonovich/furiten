@@ -119,7 +119,7 @@ fn iso_dates() {
 
 #[test]
 fn a_mochi_zip_counts_its_attachments() {
-    let path = std::env::temp_dir().join(format!("recall-mochi-{}.mochi", ulid()));
+    let path = std::env::temp_dir().join(format!("furiten-mochi-{}.mochi", ulid()));
     let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
     let options = zip::write::SimpleFileOptions::default();
     zip.start_file("data.json", options).unwrap();

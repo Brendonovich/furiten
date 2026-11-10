@@ -1,6 +1,6 @@
-# Recall Cloud server
+# Furiten Cloud server
 
-The Cloudflare Worker (`recall-<stage>-api`) and the per-user Durable Object behind the HTTP API, MCP and sync in
+The Cloudflare Worker (`furiten-<stage>-api`) and the per-user Durable Object behind the HTTP API, MCP and sync in
 [docs/contract.md](../docs/contract.md). TypeScript, Effect, deployed with Alchemy. Scheduling runs `crates/srs`
 compiled to wasm, so it matches every client exactly.
 
@@ -9,7 +9,7 @@ compiled to wasm, so it matches every client exactly.
 - `src/Users.ts`: the Durable Object. Checks the token against its stored SHA-256, then serves the HTTP API
   (`src/HttpApi.ts`) and MCP (`src/Mcp.ts`).
 - `src/Store.ts`: the library in the object's SQLite: decks, cards, reviews, cached schedules, and sync.
-- `src/srs.ts`: the wrapper over `build/recall_srs.wasm`.
+- `src/srs.ts`: the wrapper over `build/furiten_srs.wasm`.
 
 ## Run locally
 
@@ -37,7 +37,7 @@ bun run test    # just the tests
 ```
 
 The tests start `alchemy dev` on the `test` stage and drive the real Worker and Durable Object over HTTP, offline.
-They're black-box: `RECALL_BASE_URL=http://localhost:1337 bun test` runs them against a server that's already up.
+They're black-box: `FURITEN_BASE_URL=http://localhost:1337 bun test` runs them against a server that's already up.
 
 ## Deploy
 
@@ -46,8 +46,8 @@ secrets:
 
 | Branch | Stage | Worker |
 | --- | --- | --- |
-| `dev` (when `server/` or `crates/srs/` change) | `dev` | `recall-dev-api` |
-| `production` | `production` | `recall-production-api` |
+| `dev` (when `server/` or `crates/srs/` change) | `dev` | `furiten-dev-api` |
+| `production` | `production` | `furiten-production-api` |
 
 CI runs `bun run deploy:dev` or `bun run deploy:production`, which keep Alchemy state in Cloudflare
-(`RECALL_STATE=cloudflare`). Both are served at their `workers.dev` URL; there's no custom domain yet.
+(`FURITEN_STATE=cloudflare`). Both are served at their `workers.dev` URL; there's no custom domain yet.

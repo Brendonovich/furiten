@@ -1,4 +1,4 @@
-//! The local core: owns the store and sync, and serves the JSON-lines protocol on `$RECALL_HOME/core.sock`. It runs
+//! The local core: owns the store and sync, and serves the JSON-lines protocol on `$FURITEN_HOME/core.sock`. It runs
 //! inside another process (the desktop app, or the CLI when there's no app), never as its own daemon. A mobile app
 //! hosts it as [`Embedded`]: the same requests and replies, with no socket.
 
@@ -55,7 +55,7 @@ impl Server {
         )
     }
 
-    /// [`Server::bind`] with explicit network settings for a hub link, instead of `RECALL_NET` / `RECALL_RELAY`.
+    /// [`Server::bind`] with explicit network settings for a hub link, instead of `FURITEN_NET` / `FURITEN_RELAY`.
     #[cfg(feature = "hub")]
     pub fn bind_with_net(home: &Path, net: Net) -> Result<Server> {
         Server::bind_inner(home, net)
@@ -67,7 +67,7 @@ impl Server {
         if socket.exists() {
             std::fs::remove_file(&socket)?;
         }
-        let store = Store::open(&home.join("recall.db"))?;
+        let store = Store::open(&home.join("furiten.db"))?;
         let listener = UnixListener::bind(&socket)?;
         std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
         let core = Core::new(
@@ -144,7 +144,7 @@ impl Embedded {
         )
     }
 
-    /// [`Embedded::open`] with explicit network settings for a hub link, instead of `RECALL_NET` / `RECALL_RELAY`.
+    /// [`Embedded::open`] with explicit network settings for a hub link, instead of `FURITEN_NET` / `FURITEN_RELAY`.
     #[cfg(feature = "hub")]
     pub fn open_with_net(home: &Path, net: Net, on_change: impl Fn() + Send + Sync + 'static) -> Result<Embedded> {
         Embedded::open_inner(home, net, on_change)
@@ -156,7 +156,7 @@ impl Embedded {
         on_change: impl Fn() + Send + Sync + 'static,
     ) -> Result<Embedded> {
         let lock = lock_home(home)?;
-        let store = Store::open(&home.join("recall.db"))?;
+        let store = Store::open(&home.join("furiten.db"))?;
         let core = Core::new(
             home,
             store,
@@ -166,7 +166,7 @@ impl Embedded {
         let _ = core.on_change.set(Box::new(on_change));
         let syncer = core.clone();
         let syncer = std::thread::Builder::new()
-            .name("recall-sync".into())
+            .name("furiten-sync".into())
             .spawn(move || syncer.sync_loop())
             .expect("spawn the sync thread");
         Ok(Embedded { core, syncer: Some(syncer), _lock: lock })
@@ -213,7 +213,7 @@ impl Server {
     pub fn spawn(self, on_exit: impl FnOnce() + Send + 'static) -> Hosted {
         let handle = self.handle();
         let thread = std::thread::Builder::new()
-            .name("recall-core".into())
+            .name("furiten-core".into())
             .spawn(move || {
                 let result = self.serve();
                 on_exit();
@@ -561,7 +561,7 @@ impl Core {
 
     #[cfg(not(feature = "import"))]
     fn import_mochi(&self, _params: ImportFile) -> Result<Imported> {
-        Err(Error::new("unsupported", "this build of recall can't import"))
+        Err(Error::new("unsupported", "this build of furiten can't import"))
     }
 
     fn status(&self) -> Result<Status> {
@@ -648,7 +648,7 @@ impl Core {
                 None => Err(Error::new("network", "couldn't start the connection to the hub")),
             },
             #[cfg(not(feature = "hub"))]
-            Some(_) => Err(Error::new("unsupported", "this build of recall can't sync with a hub")),
+            Some(_) => Err(Error::new("unsupported", "this build of furiten can't sync with a hub")),
             None => sync_once(&self.store, &Http::from_config(&config)),
         };
         let error = result.as_ref().err().map(|e| e.message.clone());
@@ -668,7 +668,7 @@ impl Core {
         if self.store().is_hosting() {
             return Err(Error::new(
                 "conflict",
-                "this library hosts other devices; turn hosting off (recall host off) to sync it elsewhere",
+                "this library hosts other devices; turn hosting off (furiten host off) to sync it elsewhere",
             ));
         }
         Ok(())
@@ -746,7 +746,7 @@ impl Core {
 
     #[cfg(not(feature = "hub"))]
     fn login_hub(&self, _ticket: &str, _name: Option<&str>) -> Result<HubLoggedIn> {
-        Err(Error::new("unsupported", "this build of recall can't sync with a hub"))
+        Err(Error::new("unsupported", "this build of furiten can't sync with a hub"))
     }
 
     /// Starts, restarts or stops the hub link to match the sync config.
@@ -860,7 +860,7 @@ impl Core {
 
     #[cfg(not(feature = "web"))]
     fn web_enable(&self, _params: WebEnable) -> Result<WebStatus> {
-        Err(Error::new("unsupported", "this build of recall can't serve web access"))
+        Err(Error::new("unsupported", "this build of furiten can't serve web access"))
     }
 
     #[cfg(not(feature = "web"))]
@@ -875,7 +875,7 @@ impl Core {
 
     #[cfg(not(feature = "hub"))]
     fn host_enable(&self) -> Result<HostStatus> {
-        Err(Error::new("unsupported", "this build of recall can't host devices"))
+        Err(Error::new("unsupported", "this build of furiten can't host devices"))
     }
 
     #[cfg(not(feature = "hub"))]
@@ -886,12 +886,12 @@ impl Core {
 
     #[cfg(not(feature = "hub"))]
     fn host_pair(&self) -> Result<PairTicket> {
-        Err(Error::new("unsupported", "this build of recall can't host devices"))
+        Err(Error::new("unsupported", "this build of furiten can't host devices"))
     }
 
     #[cfg(not(feature = "hub"))]
     fn host_remove(&self, _query: &str) -> Result<Device> {
-        Err(Error::new("unsupported", "this build of recall can't host devices"))
+        Err(Error::new("unsupported", "this build of furiten can't host devices"))
     }
 
     fn hub_connected(&self) -> bool {

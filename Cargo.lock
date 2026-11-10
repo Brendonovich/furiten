@@ -767,6 +767,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "furiten"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "furiten-core",
+ "qrcode",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "furiten-core"
+version = "0.1.0"
+dependencies = [
+ "furiten-srs",
+ "getrandom 0.2.17",
+ "iroh",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tiny_http",
+ "tokio",
+ "ureq",
+ "zip",
+]
+
+[[package]]
+name = "furiten-ffi"
+version = "0.1.0"
+dependencies = [
+ "furiten-core",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "furiten-hub"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "furiten-core",
+ "iroh",
+ "qrcode",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "furiten-srs"
+version = "0.1.0"
+
+[[package]]
 name = "futures"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2411,59 +2464,6 @@ checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
 dependencies = [
  "rand_core",
 ]
-
-[[package]]
-name = "recall"
-version = "0.1.0"
-dependencies = [
- "clap",
- "qrcode",
- "recall-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "recall-core"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.2.17",
- "iroh",
- "recall-srs",
- "rusqlite",
- "serde",
- "serde_json",
- "tiny_http",
- "tokio",
- "ureq",
- "zip",
-]
-
-[[package]]
-name = "recall-ffi"
-version = "0.1.0"
-dependencies = [
- "libc",
- "recall-core",
- "serde_json",
-]
-
-[[package]]
-name = "recall-hub"
-version = "0.1.0"
-dependencies = [
- "clap",
- "iroh",
- "qrcode",
- "recall-core",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "recall-srs"
-version = "0.1.0"
 
 [[package]]
 name = "regex-automata"

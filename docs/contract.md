@@ -1,6 +1,6 @@
 # Contract
 
-The one description of Recall's data, scheduling, sync, local protocol and HTTP API. The Rust core, the CLI, the
+The one description of Furiten's data, scheduling, sync, local protocol and HTTP API. The Rust core, the CLI, the
 desktop app, the Worker and the mobile clients all implement this file. Change it in the same commit as the code.
 
 ## Data
@@ -35,7 +35,7 @@ Later: cloze (`{{word}}`), templates, attachments. They aren't part of v1.
 
 ## Scheduling
 
-Recall schedules with FSRS-6 using its published default parameters and 90 % desired retention, implemented in
+Furiten schedules with FSRS-6 using its published default parameters and 90 % desired retention, implemented in
 `crates/srs` (no dependencies, deterministic, compiled to wasm for the Worker).
 
 A card's schedule is **derived**: fold its reviews ordered by `(reviewed_at, id)` through the scheduler, starting
@@ -52,8 +52,8 @@ the cards in it first reviewed today).
 
 ## Sync
 
-Each device keeps its own SQLite store and syncs with one hub: the user's Durable Object on Recall Cloud, a
-self-hosted `recall-hub` reached over Iroh (see Self-hosted hub), or the user's desktop app hosting its own library
+Each device keeps its own SQLite store and syncs with one hub: the user's Durable Object on Furiten Cloud, a
+self-hosted `furiten-hub` reached over Iroh (see Self-hosted hub), or the user's desktop app hosting its own library
 over the same Iroh protocol (see Hosting). All speak the same request and response and apply the same rules; only
 the transport differs.
 
@@ -88,53 +88,53 @@ of the secret and rejects mismatches with 401. Clients send `Authorization: Bear
 
 ## Self-hosted hub
 
-`recall-hub` is a Rust binary that holds one library (any number of devices) and does the Durable Object's job on
+`furiten-hub` is a Rust binary that holds one library (any number of devices) and does the Durable Object's job on
 hardware the user owns: a NAS, a Pi, a VPS. It's an always-online peer, not a mesh: devices only ever sync with
 the hub, so a phone and a sleeping laptop still converge. It reuses `crates/core`'s store and merge, so its sync and
 scheduling behave exactly like a device's.
 
 - **Transport.** Iroh, dialled by the hub's endpoint ID, direct where possible and through a relay otherwise, so it
-  needs no open ports, DNS or certificates. n0's public relays by default; `recall-hub serve --relay <url>` (and
-  `RECALL_RELAY=<url>` for devices) for a self-hosted `iroh-relay`.
-- **Sync, ALPN `recall/sync/1`.** One bidirectional stream per sync. Frames are a big-endian `u32` length followed by
+  needs no open ports, DNS or certificates. n0's public relays by default; `furiten-hub serve --relay <url>` (and
+  `FURITEN_RELAY=<url>` for devices) for a self-hosted `iroh-relay`.
+- **Sync, ALPN `furiten/sync/1`.** One bidirectional stream per sync. Frames are a big-endian `u32` length followed by
   JSON. The device sends the same body as `POST /v1/sync`, the hub answers with the same response, or with
-  `{ error: { code, message } }` if the request failed. Frames are at most 128 MiB on `recall/sync/1` and 16 KiB on
-  `recall/pair/1` and for events. While a device is connected the hub also opens a unidirectional stream (on the
+  `{ error: { code, message } }` if the request failed. Frames are at most 128 MiB on `furiten/sync/1` and 16 KiB on
+  `furiten/pair/1` and for events. While a device is connected the hub also opens a unidirectional stream (on the
   first event) and sends `{ "event": "changed", "cursor": n }` frames after any write from another device, so open
   devices pull within a second. A device syncs whenever its connection is (re)established.
 - **Devices.** The hub accepts connections only from endpoint IDs in its device list, checked on accept and again
   before each stream; removing a device closes its open connections. Refusals and removals close the connection with
   application code `403`, which a device reports as `unauthorized`; `503` means the hub is busy.
-- **Pairing, ALPN `recall/pair/1`.** `recall-hub pair` prints a ticket (`rchub1` + base32 of the hub's endpoint
+- **Pairing, ALPN `furiten/pair/1`.** `furiten-hub pair` prints a ticket (`rchub1` + base32 of the hub's endpoint
   address, relay URL and a one-time 128-bit secret) and a QR code, valid for 10 minutes and one use. A device dials
   the hub, sends `{ secret, name }` (`secret` as 32 hex characters, `name` 1 to 64 printable characters), and the
   hub adds the device's endpoint ID and answers `{ library_id }`, or an error with code `bad_ticket`, `ticket_used`
   or `ticket_expired`. The ticket's bytes are the 32-byte endpoint ID, the 16-byte secret, the relay URL (`u8`
   length, then UTF-8; empty for none) and up to 8 direct addresses (`u8` count, then per address `4` or `6`, the IP
   and a big-endian `u16` port); base32 is lowercase RFC 4648 without padding, read case-insensitively. Tickets live
-  in the running hub's memory; `recall-hub pair` asks it for one over its control socket (`hub.sock` in the data
-  directory, mode `0600`). `recall-hub devices` lists and removes devices. The library id is the hub's store id.
-- **Keys.** Each device keeps an Ed25519 secret key in `$RECALL_HOME/iroh.key` (mode `0600`, 64 hex characters);
+  in the running hub's memory; `furiten-hub pair` asks it for one over its control socket (`hub.sock` in the data
+  directory, mode `0600`). `furiten-hub devices` lists and removes devices. The library id is the hub's store id.
+- **Keys.** Each device keeps an Ed25519 secret key in `$FURITEN_HOME/iroh.key` (mode `0600`, 64 hex characters);
   it is its endpoint ID. The hub keeps its own under its data directory.
 - **Signed in to a hub**, a device's `status.server` is `hub:<endpoint id>` and `status.connected` says whether it
   holds a live connection. Devices dial the relay and direct addresses from the ticket and use n0's relays and
-  address lookup unless `RECALL_RELAY=<url>` names a self-hosted relay. `RECALL_NET=local` (hub and devices) means
+  address lookup unless `FURITEN_RELAY=<url>` names a self-hosted relay. `FURITEN_NET=local` (hub and devices) means
   loopback only, no relays: for tests and trying it out on one machine.
-- **HTTP API and MCP (optional).** `recall-hub --http 127.0.0.1:8787` serves the HTTP API below and `/mcp`, with
-  tokens from `recall-hub tokens create`. Put it behind your own proxy or tunnel to reach it remotely.
+- **HTTP API and MCP (optional).** `furiten-hub --http 127.0.0.1:8787` serves the HTTP API below and `/mcp`, with
+  tokens from `furiten-hub tokens create`. Put it behind your own proxy or tunnel to reach it remotely.
 
 The HTTP API exists twice, in the Worker (TypeScript) and the hub (Rust). `tests/conformance` is one black-box suite,
 run against a base URL, that both must pass; a behaviour isn't in the contract until it's tested there.
 
 ## HTTP API
 
-Served by the Worker and by `recall-hub --http`. JSON in and out; errors are `{ error: { code, message } }` with a
+Served by the Worker and by `furiten-hub --http`. JSON in and out; errors are `{ error: { code, message } }` with a
 matching status, and `code` is one of `invalid_params` (400), `unauthorized` (401), `not_found` (404), `conflict`
 (409) or `internal` (500), the same codes the local core uses. Sync rejects a whole request with 400 if any ID isn't
 a ULID.
 
 "Today" (the new-card cap, `reviews_today`) is the caller's local day. Devices know it; over HTTP a client sends an
-IANA zone in `X-Recall-Timezone`, and a server without one uses UTC. (The Worker uses UTC until it reads the header.)
+IANA zone in `X-Furiten-Timezone`, and a server without one uses UTC. (The Worker uses UTC until it reads the header.)
 
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
@@ -186,7 +186,7 @@ review queue. `limit` and `offset` page the sorted result. Ties go by `(created_
 
 ## MCP
 
-The Worker and the hub serve MCP over Streamable HTTP at `/mcp` with the same bearer token, and `recall mcp` serves
+The Worker and the hub serve MCP over Streamable HTTP at `/mcp` with the same bearer token, and `furiten mcp` serves
 it over stdio from any device through the local core, so agents work offline and against either backend. Tools
 mirror the API:
 `list_decks`, `create_deck`, `search_cards`, `create_cards` (batch), `update_card`, `delete_card`, `next_review`,
@@ -196,12 +196,12 @@ two-sided cards.
 ## Local core protocol
 
 On a desktop the core owns the store and sync, and the desktop app hosts it: there is no separate core process. It
-listens on a Unix socket at `$RECALL_HOME/core.sock` (mode `0600`; `RECALL_HOME` defaults to
-`~/Library/Application Support/Recall` on macOS and `$XDG_DATA_HOME/recall` elsewhere), and the CLI, MCP and the
+listens on a Unix socket at `$FURITEN_HOME/core.sock` (mode `0600`; `FURITEN_HOME` defaults to
+`~/Library/Application Support/Furiten` on macOS and `$XDG_DATA_HOME/furiten` elsewhere), and the CLI, MCP and the
 app's own window are its clients. One core runs per home (`core.lock`).
 
-- **Starting it.** A client that finds no core starts the app without a window, `recall-desktop --background`
-  (`$RECALL_APP`, else next to the client's binary, else on `PATH`), logging to `$RECALL_HOME/app.log`. On macOS
+- **Starting it.** A client that finds no core starts the app without a window, `furiten-desktop --background`
+  (`$FURITEN_APP`, else next to the client's binary, else on `PATH`), logging to `$FURITEN_HOME/app.log`. On macOS
   that app has no Dock icon until its window opens. With no app installed, the CLI hosts the core itself for the
   length of the command.
 - **One app.** An app launched while a core is running sends it `app.open` and exits, so the running app shows its
@@ -227,7 +227,7 @@ write, including writes arriving through sync, so clients refetch.
 | `sync.logout` | | `{ ok: true }`: stops syncing and forgets the cursor; the data stays, and a later sign-in sends all of it |
 | `host.status` | | `HostStatus` (see Hosting) |
 | `host.enable` / `host.disable` | | `HostStatus`; `conflict` while signed in; error `host_failed` when it can't start |
-| `host.pair` | | `{ ticket, expires_at }`, a pairing ticket as `recall-hub pair` makes; turns hosting on first |
+| `host.pair` | | `{ ticket, expires_at }`, a pairing ticket as `furiten-hub pair` makes; turns hosting on first |
 | `host.remove` | `{ device }` (id, id prefix or name) | `{ id, name, added_at }`, and closes its connections |
 | `import.mochi` | `{ path, parent_id? }` (`path` absolute, on the core's machine) | `Imported` (see Import) |
 | `web.status` | | `WebStatus` (see Web access) |
@@ -241,14 +241,14 @@ TagSummary = { tag, cards: number, last_used: ms }
 ```
 
 A tag's `cards` counts the live cards carrying it, and `last_used` is the newest `updated_at` among them: when one of
-them was last created or edited; both count the whole library, `deck_id` or not. `recall tags [--deck <deck>]`
+them was last created or edited; both count the whole library, `deck_id` or not. `furiten tags [--deck <deck>]`
 prints the same list.
 
 The core syncs on its own after each write (debounced 2 s) and every 60 s while signed in, and with a hub also as
 soon as the hub reports a change.
 
 **Web access.** The desktop app's core can serve the HTTP API itself, so a phone or browser uses this library
-directly instead of through a hub: `web.enable` (Settings → "Use this library from your phone", or `recall web on`).
+directly instead of through a hub: `web.enable` (Settings → "Use this library from your phone", or `furiten web on`).
 
 ```
 WebStatus = { enabled, running, bind, port, token: string | null, urls: string[], link: string | null, error: string | null }
@@ -256,7 +256,7 @@ WebStatus = { enabled, running, bind, port, token: string | null, urls: string[]
 
 - It listens on `bind:port`, default `0.0.0.0:8787` (every network, Tailscale included), and stays on across
   restarts until `web.disable`. Only the desktop app listens; a core the CLI hosts for one command reports
-  `running: false` with an `error`. Settings live in `$RECALL_HOME/web.json` (mode `0600`).
+  `running: false` with an `error`. Settings live in `$FURITEN_HOME/web.json` (mode `0600`).
 - One token, `rw_` and 32 Crockford base32 characters (160 random bits), made the first time and kept, sent as
   `Authorization: Bearer`. Turning web access off disconnects every browser.
 - `urls` are where to open it, best first: the Tailscale name and IP when Tailscale is up, then the LAN address and
@@ -265,20 +265,20 @@ WebStatus = { enabled, running, bind, port, token: string | null, urls: string[]
 - Routes are the HTTP API's, each answered by the protocol method underneath, so results match the local core's
   exactly; `POST /v1/sync` and `POST /v1/accounts` aren't served. `GET /v1/events?token=` streams `data: changed`
   as server-sent events after any write (`: ping` every 25 s). Other paths serve the web app when the desktop
-  bundles it (`$RECALL_WEB_DIR`, else the app's `Resources/web`, else a checkout's `apps/web/dist`), with
+  bundles it (`$FURITEN_WEB_DIR`, else the app's `Resources/web`, else a checkout's `apps/web/dist`), with
   `index.html` for anything that isn't a file.
 
 **Hosting.** The desktop app's core can be its library's hub, so a phone keeps a library of its own (linked core,
-offline) and syncs with the desktop over Iroh, on any network, with no Cloud and no separate `recall-hub`:
-`host.enable` or `host.pair` (Settings → "Sync with your phone", or `recall host pair`).
+offline) and syncs with the desktop over Iroh, on any network, with no Cloud and no separate `furiten-hub`:
+`host.enable` or `host.pair` (Settings → "Sync with your phone", or `furiten host pair`).
 
 ```
 HostStatus = { enabled, running, endpoint_id: string | null, devices: DeviceInfo[], error: string | null }
 DeviceInfo = { id, name, added_at, connected: bool, last_sync: ms | null }
 ```
 
-- It's the Self-hosted hub's protocol, served by the desktop: `recall/sync/1` and `recall/pair/1` on the device's
-  own endpoint key (`$RECALL_HOME/iroh.key`), the same tickets, device allowlist (`$RECALL_HOME/devices.json`),
+- It's the Self-hosted hub's protocol, served by the desktop: `furiten/sync/1` and `furiten/pair/1` on the device's
+  own endpoint key (`$FURITEN_HOME/iroh.key`), the same tickets, device allowlist (`$FURITEN_HOME/devices.json`),
   close codes and `changed` events, which it also sends after the desktop's own writes. A phone pairs with
   `sync.login { hub: ticket }` as with any hub, and its `status.server` is `hub:<the desktop's endpoint id>`.
 - A hosting store serves sync itself, so there's one copy of the library: turning hosting on gives every row that
@@ -288,20 +288,20 @@ DeviceInfo = { id, name, added_at, connected: bool, last_sync: ms | null }
 - It stays on across restarts until `host.disable` (kept in the store). Only the desktop app hosts; a core the
   CLI hosts for one command reports `running: false` with an `error`. Pairing tickets live in the app's memory, so
   restarting it voids unused ones.
-- The pairing QR code the desktop shows holds `recall://pair/<TICKET>` (the ticket uppercased, which reads the
+- The pairing QR code the desktop shows holds `furiten://pair/<TICKET>` (the ticket uppercased, which reads the
   same), so a phone's camera opens the app to pair.
 
-**Mobile.** iOS and Android link the core in (`crates/ffi`, C ABI in `crates/ffi/include/recall.h`) and host it in
-the app process with no socket: `recall_request` takes one request line and returns its reply line, and the
+**Mobile.** iOS and Android link the core in (`crates/ffi`, C ABI in `crates/ffi/include/furiten.h`) and host it in
+the app process with no socket: `furiten_request` takes one request line and returns its reply line, and the
 `on_change` callback stands in for the `changed` event. The home is the app container's Application Support
-`Recall` directory. `shutdown` is `unsupported` (the app closes the core with `recall_close`), and so is `app.open`.
-The phone's library is its own: it works offline, and syncs with a hosting desktop or a `recall-hub` (paired with
-`sync.login { hub }`), or Recall Cloud (`sync.login { server, token? }`). The app asks for a sync
-(`recall_sync_soon`) when it comes to the foreground and runs `sync.now` as it goes to the background.
+`Furiten` directory. `shutdown` is `unsupported` (the app closes the core with `furiten_close`), and so is `app.open`.
+The phone's library is its own: it works offline, and syncs with a hosting desktop or a `furiten-hub` (paired with
+`sync.login { hub }`), or Furiten Cloud (`sync.login { server, token? }`). The app asks for a sync
+(`furiten_sync_soon`) when it comes to the foreground and runs `sync.now` as it goes to the background.
 
 ## Import
 
-`import.mochi` (and `recall import mochi <file> [--parent <deck>]`) adds a Mochi export as new decks under
+`import.mochi` (and `furiten import mochi <file> [--parent <deck>]`) adds a Mochi export as new decks under
 `parent_id`, or at the top level, in one transaction. Importing the same file twice makes two copies.
 
 ```
@@ -312,7 +312,7 @@ Imported = { decks: Deck[], cards: number, reviews: number, skipped: number, att
   `data.json` or `data.edn` also reads. `decks` lists the new decks with every parent before its children.
 - **Decks.** Each Mochi deck becomes a deck named the same, nested as its `parent-id` says; a parent the file lacks
   puts the deck at the top of the import. Trashed decks are left out with everything under them.
-- **Cards.** Content is Mochi's Markdown, whose `---` sides are Recall's. A card with a template (its own
+- **Cards.** Content is Mochi's Markdown, whose `---` sides are Furiten's. A card with a template (its own
   `template-id`, else its deck's) is rendered through it: `<< Field >>` by field name or id, `<<#field>>…<</field>>`
   when the field is filled and `<<^field>>…<</field>>` when it isn't; fields it can't fill render as nothing.
   `tags` carry over, and trailing lines made only of `#tags` (Mochi's inline tags) become tags rather than text; a

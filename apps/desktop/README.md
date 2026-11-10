@@ -1,8 +1,8 @@
-# Recall for desktop
+# Furiten for desktop
 
 The Rune desktop app. It hosts the core: the store and sync run on a thread of the app, serving the Unix socket the
 CLI and MCP talk to (see `docs/contract.md`), so there's no separate core process. The UI is still a thin client of
-that core: every read and write goes through `recall_core::client` over the socket, and it refetches whenever the core
+that core: every read and write goes through `furiten_core::client` over the socket, and it refetches whenever the core
 pushes `changed`, so edits from the CLI or a sync show up live. The UI holds no store and does no scheduling.
 
 This directory is its own Cargo workspace, so Rune's large dependency tree stays out of the root workspace. It builds
@@ -12,19 +12,19 @@ with the repo-wide Rust 1.95 pin (root `rust-toolchain.toml`), which Rune needs.
 
 ```sh
 cd apps/desktop
-cargo run                          # hosts the core at $RECALL_HOME and opens the window
+cargo run                          # hosts the core at $FURITEN_HOME and opens the window
 cargo run -- --background          # hosts the core with no window (how the CLI starts the app)
 cargo run -- --fixtures            # sample data in memory, no core (first-run | lived-in | caught-up)
 ```
 
-Only one app runs per `RECALL_HOME`. Launching it while a core is running asks that app to show its window
+Only one app runs per `FURITEN_HOME`. Launching it while a core is running asks that app to show its window
 (`app.open`) and exits. A `--background` app has no Dock icon until its window opens, and closing that window goes
-back to no window while the core keeps serving; `recall shutdown` quits it. An app launched normally quits, and stops
+back to no window while the core keeps serving; `furiten shutdown` quits it. An app launched normally quits, and stops
 its core, when its window closes. If the CLI is hosting the core itself (it does when it can't find the app), the app
 runs as one more client of it.
 
-To have the CLI start this checkout's app, build it and point `RECALL_APP` at `target/debug/recall-desktop`. Point
-`RECALL_HOME` at a scratch directory to try it without touching your own decks. If the core can't be opened the app
+To have the CLI start this checkout's app, build it and point `FURITEN_APP` at `target/debug/furiten-desktop`. Point
+`FURITEN_HOME` at a scratch directory to try it without touching your own decks. If the core can't be opened the app
 says so and shows sample data.
 
 The window opens before the core answers: the core starts on another thread once the first frame is up. A quick start
@@ -35,7 +35,7 @@ shows nothing in between; one that takes longer than 0.4 s says "Opening your de
 The sidebar lists every deck with its subdecks indented under it, and the main pane always shows one of them (the
 first, when the one it showed goes away); there's no view of every deck at once. The "+" by Decks opens a menu:
 **New deck** names one in place, and **Import from Mochi…** asks for a `.mochi` export and has the core import it
-(`import.mochi`, the same as `recall import mochi`), then opens the first deck it added with a line saying what came
+(`import.mochi`, the same as `furiten import mochi`), then opens the first deck it added with a line saying what came
 in and what stayed behind.
 
 **Review**, above the decks, is the inbox: every due card from every deck, with how many are waiting (`review.next`
@@ -53,7 +53,7 @@ and ✓ buttons (or 1 and 2) are always there and answer at any side; each takes
 ## Card views
 
 A deck's cards show as a **grid**, a **list** or a **column**, picked from the view menu under the title (or ⌘1, ⌘2,
-⌘3). The choice is remembered per deck as a local preference (`rune::prefs`, app id `recall-desktop`), not in the
+⌘3). The choice is remembered per deck as a local preference (`rune::prefs`, app id `furiten-desktop`), not in the
 library.
 
 - **Grid**: tiles in as many columns as fit (three in the default window), each with the card's front in Markdown
@@ -131,7 +131,7 @@ until you type again.
 
 ## First run
 
-The core seeds a "Recall basics" deck. While nothing has been reviewed, the app opens on that deck alone with one
+The core seeds a "Furiten basics" deck. While nothing has been reviewed, the app opens on that deck alone with one
 action, Start review: no sidebar and no settings. The sidebar opens once the first review is finished.
 
 ## Screenshots
@@ -152,12 +152,12 @@ pass it with `--script` and `--snap` at any `--at` time to see a frame mid-trans
 ## Layout
 
 - `src/core/`: the only code that talks to the core, and where the app hosts it (`Core::host`) and finds another app
-  already running (`running`). `Core::Live` wraps `recall_core::client::Client`;
+  already running (`running`). `Core::Live` wraps `furiten_core::client::Client`;
   `Core::Fixture` is an in-memory stand-in for scenes, tests and `--fixtures` (it moves answered cards a fixed time
   ahead and is not a scheduler).
 - `src/app.rs`: state and actions, each a call into `Core` and a refetch.
 - `src/editor.rs`: the card being written, one field per side, and how sides split and join.
 - `src/ui/`: the views (sidebar, deck, review, editor, settings), built from rune-kit components; `cards.rs` has the
   grid, list and column.
-- `src/theme.rs`: Anomaly's theme (`rune-theme-opencode`: kit tokens, Inter and IBM Plex Mono) plus Recall's own type styles.
+- `src/theme.rs`: Anomaly's theme (`rune-theme-opencode`: kit tokens, Inter and IBM Plex Mono) plus Furiten's own type styles.
 - `RUNE-GAPS.md`: what Rune didn't do, and how the app works around it.

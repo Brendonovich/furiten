@@ -1,4 +1,4 @@
-//! `recall`: the command line, a client of the core the desktop app hosts. With no app running it starts one without a
+//! `furiten`: the command line, a client of the core the desktop app hosts. With no app running it starts one without a
 //! window; with no app installed it hosts the core itself for the length of the command.
 
 mod output;
@@ -9,15 +9,15 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use recall_core::client::Client;
-use recall_core::protocol::{Ack, CardQuery, CardSort, CardUpdate, DeckUpdate, NewCard, WebEnable};
-use recall_core::server::{Hosted, Server};
-use recall_core::{Error, Result};
+use furiten_core::client::Client;
+use furiten_core::protocol::{Ack, CardQuery, CardSort, CardUpdate, DeckUpdate, NewCard, WebEnable};
+use furiten_core::server::{Hosted, Server};
+use furiten_core::{Error, Result};
 use serde::Serialize;
 
 #[derive(Parser)]
 #[command(
-    name = "recall",
+    name = "furiten",
     version,
     about = "Spaced-repetition flashcards. Cards are Markdown; a line with only --- splits the sides."
 )]
@@ -100,7 +100,7 @@ enum Command {
         #[command(subcommand)]
         command: ImportCommand,
     },
-    /// Sync now, or sign in to Recall Cloud or a self-hosted hub.
+    /// Sync now, or sign in to Furiten Cloud or a self-hosted hub.
     Sync {
         #[command(subcommand)]
         command: Option<SyncCommand>,
@@ -254,7 +254,7 @@ enum ImportCommand {
 #[derive(Subcommand)]
 enum SyncCommand {
     /// Sign in to a server (without --token a new account is created; keep the token it prints to sign in
-    /// elsewhere), or pair with a self-hosted hub using a ticket from `recall-hub pair`.
+    /// elsewhere), or pair with a self-hosted hub using a ticket from `furiten-hub pair`.
     Login {
         #[arg(long, required_unless_present = "hub", conflicts_with = "hub")]
         server: Option<String>,
@@ -282,7 +282,7 @@ fn main() -> ExitCode {
             if json {
                 println!("{}", serde_json::json!({ "error": error }));
             } else {
-                eprintln!("recall: {}", error.message);
+                eprintln!("furiten: {}", error.message);
             }
             ExitCode::FAILURE
         }
@@ -290,7 +290,7 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    let home = recall_core::default_home();
+    let home = furiten_core::default_home();
     if let Command::Shutdown = cli.command
         && Client::connect(&home).is_err()
     {

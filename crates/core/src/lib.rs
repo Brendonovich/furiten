@@ -1,4 +1,4 @@
-//! Recall's core: the store, review queue and sync client, plus the socket server a host process (the desktop app,
+//! Furiten's core: the store, review queue and sync client, plus the socket server a host process (the desktop app,
 //! or the CLI) runs it with and a blocking client for it. See `docs/contract.md` for the formats and protocol
 //! implemented here.
 
@@ -78,19 +78,19 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-/// `$RECALL_HOME`, else `~/Library/Application Support/Recall` on macOS and `$XDG_DATA_HOME/recall` (default
-/// `~/.local/share/recall`) elsewhere.
+/// `$FURITEN_HOME`, else `~/Library/Application Support/Furiten` on macOS and `$XDG_DATA_HOME/furiten` (default
+/// `~/.local/share/furiten`) elsewhere.
 pub fn default_home() -> PathBuf {
-    if let Some(home) = std::env::var_os("RECALL_HOME").filter(|v| !v.is_empty()) {
+    if let Some(home) = std::env::var_os("FURITEN_HOME").filter(|v| !v.is_empty()) {
         return PathBuf::from(home);
     }
     let user_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
     if cfg!(target_os = "macos") {
-        return user_home.join("Library/Application Support/Recall");
+        return user_home.join("Library/Application Support/Furiten");
     }
     match std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
-        Some(data) => PathBuf::from(data).join("recall"),
-        None => user_home.join(".local/share/recall"),
+        Some(data) => PathBuf::from(data).join("furiten"),
+        None => user_home.join(".local/share/furiten"),
     }
 }
 

@@ -9,9 +9,9 @@ import { ApiError } from "./Model.ts";
 import Users from "./Users.ts";
 import { VERSION } from "./Version.ts";
 
-/** `recall-<stage>-<name>`, made safe for Cloudflare names (local stages such as `dev_<user>` contain `_`). */
+/** `furiten-<stage>-<name>`, made safe for Cloudflare names (local stages such as `dev_<user>` contain `_`). */
 export const resourceName = (stage: string, name: string) =>
-  `recall-${stage}-${name}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  `furiten-${stage}-${name}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 
 const errorResponse = (error: ApiError) => HttpServerResponse.jsonUnsafe(error.toJSON(), { status: error.status });
 
@@ -32,7 +32,7 @@ export default class Api extends Cloudflare.Worker<Api>()(
     return {
       fetch: Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const path = new URL(request.url, "http://recall").pathname;
+        const path = new URL(request.url, "http://furiten").pathname;
 
         if (path === "/health" && request.method === "GET") {
           return HttpServerResponse.jsonUnsafe({ ok: true, version: VERSION });

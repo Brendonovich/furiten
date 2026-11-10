@@ -2,14 +2,14 @@
 # Builds the iOS app and installs and launches it on an iPhone paired with this Mac (over Wi-Fi works: pair it once
 # in Xcode's Devices window with "Connect via network").
 #   apps/ios/scripts/deploy.sh [device]    device: name or identifier from `xcrun devicectl list devices`
-#                                          (default $RECALL_DEVICE, else the first available iPhone)
+#                                          (default $FURITEN_DEVICE, else the first available iPhone)
 set -eu
 
 ios="$(cd "$(dirname "$0")/.." && pwd)"
-bundle=co.anomaly.recall
+bundle=co.anomaly.furiten
 build="$ios/build/xcode"
 
-device="${1:-${RECALL_DEVICE:-}}"
+device="${1:-${FURITEN_DEVICE:-}}"
 if [ -z "$device" ]; then
   list="$(mktemp)"
   xcrun devicectl list devices --json-output "$list" >/dev/null
@@ -33,9 +33,9 @@ fi
 
 cd "$ios"
 xcodegen generate --quiet
-xcodebuild -project Recall.xcodeproj -scheme Recall -configuration Debug \
+xcodebuild -project Furiten.xcodeproj -scheme Furiten -configuration Debug \
   -destination 'generic/platform=iOS' -derivedDataPath "$build" -allowProvisioningUpdates \
   -quiet build
-app="$build/Build/Products/Debug-iphoneos/Recall.app"
+app="$build/Build/Products/Debug-iphoneos/Furiten.app"
 xcrun devicectl device install app --device "$device" "$app"
 xcrun devicectl device process launch --device "$device" --terminate-existing "$bundle"

@@ -24,7 +24,7 @@ async function call<T>(session: Session, method: string, path: string, body?: un
     method,
     headers: {
       authorization: `Bearer ${session.token}`,
-      "x-recall-timezone": timezone,
+      "x-furiten-timezone": timezone,
       ...(body === undefined ? {} : { "content-type": "application/json" }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),

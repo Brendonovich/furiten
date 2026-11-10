@@ -1,5 +1,5 @@
 {
-  "name": "recall-server",
+  "name": "furiten-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,8 +9,8 @@
     "typecheck": "tsc -p .",
     "test": "bun run build:wasm && bun test",
     "check": "bun run typecheck && bun run test",
-    "deploy:dev": "bun run build:wasm && RECALL_STATE=cloudflare bun node_modules/alchemy/bin/cli.js deploy --stage dev --yes --no-input",
-    "deploy:production": "bun run build:wasm && RECALL_STATE=cloudflare bun node_modules/alchemy/bin/cli.js deploy --stage production --yes --no-input"
+    "deploy:dev": "bun run build:wasm && FURITEN_STATE=cloudflare bun node_modules/alchemy/bin/cli.js deploy --stage dev --yes --no-input",
+    "deploy:production": "bun run build:wasm && FURITEN_STATE=cloudflare bun node_modules/alchemy/bin/cli.js deploy --stage production --yes --no-input"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.84",

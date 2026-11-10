@@ -24,7 +24,7 @@ impl Running {
     pub(super) fn start(core: &Core) -> Result<Running> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_name("recall-host")
+            .thread_name("furiten-host")
             .enable_all()
             .build()?;
         let key = hub::load_or_create_key(&core.home.join("iroh.key"))?;

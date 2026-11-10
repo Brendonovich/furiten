@@ -1,4 +1,4 @@
-//! Recall's core behind a C ABI (`include/recall.h`), for the mobile apps that link it in. It hosts an
+//! Furiten's core behind a C ABI (`include/furiten.h`), for the mobile apps that link it in. It hosts an
 //! [`Embedded`] core and passes the protocol's JSON lines through untouched, so the apps speak exactly what the
 //! desktop socket does.
 
@@ -6,17 +6,17 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::path::Path;
 use std::ptr;
 
-use recall_core::Error;
-use recall_core::server::Embedded;
+use furiten_core::Error;
+use furiten_core::server::Embedded;
 
-pub struct RecallCore(Embedded);
+pub struct FuritenCore(Embedded);
 
-pub type RecallChanged = Option<extern "C" fn(*mut c_void)>;
+pub type FuritenChanged = Option<extern "C" fn(*mut c_void)>;
 
 /// The host's callback and context, called from core threads. The host promises both stay valid, and are safe to
-/// call from any thread, until `recall_close` returns.
+/// call from any thread, until `furiten_close` returns.
 struct Listener {
-    on_change: RecallChanged,
+    on_change: FuritenChanged,
     ctx: *mut c_void,
 }
 
@@ -34,16 +34,16 @@ impl Listener {
 /// # Safety
 /// `home` must be a NUL-terminated UTF-8 path, and `error`, if not null, writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn recall_open(
+pub unsafe extern "C" fn furiten_open(
     home: *const c_char,
-    on_change: RecallChanged,
+    on_change: FuritenChanged,
     ctx: *mut c_void,
     error: *mut *mut c_char,
-) -> *mut RecallCore {
+) -> *mut FuritenCore {
     let listener = Listener { on_change, ctx };
     let opened = unsafe { str_arg(home) }.and_then(|home| Embedded::open(Path::new(home), move || listener.call()));
     match opened {
-        Ok(core) => Box::into_raw(Box::new(RecallCore(core))),
+        Ok(core) => Box::into_raw(Box::new(FuritenCore(core))),
         Err(e) => {
             if !error.is_null() {
                 unsafe { *error = into_c(serde_json::json!(e).to_string()) };
@@ -54,9 +54,9 @@ pub unsafe extern "C" fn recall_open(
 }
 
 /// # Safety
-/// `core` must come from `recall_open` and not be closed; `request` must be NUL-terminated.
+/// `core` must come from `furiten_open` and not be closed; `request` must be NUL-terminated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn recall_request(core: *mut RecallCore, request: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn furiten_request(core: *mut FuritenCore, request: *const c_char) -> *mut c_char {
     let core = unsafe { &*core };
     let reply = match unsafe { str_arg(request) } {
         Ok(line) => core.0.request(line),
@@ -66,25 +66,25 @@ pub unsafe extern "C" fn recall_request(core: *mut RecallCore, request: *const c
 }
 
 /// # Safety
-/// `core` must come from `recall_open` and not be closed.
+/// `core` must come from `furiten_open` and not be closed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn recall_sync_soon(core: *mut RecallCore) {
+pub unsafe extern "C" fn furiten_sync_soon(core: *mut FuritenCore) {
     unsafe { &*core }.0.sync_soon();
 }
 
 /// # Safety
 /// `s` must come from this library, once, or be null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn recall_string_free(s: *mut c_char) {
+pub unsafe extern "C" fn furiten_string_free(s: *mut c_char) {
     if !s.is_null() {
         drop(unsafe { CString::from_raw(s) });
     }
 }
 
 /// # Safety
-/// `core` must come from `recall_open`, once, or be null.
+/// `core` must come from `furiten_open`, once, or be null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn recall_close(core: *mut RecallCore) {
+pub unsafe extern "C" fn furiten_close(core: *mut FuritenCore) {
     if !core.is_null() {
         drop(unsafe { Box::from_raw(core) });
     }

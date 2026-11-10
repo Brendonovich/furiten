@@ -59,23 +59,23 @@ impl State {
         }
     }
 
-    fn srs(self) -> recall_srs::State {
+    fn srs(self) -> furiten_srs::State {
         match self {
-            State::New => recall_srs::State::New,
-            State::Learning => recall_srs::State::Learning,
-            State::Review => recall_srs::State::Review,
-            State::Relearning => recall_srs::State::Relearning,
+            State::New => furiten_srs::State::New,
+            State::Learning => furiten_srs::State::Learning,
+            State::Review => furiten_srs::State::Review,
+            State::Relearning => furiten_srs::State::Relearning,
         }
     }
 }
 
-impl From<recall_srs::State> for State {
-    fn from(state: recall_srs::State) -> State {
+impl From<furiten_srs::State> for State {
+    fn from(state: furiten_srs::State) -> State {
         match state {
-            recall_srs::State::New => State::New,
-            recall_srs::State::Learning => State::Learning,
-            recall_srs::State::Review => State::Review,
-            recall_srs::State::Relearning => State::Relearning,
+            furiten_srs::State::New => State::New,
+            furiten_srs::State::Learning => State::Learning,
+            furiten_srs::State::Review => State::Review,
+            furiten_srs::State::Relearning => State::Relearning,
         }
     }
 }
@@ -91,8 +91,8 @@ pub struct Schedule {
     pub last_review: Option<i64>,
 }
 
-impl From<recall_srs::Schedule> for Schedule {
-    fn from(s: recall_srs::Schedule) -> Schedule {
+impl From<furiten_srs::Schedule> for Schedule {
+    fn from(s: furiten_srs::Schedule) -> Schedule {
         Schedule {
             state: s.state.into(),
             due: s.due,

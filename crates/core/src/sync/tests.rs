@@ -244,7 +244,7 @@ fn a_hub_answers_a_losing_write_with_the_stored_version_and_never_echoes_what_it
 
     assert_eq!(hub.apply(&[]).unwrap_err().code, "wrong_store");
     assert_eq!(Store::open_in_memory().unwrap().serve_sync(&request(None, vec![])).unwrap_err().code, "wrong_store");
-    let dir = std::env::temp_dir().join(format!("recall-hubstore-{}", crate::model::ulid()));
+    let dir = std::env::temp_dir().join(format!("furiten-hubstore-{}", crate::model::ulid()));
     drop(Store::open_hub(&dir.join("hub.db")).unwrap());
     assert_eq!(Store::open(&dir.join("hub.db")).err().unwrap().code, "wrong_store");
     drop(Store::open(&dir.join("device.db")).unwrap());

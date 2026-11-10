@@ -12,7 +12,7 @@ pub struct Library {
     pub decks: Vec<ImportDeck>,
     /// Cards the export had that won't be imported (trashed, or with nothing on them).
     pub skipped: u64,
-    /// Files in the export (images, audio) that aren't imported: Recall has no attachments yet.
+    /// Files in the export (images, audio) that aren't imported: Furiten has no attachments yet.
     pub attachments: u64,
 }
 

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "recall-web",
+      "name": "furiten-web",
       "dependencies": {
         "@codemirror/commands": "6.11.1",
         "@codemirror/state": "6.7.6",

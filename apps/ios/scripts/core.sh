@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds Recall's core (crates/ffi) as a static library for the iOS app, into build/core/<platform>/librecall_ffi.a.
+# Builds Furiten's core (crates/ffi) as a static library for the iOS app, into build/core/<platform>/libfuriten_ffi.a.
 # Xcode runs it before compiling (project.yml); cargo makes it quick when nothing changed.
 #   apps/ios/scripts/core.sh [iphoneos|iphonesimulator]    (default $PLATFORM_NAME, as Xcode sets it, else iphoneos)
 set -eu
@@ -17,6 +17,6 @@ esac
 # rusqlite and ring compile; build with a clean one. Release: a debug build of Iroh is large and slow on a phone.
 env -i HOME="$HOME" PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" \
   IPHONEOS_DEPLOYMENT_TARGET=26.0 \
-  cargo build --quiet --manifest-path "$root/Cargo.toml" -p recall-ffi --release --target "$target"
+  cargo build --quiet --manifest-path "$root/Cargo.toml" -p furiten-ffi --release --target "$target"
 mkdir -p "$ios/build/core/$platform"
-cp "$root/target/$target/release/librecall_ffi.a" "$ios/build/core/$platform/librecall_ffi.a"
+cp "$root/target/$target/release/libfuriten_ffi.a" "$ios/build/core/$platform/libfuriten_ffi.a"

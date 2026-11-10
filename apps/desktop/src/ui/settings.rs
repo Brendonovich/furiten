@@ -38,7 +38,7 @@ pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
     } else {
         sync = sync
             .child(
-                text("Keep your decks on all your devices. Recall works fully offline without it.")
+                text("Keep your decks on all your devices. Furiten works fully offline without it.")
                     .key("lede")
                     .font(k.ty.ui)
                     .color(k.c.text_muted)
@@ -53,7 +53,7 @@ pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
                     .child(
                         col().key("server-field").grow(1.0).min_w(0.0).child(
                             TextInput::new(&settings.server)
-                                .placeholder("https://recall.example.com")
+                                .placeholder("https://furiten.example.com")
                                 .width(None)
                                 .on_edit(|s: &mut App| &mut s.settings.as_mut().expect("settings").server)
                                 .on_submit(|s: &mut App, _| s.sign_in())
@@ -74,7 +74,7 @@ pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
         sync = sync.child(error_line(k, e));
     }
 
-    let about = format!("Recall core {} · {}", st.version, st.home);
+    let about = format!("Furiten core {} · {}", st.version, st.home);
     let mut page = col().key("settings").w_full().h_full().px(24.0).pt(8.0).gap(28.0).child(
         col()
             .key("column")
@@ -158,9 +158,9 @@ fn phones(s: &App, settings: &Settings, k: &Kit) -> El {
             .grow(1.0)
             .min_w(0.0)
             .gap(8.0)
-            .child(text("Scan this with Recall on your phone").key("scan").font(k.ty.ui_medium).color(k.c.text_base))
+            .child(text("Scan this with Furiten on your phone").key("scan").font(k.ty.ui_medium).color(k.c.text_base))
             .child(
-                text("In Recall’s Settings on the phone, choose Pair with your computer. The code works once, for 10 minutes.")
+                text("In Furiten’s Settings on the phone, choose Pair with your computer. The code works once, for 10 minutes.")
                     .key("how")
                     .font(k.ty.ui)
                     .color(k.c.text_muted)
@@ -186,9 +186,9 @@ fn phones(s: &App, settings: &Settings, k: &Kit) -> El {
                             .key("hide-ticket"),
                     ),
             );
-        // A link, so the phone's Camera app opens Recall to pair. The ticket in uppercase fits the QR code's
+        // A link, so the phone's Camera app opens Furiten to pair. The ticket in uppercase fits the QR code's
         // alphanumeric mode, a smaller code; tickets read case-insensitively.
-        let link = format!("recall://pair/{}", ticket.ticket.to_uppercase());
+        let link = format!("furiten://pair/{}", ticket.ticket.to_uppercase());
         section = section.child(row().key("ticket").w_full().gap(20.0).child(qr(&link)).child(details));
     } else {
         let title = if h.devices.is_empty() { "Pair a phone" } else { "Pair another phone" };
@@ -241,7 +241,7 @@ fn phones(s: &App, settings: &Settings, k: &Kit) -> El {
 fn web(settings: &Settings, k: &Kit) -> El {
     let w = &settings.web;
     let label = "Use this library from your phone";
-    let what = "Serves your decks to browsers on your network and Tailscale, without Recall Cloud. Scan the code or \
+    let what = "Serves your decks to browsers on your network and Tailscale, without Furiten Cloud. Scan the code or \
                 open the link on your phone.";
     let switch = Switch::new(w.enabled)
         .label(label)

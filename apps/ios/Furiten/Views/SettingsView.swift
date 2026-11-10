@@ -2,7 +2,7 @@ import SwiftUI
 import VisionKit
 
 /// Settings: where this phone's library syncs. The library lives on the phone either way; pairing with your computer
-/// (or signing in to Recall Cloud) keeps it in step with your other devices.
+/// (or signing in to Furiten Cloud) keeps it in step with your other devices.
 struct SettingsView: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
@@ -27,8 +27,8 @@ struct SettingsView: View {
                     } header: {
                         Text("Appearance")
                     } footer: {
-                        Text(theme == .recall
-                             ? "Recall’s own colours, as on the web, always dark."
+                        Text(theme == .furiten
+                             ? "Furiten’s own colours, as on the web, always dark."
                              : "The system’s colours, light or dark as your phone is.")
                     }
                     Section {
@@ -45,7 +45,7 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $pairing) { PairView() }
             .confirmationDialog(
-                library.sync?.paired == true ? "Stop syncing with your computer?" : "Sign out of Recall Cloud?",
+                library.sync?.paired == true ? "Stop syncing with your computer?" : "Sign out of Furiten Cloud?",
                 isPresented: $confirmDisconnect, titleVisibility: .visible
             ) {
                 Button(library.sync?.paired == true ? "Disconnect" : "Sign out", role: .destructive) {
@@ -61,7 +61,7 @@ struct SettingsView: View {
         Group {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Your decks live on this phone, so reviewing and editing work anywhere, even offline. Pair it with Recall on your computer to keep the two in step: they sync whenever both are online, on any network.")
+                    Text("Your decks live on this phone, so reviewing and editing work anywhere, even offline. Pair it with Furiten on your computer to keep the two in step: they sync whenever both are online, on any network.")
                         .foregroundStyle(.secondary)
                     Button { pairing = true } label: {
                         Label("Pair with your computer", systemImage: "laptopcomputer.and.iphone")
@@ -75,9 +75,9 @@ struct SettingsView: View {
                 Text("Sync")
             }
             Section {
-                NavigationLink("Recall Cloud") { CloudSignIn() }
+                NavigationLink("Furiten Cloud") { CloudSignIn() }
             } footer: {
-                Text("Or sync through a Recall Cloud account instead of your computer.")
+                Text("Or sync through a Furiten Cloud account instead of your computer.")
             }
         }
     }
@@ -92,7 +92,7 @@ struct SettingsView: View {
                     }
                 }
             } else {
-                LabeledContent("Recall Cloud", value: sync.server.flatMap { URLComponents(string: $0)?.host } ?? "")
+                LabeledContent("Furiten Cloud", value: sync.server.flatMap { URLComponents(string: $0)?.host } ?? "")
             }
             LabeledContent("Last synced", value: sync.lastSync.map { ago(Date(ms: $0)) } ?? "Not synced yet")
             if let error = sync.syncError {
@@ -104,18 +104,18 @@ struct SettingsView: View {
             Text("Sync")
         } footer: {
             Text(sync.paired
-                 ? "This phone keeps its own copy of your decks and syncs with Recall on your computer whenever both are online. Changes made offline sync later."
+                 ? "This phone keeps its own copy of your decks and syncs with Furiten on your computer whenever both are online. Changes made offline sync later."
                  : "This phone keeps its own copy of your decks and syncs with your account.")
         }
     }
 }
 
-/// Pairing with a computer: scan the code in Recall's Settings there (or from `recall host pair`), or paste it.
+/// Pairing with a computer: scan the code in Furiten's Settings there (or from `furiten host pair`), or paste it.
 struct PairView: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
-    /// A ticket to pair with straight away, from a `recall://pair/…` link.
+    /// A ticket to pair with straight away, from a `furiten://pair/…` link.
     var ticket: String?
     @State private var code = ""
     @State private var busy = false
@@ -132,7 +132,7 @@ struct PairView: View {
                             .foregroundStyle(.white)
                             .frame(width: 72, height: 72)
                             .background(Color.accentColor.gradient, in: .rect(cornerRadius: 18))
-                        Text("On your computer, open Recall’s Settings and choose **Pair a phone**. Then scan the code it shows.")
+                        Text("On your computer, open Furiten’s Settings and choose **Pair a phone**. Then scan the code it shows.")
                             .foregroundStyle(.secondary)
                         if QRScanner.available {
                             Button { scanning = true } label: {
@@ -181,7 +181,7 @@ struct PairView: View {
                     if let error {
                         Text(error).foregroundStyle(.red)
                     } else {
-                        Text("From a terminal, `recall host pair` prints one too. Each code works once, for 10 minutes.")
+                        Text("From a terminal, `furiten host pair` prints one too. Each code works once, for 10 minutes.")
                     }
                 }
                 .listRowBackground(palette.row)
@@ -219,7 +219,7 @@ struct PairView: View {
 
     private func pair(_ text: String) async {
         guard let ticket = pairingTicket(text) else {
-            error = "That isn’t a pairing code. Scan the one in Recall’s Settings on your computer."
+            error = "That isn’t a pairing code. Scan the one in Furiten’s Settings on your computer."
             return
         }
         busy = true
@@ -229,14 +229,14 @@ struct PairView: View {
             try await library.pair(ticket: ticket)
             dismiss()
         } catch let e as CoreError where e.code == "network" {
-            error = "Couldn’t reach your computer. Check Recall is open there and online, then try again."
+            error = "Couldn’t reach your computer. Check Furiten is open there and online, then try again."
         } catch {
             self.error = error.localizedDescription
         }
     }
 }
 
-/// Signing in to Recall Cloud with an account token, or making a new account.
+/// Signing in to Furiten Cloud with an account token, or making a new account.
 private struct CloudSignIn: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
@@ -263,7 +263,7 @@ private struct CloudSignIn: View {
                     }
                 } else {
                     Section {
-                        field("Server (recall.example.com)", text: $server).keyboardType(.URL)
+                        field("Server (furiten.example.com)", text: $server).keyboardType(.URL)
                         field("rc_…", text: $token).monospaced()
                         Button("Sign in") { Task { await signIn(token: token) } }
                             .disabled(busy || url == nil || token.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -277,7 +277,7 @@ private struct CloudSignIn: View {
             .listRowBackground(palette.row)
         }
         .listBackground(palette.list)
-        .navigationTitle("Recall Cloud")
+        .navigationTitle("Furiten Cloud")
         .navigationBarTitleDisplayMode(.inline)
     }
 

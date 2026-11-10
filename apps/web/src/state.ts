@@ -23,7 +23,7 @@ type AppState = {
 /** A deck's view and sort as last picked, so its sidebar link opens it that way. */
 export type DeckPrefs = { view: View; sort: Pick<SortState, "by" | "desc"> };
 
-const SESSION = "recall.session";
+const SESSION = "furiten.session";
 
 const stored = <T>(key: string): T | null => {
   try {
@@ -140,8 +140,8 @@ export function createApp() {
 
   const prefsOf = (deck: string): DeckPrefs =>
     prefs[deck] ?? {
-      view: stored<View>(`recall.view.${deck}`) ?? DEFAULT_VIEW,
-      sort: parseSort(stored<string>(`recall.sort.${deck}`) ?? undefined),
+      view: stored<View>(`furiten.view.${deck}`) ?? DEFAULT_VIEW,
+      sort: parseSort(stored<string>(`furiten.sort.${deck}`) ?? undefined),
     };
 
   /** Remembers a deck's view and sort as they're picked. */
@@ -151,11 +151,11 @@ export function createApp() {
     setPrefs((s) => {
       s[deck] = { view: p.view, sort: { by: p.sort.by, desc: p.sort.desc } };
     });
-    store(`recall.view.${deck}`, p.view);
-    store(`recall.sort.${deck}`, sortParam(p.sort) ?? "created");
+    store(`furiten.view.${deck}`, p.view);
+    store(`furiten.sort.${deck}`, sortParam(p.sort) ?? "created");
   }
 
-  // A desktop pushes changes as server-sent events; Recall Cloud doesn't, so there the 30 s poll does the job.
+  // A desktop pushes changes as server-sent events; Furiten Cloud doesn't, so there the 30 s poll does the job.
   let events: EventSource | null = null;
   function listen(session: Session | null) {
     events?.close();
@@ -214,7 +214,7 @@ export function createApp() {
 export type App = ReturnType<typeof createApp>;
 export const AppContext = createContext<App>();
 
-/** A desktop's web access token (`rw_`), as opposed to a Recall Cloud account's (`rc_`). */
+/** A desktop's web access token (`rw_`), as opposed to a Furiten Cloud account's (`rc_`). */
 export const isDesktop = (session: Session) => session.token.startsWith("rw_");
 
 /** Reads a desktop's sign-in link (`http://host:8787/#token=rw_…`) into a session. */

@@ -26,12 +26,12 @@ fn answer(store: &mut Store, card_id: &str, remembered: bool) -> CardView {
 
 #[test]
 fn a_new_store_has_the_sample_deck_once() {
-    let dir = std::env::temp_dir().join(format!("recall-store-{}", ulid()));
-    let path = dir.join("recall.db");
+    let dir = std::env::temp_dir().join(format!("furiten-store-{}", ulid()));
+    let path = dir.join("furiten.db");
     let store = Store::open(&path).unwrap();
     let decks = store.decks().unwrap();
     assert_eq!(decks.len(), 1);
-    assert_eq!(decks[0].deck.name, "Recall basics");
+    assert_eq!(decks[0].deck.name, "Furiten basics");
     assert_eq!((decks[0].cards, decks[0].new), (5, 5));
     let next = store.next_review(None).unwrap();
     assert!(next.card.unwrap().front().contains("---"));
@@ -139,7 +139,7 @@ fn tags_list_the_most_recently_used_first() {
         |list: &[(&str, u64)]| -> Vec<(String, u64)> { list.iter().map(|(t, n)| (t.to_string(), *n)).collect() };
     assert_eq!(
         summary(&store),
-        expect(&[("verbs", 1), ("food", 1), ("vocab", 1), ("recall", 5)]),
+        expect(&[("verbs", 1), ("food", 1), ("vocab", 1), ("furiten", 5)]),
         "deleted cards' tags don't count"
     );
 
@@ -147,7 +147,7 @@ fn tags_list_the_most_recently_used_first() {
     store.update_card(CardUpdate { id: old.card.id, content: Some("y".into()), tags: None, deck_id: None }).unwrap();
     assert_eq!(
         summary(&store),
-        expect(&[("food", 1), ("vocab", 1), ("verbs", 1), ("recall", 5)]),
+        expect(&[("food", 1), ("vocab", 1), ("verbs", 1), ("furiten", 5)]),
         "an edit uses the card's tags again"
     );
     assert_eq!(store.tags(None).unwrap()[0].last_used, T0 + 3 * MIN);
@@ -168,7 +168,7 @@ fn tags_used_in_a_deck_come_first_for_it() {
     store.now = Some(T0 + 2 * MIN);
     tagged(&mut store, &rust.id, "borrowing");
     let names = |deck: Option<&str>| -> Vec<String> {
-        store.tags(deck).unwrap().into_iter().map(|t| t.tag).filter(|t| t != "recall").collect()
+        store.tags(deck).unwrap().into_iter().map(|t| t.tag).filter(|t| t != "furiten").collect()
     };
     assert_eq!(names(None), ["borrowing", "irregular", "vocab"]);
     assert_eq!(names(Some(&spanish.id)), ["irregular", "vocab", "borrowing"], "subdecks count, the rest follow");
@@ -274,8 +274,8 @@ fn schedules_are_the_fold_of_reviews_even_out_of_order() {
     s.apply(&[Change::Review(review(3, 3)), Change::Review(review(1, 3))]).unwrap();
     s.apply(&[Change::Review(review(2, 1)), Change::Review(review(1, 3))]).unwrap();
 
-    let fsrs = recall_srs::Scheduler::default();
-    use recall_srs::Rating::*;
+    let fsrs = furiten_srs::Scheduler::default();
+    use furiten_srs::Rating::*;
     let expected = fsrs.fold(T0, [(T0 + DAY, Good), (T0 + 2 * DAY, Again), (T0 + 3 * DAY, Good)]);
     assert_eq!(s.card(&id).unwrap().schedule, Schedule::from(expected));
 }
@@ -302,8 +302,8 @@ fn remembered_and_forgot_schedule_as_good_and_again() {
     let mut s = store();
     let a = deck(&mut s, "A", None);
     let c = card(&mut s, &a.id, "q\n---\na");
-    let fsrs = recall_srs::Scheduler::default();
-    use recall_srs::Rating::*;
+    let fsrs = furiten_srs::Scheduler::default();
+    use furiten_srs::Rating::*;
     let answers = [(T0, true), (T0 + 10 * MIN, true), (T0 + 5 * DAY, false), (T0 + 5 * DAY + 10 * MIN, true)];
     for (at, remembered) in answers {
         s.now = Some(at);

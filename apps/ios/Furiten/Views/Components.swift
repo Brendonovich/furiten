@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Small pieces the screens share. The app uses the system's own look: semantic colours (or the Recall theme's
+// Small pieces the screens share. The app uses the system's own look: semantic colours (or the Furiten theme's
 // palette, see Theme.swift), text styles and Liquid Glass for controls. Content (cards, sides) sits on opaque grouped surfaces with a lit edge; glass is only for controls and
 // navigation.
 

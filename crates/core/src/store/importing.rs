@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use recall_srs::Rating;
+use furiten_srs::Rating;
 
 use super::{Store, deck_name, next_dirty, put_card, put_deck, queue};
 use crate::Result;

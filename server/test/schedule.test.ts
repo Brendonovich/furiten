@@ -23,7 +23,7 @@ test("Remembered on a new card through the API schedules exactly like crates/srs
 
 test("synced reviews fold in (reviewed_at, id) order, matching the wasm scheduler run locally", async () => {
   const scheduler = makeScheduler(
-    new WebAssembly.Module(await Bun.file(new URL("../build/recall_srs.wasm", import.meta.url)).arrayBuffer()),
+    new WebAssembly.Module(await Bun.file(new URL("../build/furiten_srs.wasm", import.meta.url)).arrayBuffer()),
   );
   const a = await account();
   const t0 = 1_800_000_000_000;

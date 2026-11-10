@@ -1,17 +1,17 @@
 // Runs the tests against the real Worker and Durable Object: `alchemy dev` on the `test` stage serves them in a
-// local workerd, offline. Set RECALL_BASE_URL to run the same black-box tests against a server that's already up.
+// local workerd, offline. Set FURITEN_BASE_URL to run the same black-box tests against a server that's already up.
 
 let server: Promise<string> | undefined;
 let child: ReturnType<typeof Bun.spawn> | undefined;
 
 const start = async (): Promise<string> => {
-  if (process.env.RECALL_BASE_URL) return process.env.RECALL_BASE_URL.replace(/\/$/, "");
+  if (process.env.FURITEN_BASE_URL) return process.env.FURITEN_BASE_URL.replace(/\/$/, "");
   const cwd = new URL("..", import.meta.url).pathname;
   child = Bun.spawn(["bun", "node_modules/alchemy/bin/cli.js", "dev", "--stage", "test", "--no-input"], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, RECALL_STATE: "local" },
+    env: { ...process.env, FURITEN_STATE: "local" },
   });
   let output = "";
   const decoder = new TextDecoder();

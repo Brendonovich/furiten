@@ -1,7 +1,7 @@
 //! Mochi's `.mochi` export: a zip holding `data.json` (Transit JSON) or, in older exports, `data.edn`, plus the
 //! cards' attachments. See https://mochi.cards/docs/import-and-export/mochi-format-reference/.
 //!
-//! Mochi cards are Markdown with `---` between sides, as Recall's are, so content carries over as is. A card with a
+//! Mochi cards are Markdown with `---` between sides, as Furiten's are, so content carries over as is. A card with a
 //! template is rendered through it (`<< Field >>` placeholders and `<<#field>>`/`<<^field>>` sections). A review
 //! Mochi says was remembered becomes Good, a forgotten one Again, so the schedule picks up where Mochi's left off.
 
@@ -241,7 +241,7 @@ fn section<'a>(s: &'a str, name: &str) -> (&'a str, &'a str) {
     (s, "")
 }
 
-/// Mochi reads `#tags` in a card's text as its tags. Lines at the end made only of them would show as text in Recall,
+/// Mochi reads `#tags` in a card's text as its tags. Lines at the end made only of them would show as text in Furiten,
 /// so they become tags instead. A `# Heading` (with its space) isn't a tag.
 fn take_inline_tags(content: &str, tags: &mut Vec<String>) -> String {
     let is_tag = |word: &str| {

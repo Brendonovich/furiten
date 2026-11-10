@@ -1,5 +1,5 @@
 //! Web access: the desktop's core serving the HTTP API (docs/contract.md, "HTTP API") to browsers on the network,
-//! so a phone can use this library directly instead of through Recall Cloud. Each route is a protocol method
+//! so a phone can use this library directly instead of through Furiten Cloud. Each route is a protocol method
 //! underneath, so its answers are exactly the local core's. When the host bundles the web app it's served from the
 //! same origin, and `/v1/events` streams `changed` as server-sent events.
 
@@ -22,7 +22,7 @@ pub const DEFAULT_PORT: u16 = 8787;
 const MAX_BODY: u64 = 8 << 20;
 const PING: Duration = Duration::from_secs(25);
 
-/// Web access as kept in `$RECALL_HOME/web.json` (mode 0600): on across restarts until turned off, with the same
+/// Web access as kept in `$FURITEN_HOME/web.json` (mode 0600): on across restarts until turned off, with the same
 /// token each time so signed-in browsers stay signed in.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) struct Config {
@@ -94,7 +94,7 @@ pub(super) fn start(core: &Arc<Core>, config: &Config) -> Result<Running> {
     let accept = server.clone();
     let me = Arc::downgrade(core);
     let accept = std::thread::Builder::new()
-        .name("recall-web".into())
+        .name("furiten-web".into())
         .spawn(move || {
             for request in accept.incoming_requests() {
                 let me = me.clone();
@@ -369,7 +369,7 @@ fn json_response(request: Request, status: u16, body: &Value) {
 fn respond<R: Read>(request: Request, response: Response<R>) {
     let response = response
         .with_header(header_line("Access-Control-Allow-Origin", "*"))
-        .with_header(header_line("Access-Control-Allow-Headers", "authorization, content-type, x-recall-timezone"))
+        .with_header(header_line("Access-Control-Allow-Headers", "authorization, content-type, x-furiten-timezone"))
         .with_header(header_line("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS"));
     let _ = request.respond(response);
 }

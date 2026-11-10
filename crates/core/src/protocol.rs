@@ -191,7 +191,7 @@ pub struct TagSummary {
     pub last_used: i64,
 }
 
-/// `{ server, token? }` signs in to Recall Cloud; `{ hub, name? }` pairs with a self-hosted hub.
+/// `{ server, token? }` signs in to Furiten Cloud; `{ hub, name? }` pairs with a self-hosted hub.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Login {
     #[serde(default, skip_serializing_if = "String::is_empty")]

@@ -62,7 +62,7 @@ describe("MCP (2025-06-18, with a session)", () => {
       capabilities: {},
       clientInfo: { name: "test", version: "1" },
     });
-    expect(init.serverInfo.name).toBe("Recall");
+    expect(init.serverInfo.name).toBe("Furiten");
     expect((await mcp.post({ jsonrpc: "2.0", method: "notifications/initialized" })).status).toBe(202);
     const { tools } = await mcp.rpc("tools/list");
     expect(tools.map((t: any) => t.name).sort()).toEqual([...TOOLS].sort());

@@ -1,6 +1,6 @@
 //! Moving changes between a device's store and its hub. Merging lives in the store (a device's
 //! [`Store::finish_sync`], a hub's [`Store::serve_sync`]); this module runs the client loop over any [`Transport`]:
-//! [`Http`] for Recall Cloud (`POST /v1/sync`, `POST /v1/accounts`), `crate::hub::HubLink` for a self-hosted hub
+//! [`Http`] for Furiten Cloud (`POST /v1/sync`, `POST /v1/accounts`), `crate::hub::HubLink` for a self-hosted hub
 //! over Iroh, or a hub's store in the same process.
 
 use std::sync::Mutex;
@@ -41,7 +41,7 @@ pub fn lock(store: &Mutex<Store>) -> std::sync::MutexGuard<'_, Store> {
     store.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Talks to a Recall server over HTTPS.
+/// Talks to a Furiten server over HTTPS.
 pub struct Http {
     agent: ureq::Agent,
     server: String,

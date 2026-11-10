@@ -112,4 +112,4 @@ export class SyncGroup extends HttpApiGroup.make("sync")
     HttpApiEndpoint.post("sync", "/v1/sync", { payload: SyncRequest, success: SyncResponse, error: errors }),
   ) {}
 
-export class RecallApi extends HttpApi.make("recall").add(DecksGroup, CardsGroup, ReviewGroup, SyncGroup) {}
+export class FuritenApi extends HttpApi.make("furiten").add(DecksGroup, CardsGroup, ReviewGroup, SyncGroup) {}

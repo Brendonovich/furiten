@@ -2,8 +2,8 @@
 
 *2026-10-31.*
 
-**Decided:** self-hosting is `recall-hub`, a Rust binary networked with Iroh that acts as an always-online hub, the
-same role the Durable Object plays on Recall Cloud (TypeScript, Cloudflare). Devices sync with one hub, never with
+**Decided:** self-hosting is `furiten-hub`, a Rust binary networked with Iroh that acts as an always-online hub, the
+same role the Durable Object plays on Furiten Cloud (TypeScript, Cloudflare). Devices sync with one hub, never with
 each other. Iroh is the transport only. The design is in `docs/contract.md` ("Self-hosted hub"). The notes below
 are how we got there; the mesh and peer-list parts are not being built.
 
@@ -15,7 +15,7 @@ on-accept-and-dial membership checks and pairing code design are worth borrowing
 ## Question
 
 Can devices sync directly with each other over [Iroh](https://www.iroh.computer) instead of through the Cloudflare
-Durable Object, so someone can run Recall without our server ever holding their cards?
+Durable Object, so someone can run Furiten without our server ever holding their cards?
 
 ## Where Iroh is
 
@@ -39,7 +39,7 @@ symmetric:
 
 - Every change gets a local `seq` when it enters a store, whether it was written locally or received.
 - Each peer remembers, per remote peer, the highest remote `seq` it has applied.
-- On connect, over ALPN `recall/sync/1`: each side sends `{ since }`, streams its changes after the other's `since`,
+- On connect, over ALPN `furiten/sync/1`: each side sends `{ since }`, streams its changes after the other's `since`,
   and both apply them with the same merge function the server uses. `POST /v1/sync` is this protocol with one side
   fixed as the hub.
 - While connected, push new changes as they're written, so two open devices update live.
@@ -48,7 +48,7 @@ One dependency (`iroh`), one merge implementation, and the cloud and P2P paths c
 
 ## Pairing and trust
 
-- `recall pair` (or a QR code in the app) shows a ticket: endpoint ID, relay URL and a one-time secret.
+- `furiten pair` (or a QR code in the app) shows a ticket: endpoint ID, relay URL and a one-time secret.
 - The other device dials it, proves the secret, and both add each other's endpoint ID to a **peer list that syncs
   like any other data**, so pairing a phone with your laptop also pairs it with your desktop.
 - Incoming connections from endpoint IDs not on the list are refused before any data moves (Iroh's endpoint hooks).
@@ -57,8 +57,8 @@ One dependency (`iroh`), one merge implementation, and the cloud and P2P paths c
 ## The catch: two devices are rarely online together
 
 Pure P2P only syncs when two devices are online at the same time. A phone reviewed on the train and a laptop that's
-asleep never meet. The answer is an **always-on peer**: the same `recall core` binary run headless
-(`recall core --headless`) on a home server, NAS, Raspberry Pi or a small VPS. It's just another peer, so there's no
+asleep never meet. The answer is an **always-on peer**: the same `furiten core` binary run headless
+(`furiten core --headless`) on a home server, NAS, Raspberry Pi or a small VPS. It's just another peer, so there's no
 second server codebase, and it's the natural home for a private deployment's HTTP API and MCP endpoint.
 
 That raises the real cost: today the HTTP API and MCP live in the TypeScript Worker. A headless core serving them
@@ -77,11 +77,11 @@ everywhere. That's worth deciding before the API grows.
 
 ## Proposal
 
-Offer both, picked per account in settings: **Recall Cloud** (the Worker, zero setup, the default) and **Private**
+Offer both, picked per account in settings: **Furiten Cloud** (the Worker, zero setup, the default) and **Private**
 (paired devices over Iroh, optionally with a headless always-on peer and a self-hosted relay). Concretely:
 
 1. Make the core's sync transport-agnostic now, while it's being written: the merge function, a per-peer cursor table,
    and the symmetric exchange, with HTTP as the first transport. Cheap today, a rewrite later.
-2. Spike `recall pair`, `recall peers` and `recall/sync/1` behind an `iroh` feature: two cores on one machine converge
+2. Spike `furiten pair`, `furiten peers` and `furiten/sync/1` behind an `iroh` feature: two cores on one machine converge
    over LAN and through the n0 relay, and a test proves a third peer gets changes through the always-on one.
 3. Then decide where the HTTP API and MCP live for private deployments.

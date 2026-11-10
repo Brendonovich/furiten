@@ -9,4 +9,4 @@
 - Tests are black-box HTTP against a base URL (see `test/harness.ts`); keep them that way so they can move into
   `tests/conformance`.
 - Never import the wasm outside the Durable Object: `src/srs.ts` takes a `WebAssembly.Module` so tests can build
-  one from `build/recall_srs.wasm`.
+  one from `build/furiten_srs.wasm`.

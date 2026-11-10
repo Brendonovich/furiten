@@ -1,5 +1,5 @@
 import Foundation
-import RecallCore
+import FuritenCore
 
 struct CoreError: Error, LocalizedError {
     let code: String
@@ -8,22 +8,22 @@ struct CoreError: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// Recall's core, linked in (`crates/ffi`): this phone's own library in SQLite, with FSRS and sync, answering the
+/// Furiten's core, linked in (`crates/ffi`): this phone's own library in SQLite, with FSRS and sync, answering the
 /// local core protocol (docs/contract.md, "Local core protocol"). It holds no domain logic of its own: queues,
 /// schedules, sorting and tag ordering all come from the core, as on the desktop.
 final class Core: @unchecked Sendable {
     private let handle: Handle
     private let listener: Unmanaged<Listener>
 
-    /// Opens the library in Application Support's `Recall` directory. `changed` runs on a core thread after any
+    /// Opens the library in Application Support's `Furiten` directory. `changed` runs on a core thread after any
     /// write, including writes that arrive through sync.
     init(changed: @escaping @Sendable () -> Void) throws {
-        let home = URL.applicationSupportDirectory.appending(path: "Recall", directoryHint: .isDirectory)
+        let home = URL.applicationSupportDirectory.appending(path: "Furiten", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let listener = Unmanaged.passRetained(Listener(changed))
         var error: UnsafeMutablePointer<CChar>?
         let opened = home.path(percentEncoded: false).withCString { path in
-            recall_open(path, { ctx in
+            furiten_open(path, { ctx in
                 guard let ctx else { return }
                 Unmanaged<Listener>.fromOpaque(ctx).takeUnretainedValue().changed()
             }, listener.toOpaque(), &error)
@@ -31,7 +31,7 @@ final class Core: @unchecked Sendable {
         guard let opened else {
             listener.release()
             let detail = error.flatMap { e -> CoreError? in
-                defer { recall_string_free(e) }
+                defer { furiten_string_free(e) }
                 return try? decoder.decode(CoreError.Body.self, from: Data(String(cString: e).utf8)).error
             }
             throw detail ?? CoreError(code: "internal", message: "Couldn’t open your library")
@@ -41,13 +41,13 @@ final class Core: @unchecked Sendable {
     }
 
     deinit {
-        recall_close(handle.raw)
+        furiten_close(handle.raw)
         listener.release()
     }
 
     /// Asks the core to sync now if it's signed in, as when the app comes back to the foreground.
     func syncSoon() {
-        recall_sync_soon(handle.raw)
+        furiten_sync_soon(handle.raw)
     }
 
     // MARK: Library
@@ -113,7 +113,7 @@ final class Core: @unchecked Sendable {
         let _: Paired = try await call("sync.login", HubLogin(hub: ticket, name: name))
     }
 
-    /// Signs in to Recall Cloud; without a token, creates an account. Returns the account's token.
+    /// Signs in to Furiten Cloud; without a token, creates an account. Returns the account's token.
     func signIn(server: String, token: String?) async throws -> String {
         let r: LoggedIn = try await call("sync.login", CloudLogin(server: server, token: token))
         return r.token
@@ -139,8 +139,8 @@ final class Core: @unchecked Sendable {
         let reply: Data = await withCheckedContinuation { done in
             DispatchQueue.global(qos: .userInitiated).async { [handle] in
                 let text = String(decoding: line, as: UTF8.self)
-                let out = text.withCString { recall_request(handle.raw, $0) }
-                defer { recall_string_free(out) }
+                let out = text.withCString { furiten_request(handle.raw, $0) }
+                defer { furiten_string_free(out) }
                 done.resume(returning: out.map { Data(String(cString: $0).utf8) } ?? Data())
             }
         }
@@ -175,7 +175,7 @@ extension CoreError: Decodable {
 struct CoreStatus: Decodable, Equatable, Sendable {
     let signedIn: Bool
     let lastSync: Int64?
-    /// `hub:<endpoint id>` when paired with a computer or a self-hosted hub, else Recall Cloud's URL.
+    /// `hub:<endpoint id>` when paired with a computer or a self-hosted hub, else Furiten Cloud's URL.
     let server: String?
     let syncError: String?
     /// With a computer or hub, whether the connection to it is open.
@@ -189,8 +189,8 @@ struct SyncResult: Decodable, Sendable {
     let pulled: Int
 }
 
-/// A pairing ticket from a computer's Settings (or `recall host pair`, or `recall-hub pair`): `rchub1…`, or the
-/// `recall://pair/<ticket>` link its QR code holds. Read case-insensitively.
+/// A pairing ticket from a computer's Settings (or `furiten host pair`, or `furiten-hub pair`): `rchub1…`, or the
+/// `furiten://pair/<ticket>` link its QR code holds. Read case-insensitively.
 func pairingTicket(_ text: String) -> String? {
     let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
     let last = text.split(separator: "/").last.map(String.init) ?? text

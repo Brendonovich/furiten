@@ -7,10 +7,10 @@ What the app needed from Rune (rev `77dd9132`) and didn't get, how to see it, an
 `TextInput` builds a `single_line()` text input, but a placeholder wider than the field wraps onto a second line that
 draws below the field's border.
 
-Repro: `TextInput::new(&TextEdit::new("")).placeholder("Server address, like https://recall.example.com").build(&k)`
+Repro: `TextInput::new(&TextEdit::new("")).placeholder("Server address, like https://furiten.example.com").build(&k)`
 at its default 280 pt width.
 
-Workaround: a short placeholder (`https://recall.example.com`) and `.width(None)` so the field fills its row. The
+Workaround: a short placeholder (`https://furiten.example.com`) and `.width(None)` so the field fills its row. The
 deck's "Search cards" field also wrapped in a narrow window, so its box has `min_w(180.0)`.
 
 ## Return in a multi-line field submits instead of breaking the line
@@ -36,10 +36,10 @@ Workaround: the editor builds its fields from `text_input` directly (no field ch
 ## Headless runs can't wait for something outside the process
 
 The headless clock is virtual and runs as fast as it can, so a scripted run can't wait for an event that arrives
-from another process, such as the core's `changed` push after `recall add` in another terminal. Live refresh can only
+from another process, such as the core's `changed` push after `furiten add` in another terminal. Live refresh can only
 be checked with a real window.
 
-Repro: `recall-desktop --snap out.png --frames 600 &` then `recall add ...` a second later: the run has finished
+Repro: `furiten-desktop --snap out.png --frames 600 &` then `furiten add ...` a second later: the run has finished
 before the event arrives.
 
 Workaround: checked by hand with a windowed run and the CLI. A script step that waits in real time (or until the app's
@@ -74,7 +74,7 @@ The grid picks its column count from the card area's width, which it learns from
 `--at` draws the first frame, before that report has run the view again, so the grid shows its guess (three
 columns) at any window size.
 
-Repro: `recall-desktop --fixtures --snap out.png --scene grid-narrow --size 820x680` shows three columns; with
+Repro: `furiten-desktop --fixtures --snap out.png --scene grid-narrow --size 820x680` shows three columns; with
 `--at 0.5`, two.
 
 Workaround: `snap.sh` takes every scene at `--at 0.5`. A view-time read of a container's width before the first

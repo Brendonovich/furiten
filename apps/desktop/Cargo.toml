@@ -1,5 +1,5 @@
 [package]
-name = "recall-desktop"
+name = "furiten-desktop"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -12,7 +12,7 @@ exclude = ["vendor"]
 
 [dependencies]
 # The app hosts the core, so it needs all of it: hub sync and import.
-recall-core = { path = "../../crates/core" }
+furiten-core = { path = "../../crates/core" }
 # Rune is vendored from rev 77dd9132 with the caret blink from anomalyco/rune#54 applied (vendor/rune/README.md).
 # Go back to a git `rev` once that PR lands.
 rune = { path = "vendor/rune/crates/rune", default-features = false, features = ["dbus", "embedded-fonts", "native-file-dialog"] }

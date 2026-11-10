@@ -1,6 +1,6 @@
 [package]
-name = "recall-ffi"
-description = "Recall's core behind a C ABI, for the iOS and Android apps to link in"
+name = "furiten-ffi"
+description = "Furiten's core behind a C ABI, for the iOS and Android apps to link in"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,10 +12,10 @@ crate-type = ["staticlib", "lib"]
 [features]
 default = ["hub"]
 # Self-hosted hub sync over Iroh. Builds for iOS as long as libc stays pinned below.
-hub = ["recall-core/hub"]
+hub = ["furiten-core/hub"]
 
 [dependencies]
-recall-core = { path = "../core", default-features = false, features = ["import"] }
+furiten-core = { path = "../core", default-features = false, features = ["import"] }
 serde_json = "=1.0.154"
 
 # Not used directly: pins Iroh's libc. libc 0.2.190 made `in6_ifreq` and the routing socket constants macOS-only, and

@@ -7,8 +7,8 @@
 mod fixture;
 mod types;
 
-use recall_core::client::Client;
-use recall_core::server::{Hosted, Server};
+use furiten_core::client::Client;
+use furiten_core::server::{Hosted, Server};
 
 pub use types::*;
 
@@ -17,7 +17,7 @@ pub type Result<T> = std::result::Result<T, String>;
 /// How many cards a deck's list asks for.
 const LIST_LIMIT: u32 = 500;
 
-const PENDING: &str = "Still connecting to the Recall core";
+const PENDING: &str = "Still connecting to the Furiten core";
 
 pub enum Core {
     /// The core over its Unix socket: the one this app hosts, or rarely another process's.
@@ -36,30 +36,30 @@ pub enum Fixtures {
     CaughtUp,
 }
 
-/// Who already serves the core for `$RECALL_HOME`, checked before a window opens.
+/// Who already serves the core for `$FURITEN_HOME`, checked before a window opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Running {
     Nothing,
-    /// Another Recall app, which has just been asked to show its window.
+    /// Another Furiten app, which has just been asked to show its window.
     App,
     /// A process with no window to show: the CLI hosting the core because it found no app.
     Windowless,
 }
 
-/// Finds a core already serving `$RECALL_HOME`, and if another Recall app hosts it, asks it to show its window.
+/// Finds a core already serving `$FURITEN_HOME`, and if another Furiten app hosts it, asks it to show its window.
 pub fn running() -> Running {
-    let Ok(mut client) = Client::connect(&recall_core::default_home()) else { return Running::Nothing };
+    let Ok(mut client) = Client::connect(&furiten_core::default_home()) else { return Running::Nothing };
     match client.open_app() {
         Ok(()) => Running::App,
         Err(_) => Running::Windowless,
     }
 }
 
-/// The built web app this app serves with web access: `$RECALL_WEB_DIR`, else `web` in the app bundle's resources,
+/// The built web app this app serves with web access: `$FURITEN_WEB_DIR`, else `web` in the app bundle's resources,
 /// else (in a checkout) `apps/web/dist`. Without one, web access serves just the API.
 fn web_dir() -> Option<std::path::PathBuf> {
     let has_app = |d: &std::path::Path| d.join("index.html").is_file();
-    if let Some(dir) = std::env::var_os("RECALL_WEB_DIR").map(std::path::PathBuf::from) {
+    if let Some(dir) = std::env::var_os("FURITEN_WEB_DIR").map(std::path::PathBuf::from) {
         return Some(dir).filter(|d| has_app(d));
     }
     let bundled = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.parent()?.join("Resources/web")));
@@ -67,19 +67,19 @@ fn web_dir() -> Option<std::path::PathBuf> {
     bundled.into_iter().chain([checkout]).find(|d| has_app(d))
 }
 
-fn err(e: recall_core::Error) -> String {
+fn err(e: furiten_core::Error) -> String {
     e.message
 }
 
 impl Core {
-    /// Hosts the core for `$RECALL_HOME` in this process and connects to it. `open` runs when a client asks for the
+    /// Hosts the core for `$FURITEN_HOME` in this process and connects to it. `open` runs when a client asks for the
     /// window (`app.open`), `exited` once the core stops (a client sent `shutdown`, say). When another process
     /// already hosts it, connects to that one and hosts nothing.
     pub fn host(
         open: impl Fn() + Send + Sync + 'static,
         exited: impl FnOnce() + Send + 'static,
     ) -> Result<(Core, Option<Hosted>)> {
-        let home = recall_core::default_home();
+        let home = furiten_core::default_home();
         let hosted = match Server::bind(&home) {
             Ok(server) => {
                 server.on_open(open);
@@ -123,11 +123,11 @@ impl Core {
             Core::Live(client) => match client.events() {
                 Ok(events) => {
                     std::thread::Builder::new()
-                        .name("recall-events".into())
+                        .name("furiten-events".into())
                         .spawn(move || events.for_each(|_| changed()))
                         .expect("spawn the events thread");
                 }
-                Err(e) => eprintln!("recall: not watching for changes: {}", e.message),
+                Err(e) => eprintln!("furiten: not watching for changes: {}", e.message),
             },
             // Fixtures only change through this app, which refreshes after its own writes.
             Core::Fixture(_) | Core::Pending => drop(changed),

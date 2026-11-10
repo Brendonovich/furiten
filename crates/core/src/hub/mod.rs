@@ -1,6 +1,6 @@
-//! Syncing with a self-hosted `recall-hub` over Iroh: the `recall/sync/1` and `recall/pair/1` wire format, pairing
+//! Syncing with a self-hosted `furiten-hub` over Iroh: the `furiten/sync/1` and `furiten/pair/1` wire format, pairing
 //! tickets, endpoint keys and network settings, a device's [`HubLink`], and [`host`], the hub's side, which
-//! `recall-hub` (`crates/hub`) and a hosting desktop both run.
+//! `furiten-hub` (`crates/hub`) and a hosting desktop both run.
 
 pub mod host;
 mod link;
@@ -20,8 +20,8 @@ pub use wire::*;
 use crate::store::HubAddr;
 use crate::{Error, Result};
 
-pub const SYNC_ALPN: &[u8] = b"recall/sync/1";
-pub const PAIR_ALPN: &[u8] = b"recall/pair/1";
+pub const SYNC_ALPN: &[u8] = b"furiten/sync/1";
+pub const PAIR_ALPN: &[u8] = b"furiten/pair/1";
 
 /// How an endpoint reaches the network.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -37,13 +37,13 @@ pub enum Net {
 }
 
 impl Net {
-    /// `RECALL_NET=local` for [`Net::Local`], else `RECALL_RELAY=<url>` for [`Net::Relay`], else [`Net::N0`].
+    /// `FURITEN_NET=local` for [`Net::Local`], else `FURITEN_RELAY=<url>` for [`Net::Relay`], else [`Net::N0`].
     pub fn from_env() -> Net {
         let var = |key| std::env::var(key).ok().filter(|v| !v.trim().is_empty());
-        if var("RECALL_NET").is_some_and(|v| v == "local") {
+        if var("FURITEN_NET").is_some_and(|v| v == "local") {
             return Net::Local;
         }
-        match var("RECALL_RELAY") {
+        match var("FURITEN_RELAY") {
             Some(url) => Net::Relay(url.trim().to_string()),
             None => Net::N0,
         }

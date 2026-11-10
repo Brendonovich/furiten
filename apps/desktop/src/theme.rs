@@ -1,4 +1,4 @@
-//! Recall's look: Anomaly's theme from `rune-theme-opencode`, plus a few type styles of Recall's own.
+//! Furiten's look: Anomaly's theme from `rune-theme-opencode`, plus a few type styles of Furiten's own.
 
 use rune::{Color, TextStyle};
 use rune_kit::Kit;

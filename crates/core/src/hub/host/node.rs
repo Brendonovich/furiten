@@ -1,5 +1,5 @@
-//! A host's Iroh side: the gate hook (device allowlist), the accept loop with its limits, `recall/sync/1` and
-//! `recall/pair/1`.
+//! A host's Iroh side: the gate hook (device allowlist), the accept loop with its limits, `furiten/sync/1` and
+//! `furiten/pair/1`.
 
 use std::sync::Arc;
 use std::time::Duration;

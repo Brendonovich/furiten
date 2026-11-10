@@ -1,4 +1,4 @@
-//! `recall-hub`: one Recall library on hardware you own, synced to paired devices over Iroh. See
+//! `furiten-hub`: one Furiten library on hardware you own, synced to paired devices over Iroh. See
 //! `docs/contract.md` ("Self-hosted hub") for the protocol and `README.md` for running one.
 
 pub mod control;
@@ -8,17 +8,17 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use furiten_core::hub::host::{Host, HostConfig};
+use furiten_core::hub::{self as wire, Net};
+use furiten_core::store::HubAddr;
+use furiten_core::sync::lock;
+use furiten_core::{Error, Result, Store};
 use iroh::EndpointId;
-use recall_core::hub::host::{Host, HostConfig};
-use recall_core::hub::{self as wire, Net};
-use recall_core::store::HubAddr;
-use recall_core::sync::lock;
-use recall_core::{Error, Result, Store};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
-pub use recall_core::hub::host::TICKET_TTL;
-pub use recall_core::protocol::{Device, DeviceInfo, PairTicket};
+pub use furiten_core::hub::host::TICKET_TTL;
+pub use furiten_core::protocol::{Device, DeviceInfo, PairTicket};
 
 use data::Devices;
 
@@ -29,7 +29,7 @@ pub struct Config {
     pub data: PathBuf,
     pub net: Net,
     pub ticket_ttl: Duration,
-    /// Serve the control socket (`hub.sock`) that `recall-hub pair`, `status` and `devices` use.
+    /// Serve the control socket (`hub.sock`) that `furiten-hub pair`, `status` and `devices` use.
     pub control: bool,
 }
 
@@ -155,7 +155,7 @@ pub fn offline_status(data: &Path) -> Result<(Status, Vec<DeviceInfo>)> {
     if !data.join(data::KEY).exists() {
         return Err(Error::new(
             "no_hub",
-            format!("there's no hub in {}; start one with recall-hub serve", data.display()),
+            format!("there's no hub in {}; start one with furiten-hub serve", data.display()),
         ));
     }
     let key = wire::load_or_create_key(&data.join(data::KEY))?;
