@@ -74,7 +74,7 @@ pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
         sync = sync.child(error_line(k, e));
     }
 
-    let about = format!("Furiten core {} · {}", st.version, st.home);
+    let about = format!("{} core {} · {}", crate::identity::name(), st.version, st.home);
     let mut page = col().key("settings").w_full().h_full().px(24.0).pt(8.0).gap(28.0).child(
         col()
             .key("column")

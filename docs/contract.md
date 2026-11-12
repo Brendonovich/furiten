@@ -213,6 +213,11 @@ listens on a Unix socket at `$FURITEN_HOME/core.sock` (mode `0600`; `FURITEN_HOM
 `~/Library/Application Support/Furiten` on macOS and `$XDG_DATA_HOME/furiten` elsewhere), and the CLI, MCP and the
 app's own window are its clients. One core runs per home (`core.lock`).
 
+- **Dev builds.** A build made with `FURITEN_CHANNEL=dev` is a dev build: `Furiten Dev.app` (bundle ID
+  `co.anomaly.furiten.dev`), with its own library (`~/Library/Application Support/Furiten Dev`, or
+  `$XDG_DATA_HOME/furiten-dev`) and preferences, so it installs and runs beside Furiten. Its CLI, and the app it
+  starts, use that home.
+
 - **Starting it.** A client that finds no core starts the app without a window, `furiten-desktop --background`
   (`$FURITEN_APP`, else next to the client's binary with symlinks resolved, else on `PATH`), logging to `$FURITEN_HOME/app.log`. On macOS
   that app has no Dock icon until its window opens. With no app installed, the CLI hosts the core itself for the

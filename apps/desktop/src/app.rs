@@ -135,9 +135,6 @@ const SEPARATE_SIDES: &str = "experiment.separate-sides";
 /// The preference behind [`App::full_width_cards`].
 const FULL_WIDTH_CARDS: &str = "review.full-width";
 
-/// Where the app keeps its preferences (`rune::prefs`).
-const PREFS_ID: &str = "furiten-desktop";
-
 pub struct Review {
     /// The deck (with its subdecks) being reviewed, or `None` for the inbox: every due card from every deck.
     pub deck: Option<Id>,
@@ -244,7 +241,7 @@ impl App {
 
     /// Waiting for the core: an empty window with the sidebar where it usually is, so nothing moves when it lands.
     pub fn connecting() -> App {
-        let mut s = App::empty(Core::Pending, Prefs::open(PREFS_ID));
+        let mut s = App::empty(Core::Pending, Prefs::open(crate::identity::prefs_id()));
         s.connecting = Some(None);
         s
     }

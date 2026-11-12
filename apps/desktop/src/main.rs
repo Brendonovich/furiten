@@ -7,6 +7,7 @@
 mod app;
 mod core;
 mod editor;
+mod identity;
 mod keys;
 mod theme;
 mod ui;
@@ -324,7 +325,7 @@ fn main() {
         rune::prewarm_gpu();
     }
     // The web app's icon on Apple's grid, from scripts/icons.sh.
-    let _ = rune::set_app_icon(include_bytes!("../assets/icon.png"));
+    let _ = rune::set_app_icon(identity::icon());
     let chrome = Chrome { full_size_content: true, traffic_lights: Some((25.0, 25.0)), drag_regions: true };
     let spec = AppSpec {
         min_size: Some((560.0, 480.0)),
@@ -334,7 +335,7 @@ fn main() {
         on_key: Some(on_key),
         fonts: rune_theme_opencode::FONTS,
         families: rune_theme_opencode::FAMILIES,
-        ..AppSpec::new("Furiten", (1040.0, 680.0), app::init, ui::view)
+        ..AppSpec::new(identity::name(), (1040.0, 680.0), app::init, ui::view)
     };
     let mut app = rune::App::new(spec).chrome(chrome);
     if background {

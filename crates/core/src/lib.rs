@@ -79,19 +79,28 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+/// Whether this is a dev build (`FURITEN_CHANNEL=dev` at build time): `Furiten Dev.app`, with its own name, bundle ID,
+/// data home and preferences, so it runs beside Furiten as its own library.
+pub fn is_dev_build() -> bool {
+    env!("FURITEN_DEV_BUILD") == "1"
+}
+
 /// `$FURITEN_HOME`, else `~/Library/Application Support/Furiten` on macOS and `$XDG_DATA_HOME/furiten` (default
-/// `~/.local/share/furiten`) elsewhere.
+/// `~/.local/share/furiten`) elsewhere; a dev build uses `Furiten Dev` and `furiten-dev`.
 pub fn default_home() -> PathBuf {
     if let Some(home) = std::env::var_os("FURITEN_HOME").filter(|v| !v.is_empty()) {
         return PathBuf::from(home);
     }
+    let dev = is_dev_build();
     let user_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
     if cfg!(target_os = "macos") {
-        return user_home.join("Library/Application Support/Furiten");
+        let folder = if dev { "Furiten Dev" } else { "Furiten" };
+        return user_home.join("Library/Application Support").join(folder);
     }
+    let folder = if dev { "furiten-dev" } else { "furiten" };
     match std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
-        Some(data) => PathBuf::from(data).join("furiten"),
-        None => user_home.join(".local/share/furiten"),
+        Some(data) => PathBuf::from(data).join(folder),
+        None => user_home.join(".local/share").join(folder),
     }
 }
 

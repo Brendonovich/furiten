@@ -34,14 +34,15 @@ shows nothing in between; one that takes longer than 0.4 s says "Opening your de
 
 `scripts/bundle.sh` builds `target/release/bundle/macos/Furiten.app`: the app, the `furiten` CLI beside it in
 `Contents/MacOS` (link it onto `PATH` and it starts this app), and the built web app in `Contents/Resources/web`. It's
-ad hoc signed unless `APPLE_SIGNING_IDENTITY` names a Developer ID Application identity, and `FURITEN_CHANNEL=dev` gives
-it the dev icon, the card drawn as a blueprint (`apps/web/public/icon-dev.svg`; `scripts/icons.sh` renders both PNGs);
-`--dmg` also makes
-`target/release/bundle/dmg/Furiten.dmg`, and `--notarize` notarizes and staples the app, then the DMG made from it
-(`APPLE_NOTARY_PROFILE`, or `APPLE_NOTARY_KEY_PATH` and `APPLE_NOTARY_KEY_ID`). In CI, with the repository's `APPLE_*`
-secrets, `build-macos` builds the notarized DMG as an artifact on every push to `dev` that touches the app, and
-`release-macos` (run from the Actions tab with a patch, minor or major bump) builds it at the next version past the
-newest `v*` tag and publishes it as a GitHub release, tagged `v<version>`.
+ad hoc signed unless `APPLE_SIGNING_IDENTITY` names a Developer ID Application identity. `FURITEN_CHANNEL=dev` builds
+**Furiten Dev.app** instead (`co.anomaly.furiten.dev`, the blueprint icon from `apps/web/public/icon-dev.svg`, which
+`scripts/icons.sh` renders): its own library in `~/Library/Application Support/Furiten Dev` and its own preferences, so
+it installs and runs beside Furiten. `--dmg` also makes `target/release/bundle/dmg/<name>.dmg`, and `--notarize`
+notarizes and staples the app, then the DMG made from it (`APPLE_NOTARY_PROFILE`, or `APPLE_NOTARY_KEY_PATH` and
+`APPLE_NOTARY_KEY_ID`). In CI, with the repository's `APPLE_*` secrets, `build-macos` builds the notarized Furiten Dev
+DMG as an artifact on every push to `dev` that touches the app, and `release-macos` (run from the Actions tab with a
+patch, minor or major bump) builds Furiten at the next version past the newest `v*` tag and publishes it as a GitHub
+release, tagged `v<version>`.
 
 ## Decks
 

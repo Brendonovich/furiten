@@ -12,6 +12,7 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 - `crates/cli`: the `furiten` binary, a client of the core. It starts the desktop app windowless when no core runs,
   and hosts the core itself for one command when there's no app.
 - `apps/desktop`: the Rune desktop app. It hosts the core (`--background` for no window); its UI is a thin client.
+  `FURITEN_CHANNEL=dev` at build time makes it Furiten Dev, beside Furiten (own bundle ID, library and prefs).
 - `crates/ffi`: the core behind a C ABI (`include/furiten.h`), linked into the mobile apps.
 - `apps/ios`: the SwiftUI app (iOS 26), native rather than themed: a sidebar with Review (every due card from
   every deck) above the decks (a drawer on iPhone, a split view on iPad), system colours and text styles, Liquid Glass
@@ -34,6 +35,8 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 
 - `bun run check`: everything CI runs (Rust fmt, clippy, tests; server typecheck and tests). Done means it passes.
 - `cargo run -p furiten -- --help`; `cargo run -p furiten-desktop`.
+- `apps/desktop/scripts/bundle.sh [--dmg] [--notarize]` builds Furiten.app (ad hoc signed, or with
+  `APPLE_SIGNING_IDENTITY`) with the CLI and the web app inside; `FURITEN_CHANNEL=dev` builds Furiten Dev.app instead.
 - `apps/ios/scripts/deploy.sh [device]` builds the iOS app and installs it on a paired iPhone (Wi-Fi is fine).
   `apps/ios/scripts/simulate.sh [-pair <ticket>] [-screen inbox|decks|settings|search|deck|new|editor|cram|tag]` runs it in the
   booted simulator, paired with a desktop (a ticket from `furiten host pair`; try a scratch `FURITEN_HOME`), on that

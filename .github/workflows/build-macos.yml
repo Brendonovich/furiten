@@ -1,7 +1,7 @@
 name: build-macos
 
 # Builds Furiten.app, signed with the Developer ID and notarized, as a DMG artifact: on every push to dev that touches
-# the app, or from the Actions tab. release-macos publishes one.
+# the app, or from the Actions tab. It builds the dev app, Furiten Dev, beside the release; release-macos publishes it.
 on:
   push:
     branches: [dev]
@@ -49,14 +49,14 @@ jobs:
       - name: Build, sign and notarize
         env:
           FURITEN_BUILD_NUMBER: ${{ github.run_number }}
-          # A build from a production branch is a release build; everything else is a dev build, with the dev icon.
-          FURITEN_CHANNEL: ${{ github.ref_name == 'production' && 'production' || 'dev' }}
+          # This workflow builds the dev app, beside the release.
+          FURITEN_CHANNEL: dev
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: apps/desktop/scripts/bundle.sh --notarize
       - uses: actions/upload-artifact@v7
         with:
-          name: furiten-macos-${{ runner.arch }}
-          path: apps/desktop/target/release/bundle/dmg/Furiten.dmg
+          name: furiten-dev-macos-${{ runner.arch }}
+          path: apps/desktop/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 14
       - name: Remove the signing keychain
