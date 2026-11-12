@@ -214,7 +214,7 @@ listens on a Unix socket at `$FURITEN_HOME/core.sock` (mode `0600`; `FURITEN_HOM
 app's own window are its clients. One core runs per home (`core.lock`).
 
 - **Starting it.** A client that finds no core starts the app without a window, `furiten-desktop --background`
-  (`$FURITEN_APP`, else next to the client's binary, else on `PATH`), logging to `$FURITEN_HOME/app.log`. On macOS
+  (`$FURITEN_APP`, else next to the client's binary with symlinks resolved, else on `PATH`), logging to `$FURITEN_HOME/app.log`. On macOS
   that app has no Dock icon until its window opens. With no app installed, the CLI hosts the core itself for the
   length of the command.
 - **One app.** An app launched while a core is running sends it `app.open` and exits, so the running app shows its

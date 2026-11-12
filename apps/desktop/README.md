@@ -30,6 +30,15 @@ says so and shows sample data.
 The window opens before the core answers: the core starts on another thread once the first frame is up. A quick start
 shows nothing in between; one that takes longer than 0.4 s says "Opening your decks…".
 
+## Build
+
+`scripts/bundle.sh` builds `target/release/bundle/macos/Furiten.app`: the app, the `furiten` CLI beside it in
+`Contents/MacOS` (link it onto `PATH` and it starts this app), and the built web app in `Contents/Resources/web`. It's
+ad hoc signed unless `APPLE_SIGNING_IDENTITY` names a Developer ID Application identity; `--dmg` also makes
+`target/release/bundle/dmg/Furiten.dmg`, and `--notarize` notarizes and staples it (`APPLE_NOTARY_PROFILE`, or
+`APPLE_NOTARY_KEY_PATH` and `APPLE_NOTARY_KEY_ID`). The `build-macos` workflow (run it from the Actions tab) does the
+same with the repository's `APPLE_*` secrets and uploads the DMG.
+
 ## Decks
 
 The sidebar lists every deck with its subdecks indented under it, and the main pane always shows one of them (the

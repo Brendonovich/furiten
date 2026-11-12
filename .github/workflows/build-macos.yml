@@ -1,0 +1,73 @@
+name: build-macos
+
+# Builds Furiten.app, signed with the Developer ID and notarized, as a DMG artifact. Run it from the Actions tab.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop -> target
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+        working-directory: apps/web
+
+      # The certificate goes into a throwaway keychain and the notary key into the runner's temp directory; both go
+      # with the runner.
+      - name: Set up Apple signing
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          certificate="$RUNNER_TEMP/developer-id.p12"
+          key="$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8"
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -hex 32)"
+          (umask 077 && printf '%s' "$CERTIFICATE_P12_BASE64" | openssl base64 -d -A -out "$certificate")
+          (umask 077 && printf '%s' "$API_KEY_P8_BASE64" | openssl base64 -d -A -out "$key")
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -P "$CERTIFICATE_PASSWORD" -f pkcs12 -k "$keychain" \
+            -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+          rm -f "$certificate"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          {
+            echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY"
+            echo "APPLE_NOTARY_KEY_PATH=$key"
+            echo "APPLE_NOTARY_KEY_ID=$API_KEY_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Build, sign and notarize
+        env:
+          FURITEN_BUILD_NUMBER: ${{ github.run_number }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: apps/desktop/scripts/bundle.sh --notarize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: furiten-macos-${{ runner.arch }}
+          path: apps/desktop/target/release/bundle/dmg/Furiten.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true

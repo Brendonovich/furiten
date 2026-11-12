@@ -57,7 +57,7 @@ impl Client {
     }
 
     /// Connects, first starting the desktop app without a window (`furiten-desktop --background`) to host the core
-    /// if none is running. The app is `$FURITEN_APP`, else `furiten-desktop` next to the current executable, else
+    /// if none is running. The app is `$FURITEN_APP`, else `furiten-desktop` next to the current executable (symlinks resolved), else
     /// `furiten-desktop` on `PATH`; when there's none the error's code is `no_app`.
     pub fn connect_or_spawn(home: &Path) -> Result<Client> {
         if let Ok(client) = Client::connect(home) {
@@ -357,7 +357,9 @@ fn find_app() -> Result<PathBuf> {
             false => Err(Error::new("no_app", format!("FURITEN_APP is {}, which isn't a file", bin.display()))),
         };
     }
-    let sibling = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join(APP)));
+    // Symlinks resolved, so a `furiten` linked onto PATH from Furiten.app finds the app beside it.
+    let sibling =
+        std::env::current_exe().and_then(|exe| exe.canonicalize()).ok().and_then(|exe| Some(exe.parent()?.join(APP)));
     let on_path = std::env::var_os("PATH")
         .and_then(|path| std::env::split_paths(&path).map(|dir| dir.join(APP)).find(|p| p.is_file()));
     [sibling, on_path].into_iter().flatten().find(|p| p.is_file()).ok_or_else(|| {
