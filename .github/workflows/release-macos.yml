@@ -76,6 +76,7 @@ jobs:
       - name: Build, sign and notarize
         env:
           FURITEN_BUILD_NUMBER: ${{ github.run_number }}
+          FURITEN_CHANNEL: production
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: |
           set -euo pipefail

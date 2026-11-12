@@ -41,7 +41,8 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
   tag `-screen tag` opens, `-tagging <text>` types into the editor's tag field).
 - `cd server && bun run dev` runs the Worker locally; `cd apps/web && bun run dev` serves the web app on :5173
   (all interfaces, so a phone on the LAN or Tailscale can open it), proxying `/v1` to the Worker.
-- `scripts/icons.sh` renders the iOS, macOS and home screen icons from `apps/web/public/icon.svg` (macOS only).
+- `scripts/icons.sh` renders the iOS, macOS and home screen icons from `apps/web/public/icon.svg`, and the desktop's dev
+  icon (the same card drawn as a blueprint) from `apps/web/public/icon-dev.svg` (macOS only).
 - `cd apps/web && bun run build`, then `furiten web on`: the desktop app serves the built web app and the HTTP API on
   :8787 for a phone to use the desktop's library directly (no Cloud).
 

@@ -49,6 +49,8 @@ jobs:
       - name: Build, sign and notarize
         env:
           FURITEN_BUILD_NUMBER: ${{ github.run_number }}
+          # A build from a production branch is a release build; everything else is a dev build, with the dev icon.
+          FURITEN_CHANNEL: ${{ github.ref_name == 'production' && 'production' || 'dev' }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
         run: apps/desktop/scripts/bundle.sh --notarize
       - uses: actions/upload-artifact@v7

@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Builds Furiten.app for this Mac's architecture: the desktop app, the CLI beside it (so the CLI finds the app), and
 # the built web app in Resources/web (for web access). Ad hoc signed unless APPLE_SIGNING_IDENTITY names a Developer ID
-# Application identity. --dmg also makes a disk image; --notarize notarizes and staples the app, then the disk image
+# Application identity. FURITEN_CHANNEL picks the icon: `dev` draws the blueprint (apps/web/public/icon-dev.svg),
+# anything else, the release icon. --dmg also makes a disk image; --notarize notarizes and staples the app, then the disk image
 # made from it, with APPLE_NOTARY_PROFILE
 # (a `notarytool store-credentials` profile) or APPLE_NOTARY_KEY_PATH and APPLE_NOTARY_KEY_ID
 # (and APPLE_NOTARY_ISSUER_ID for a team key).
@@ -13,6 +14,13 @@ out="$desktop/target/release/bundle"
 app="$out/macos/Furiten.app"
 dmg="$out/dmg/Furiten.dmg"
 identity="${APPLE_SIGNING_IDENTITY:--}"
+channel="${FURITEN_CHANNEL:-production}"
+icon="$desktop/assets/icon.png"
+case "$channel" in
+  production) ;;
+  dev) icon="$desktop/assets/icon-dev.png" ;;
+  *) print -u2 "FURITEN_CHANNEL must be dev or production, not $channel."; exit 2 ;;
+esac
 build_number="${FURITEN_BUILD_NUMBER:-1}"
 make_dmg=false
 notarize=false
@@ -68,8 +76,8 @@ iconset="$(mktemp -d)/AppIcon.iconset"
 trap 'rm -rf "${iconset:h}"' EXIT
 mkdir -p "$iconset"
 for size in 16 32 128 256 512; do
-  sips -z $size $size "$desktop/assets/icon.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
-  sips -z $((size * 2)) $((size * 2)) "$desktop/assets/icon.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+  sips -z $size $size "$icon" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+  sips -z $((size * 2)) $((size * 2)) "$icon" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 
