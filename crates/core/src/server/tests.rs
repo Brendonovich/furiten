@@ -50,7 +50,7 @@ fn clients_talk_to_the_core_and_hear_about_changes() {
     let next = a.next_review(Some(&deck.id)).unwrap();
     assert_eq!(next.remaining, Remaining { due: 0, new: 2 });
     let answered = a.answer(&next.card.unwrap().card.id, true, Some(1500)).unwrap();
-    assert_eq!(answered.schedule.state, crate::State::Learning);
+    assert_eq!(answered.schedule.state, crate::State::Review);
     assert_eq!(b.stats(Some(&deck.id)).unwrap().reviews_today, 1);
     assert_eq!(b.resolve_deck("spanish", false).unwrap().id, deck.id);
     assert_eq!(b.resolve_deck("French", true).unwrap().name, "French");

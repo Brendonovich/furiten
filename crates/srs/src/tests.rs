@@ -10,22 +10,31 @@ fn new_card_is_due_at_creation() {
 }
 
 #[test]
-fn good_on_new_card_enters_learning_then_graduates() {
+fn good_on_new_card_graduates() {
     let fsrs = Scheduler::default();
-    let a = fsrs.review(&Schedule::new(T0), Rating::Good, T0);
-    assert_eq!(a.state, State::Learning);
-    assert_eq!(a.due, T0 + 10 * MINUTE);
-    let b = fsrs.review(&a, Rating::Good, a.due);
-    assert_eq!(b.state, State::Review);
-    assert!(b.due >= b.last_review.unwrap() + DAY);
+    let s = fsrs.review(&Schedule::new(T0), Rating::Good, T0);
+    assert_eq!(s.state, State::Review);
+    assert_eq!(s.due, T0 + fsrs.interval_days(DEFAULT_WEIGHTS[2]) as i64 * DAY);
 }
 
 #[test]
-fn easy_on_new_card_skips_learning() {
+fn easy_on_new_card_graduates_further_out() {
     let fsrs = Scheduler::default();
     let s = fsrs.review(&Schedule::new(T0), Rating::Easy, T0);
     assert_eq!(s.state, State::Review);
     assert_eq!(s.due, T0 + fsrs.interval_days(DEFAULT_WEIGHTS[3]) as i64 * DAY);
+}
+
+#[test]
+fn again_on_new_card_is_due_at_once_until_remembered() {
+    let fsrs = Scheduler::default();
+    let a = fsrs.review(&Schedule::new(T0), Rating::Again, T0);
+    assert_eq!((a.state, a.due), (State::Learning, T0));
+    let b = fsrs.review(&a, Rating::Again, T0 + 1000);
+    assert_eq!((b.state, b.due), (State::Learning, T0 + 1000));
+    let c = fsrs.review(&b, Rating::Good, T0 + 2000);
+    assert_eq!(c.state, State::Review);
+    assert!(c.due >= T0 + 2000 + DAY);
 }
 
 #[test]
@@ -49,7 +58,10 @@ fn again_in_review_lapses_and_lowers_stability() {
     assert_eq!(lapsed.state, State::Relearning);
     assert_eq!(lapsed.lapses, 1);
     assert!(lapsed.stability < s.stability);
-    assert_eq!(lapsed.due, s.due + 10 * MINUTE);
+    assert_eq!(lapsed.due, s.due);
+    let relearned = fsrs.review(&lapsed, Rating::Good, s.due + 1000);
+    assert_eq!(relearned.state, State::Review);
+    assert_eq!(relearned.lapses, 1);
 }
 
 #[test]
@@ -65,7 +77,8 @@ fn ratings_order_difficulty() {
 #[test]
 fn fold_matches_step_by_step() {
     let fsrs = Scheduler::default();
-    let reviews = [(T0, Rating::Good), (T0 + 10 * MINUTE, Rating::Good), (T0 + 3 * DAY, Rating::Hard)];
+    let reviews =
+        [(T0, Rating::Good), (T0 + 60_000, Rating::Again), (T0 + 120_000, Rating::Good), (T0 + 3 * DAY, Rating::Hard)];
     let stepped = reviews.iter().fold(Schedule::new(T0), |s, (at, r)| fsrs.review(&s, *r, *at));
     assert_eq!(fsrs.fold(T0, reviews), stepped);
 }

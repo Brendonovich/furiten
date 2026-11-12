@@ -42,9 +42,9 @@ pub fn until_short(due: i64, now: i64) -> String {
     }
 }
 
-/// "1 hidden side", "2 hidden sides".
+/// "1 side", "2 sides": how many a tile's front hides.
 pub fn hidden_sides(n: usize) -> String {
-    if n == 1 { "1 hidden side".into() } else { format!("{n} hidden sides") }
+    if n == 1 { "1 side".into() } else { format!("{n} sides") }
 }
 
 /// "1 review", "5 reviews".

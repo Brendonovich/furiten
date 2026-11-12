@@ -1,9 +1,10 @@
-import { useLocation, useMatch, useNavigate } from "@solidjs/router";
+import { useLocation, useMatch, useNavigate, useSearchParams } from "@solidjs/router";
 import { createMemo, createSignal, For, Show, useContext } from "solid-js";
 import type { Element } from "solid-js";
 import { ago } from "./format.ts";
 import { Icon } from "./Icon.tsx";
-import { paths, queryString, sortParam, viewParam } from "./routes.ts";
+import { useOverlay } from "./nav.ts";
+import { paths, queryString, readFind, sortParam, tagKey, viewParam, withFind } from "./routes.ts";
 import { AppContext, deckTree, inboxCount } from "./state.ts";
 
 const EDGE_OPEN = 1 / 3;
@@ -119,15 +120,21 @@ function Sidebar() {
   const app = useContext(AppContext);
   const navigate = useNavigate();
   const location = useLocation();
+  const overlay = useOverlay();
+  const [search] = useSearchParams();
+  const finding = () => readFind(search);
   const open = useMatch(() => "/decks/:deck/*rest");
+  const tagOpen = useMatch(() => "/tags/:tag");
   const tree = createMemo(() => deckTree(app.state.decks));
+  const tags = createMemo(() => [...app.state.tags].sort((a, b) => a.tag.localeCompare(b.tag)));
   const [naming, setNaming] = createSignal(false);
   const close = () => app.setState((s) => void (s.drawer = false));
-  /** A deck's link opens it with the view and sort it was last left in. */
-  const deckLink = (id: string) => {
-    const p = app.prefsOf(id);
-    return paths.deck(id, queryString({ view: viewParam(p.view), sort: sortParam(p.sort) }));
+  /** A deck or tag's link opens it with the view and sort it was last left in. */
+  const lasting = (page: string) => {
+    const p = app.prefsOf(page);
+    return queryString({ view: viewParam(p.view), sort: sortParam(p.sort) });
   };
+  const deckLink = (id: string) => paths.deck(id, lasting(id));
   const [name, setName] = createSignal("");
 
   const create = async () => {
@@ -143,7 +150,7 @@ function Sidebar() {
     <div class="sidebar">
       <a
         href={paths.inbox()}
-        class={["deck-row", "inbox-row", { selected: location.pathname === paths.inbox() }]}
+        class={["deck-row", { selected: location.pathname === paths.inbox() }]}
         onClick={close}
       >
         <Icon name="inbox" />
@@ -151,6 +158,19 @@ function Sidebar() {
         <span class="deck-counts">
           <Show when={inboxCount(app.state.decks)}>{(n) => <span class="due">{n()}</span>}</Show>
         </span>
+      </a>
+      <a
+        href={withFind(location.pathname + location.search, finding() ?? "")}
+        class={["deck-row", "search-row", { selected: finding() !== null }]}
+        onClick={(e) => {
+          e.preventDefault();
+          close();
+          // Over whatever's open, so closing it comes back here.
+          if (finding() === null) overlay.open(withFind(location.pathname + location.search, ""));
+        }}
+      >
+        <Icon name="search" />
+        <span class="deck-name">Search</span>
       </a>
       <header class="sidebar-head">
         <span class="section-title">Decks</span>
@@ -204,6 +224,26 @@ function Sidebar() {
               }}
             />
           </form>
+        </Show>
+        <Show when={tags().length}>
+          <header class="sidebar-head tags-head">
+            <span class="section-title">Tags</span>
+          </header>
+          <For each={tags()} keyed={(t) => t.tag}>
+            {(t) => (
+              <a
+                href={paths.tag(t().tag, lasting(tagKey(t().tag)))}
+                class={["deck-row", { selected: t().tag === tagOpen()?.params.tag }]}
+                onClick={close}
+              >
+                <Icon name="tag" />
+                <span class="deck-name">{t().tag}</span>
+                <span class="deck-counts">
+                  <span class="new">{t().cards}</span>
+                </span>
+              </a>
+            )}
+          </For>
         </Show>
       </nav>
       <a

@@ -100,7 +100,7 @@ const NEW_QUEUE = `WITH intro AS (
    WHERE r.rn <= ?3 - COALESCE(i.n, 0)`;
 
 // Reviewed cards that are due. Bindings: ?1 now, ?2 scope.
-const DUE = `SELECT c.id, c.deck_id, s.due FROM cards c JOIN schedules s ON s.card_id = c.id
+const DUE = `SELECT c.id, c.deck_id, s.due, s.state FROM cards c JOIN schedules s ON s.card_id = c.id
    WHERE c.deleted = 0 AND s.state != 'new' AND s.due <= ?1
      AND (?2 IS NULL OR c.deck_id IN (SELECT value FROM json_each(?2)))`;
 
@@ -509,10 +509,12 @@ export class Store {
       this.rows(`SELECT COUNT(*) AS n FROM (${sql})`, ...bindings)[0]!.n as number;
     const due = count(DUE, now, scope);
     const fresh = count(NEW_QUEUE, day, scope, NEW_PER_DECK_PER_DAY);
+    // Scheduled reviews, then new cards, then the cards forgotten so far, longest ago first.
     const id =
-      this.rows(`SELECT id FROM (${DUE}) ORDER BY due, id LIMIT 1`, now, scope)[0]?.id ??
+      this.rows(`SELECT id FROM (${DUE}) WHERE state = 'review' ORDER BY due, id LIMIT 1`, now, scope)[0]?.id ??
       this.rows(`SELECT id FROM (${NEW_QUEUE}) ORDER BY created_at, id LIMIT 1`, day, scope, NEW_PER_DECK_PER_DAY)[0]
-        ?.id;
+        ?.id ??
+      this.rows(`SELECT id FROM (${DUE}) ORDER BY due, id LIMIT 1`, now, scope)[0]?.id;
     return { card: id === undefined ? null : this.card(id as string), remaining: { due, new: fresh } };
   }
 

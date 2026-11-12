@@ -360,6 +360,7 @@ pub(super) fn same_root_el(el: &El, built: &crate::memo::Built) -> bool {
         width_leads,
         animate_layout,
         instant_changes,
+        animate_changes,
         transition,
         matched,
         scroll,
@@ -413,6 +414,7 @@ pub(super) fn same_root_el(el: &El, built: &crate::memo::Built) -> bool {
         && el.width_leads == *width_leads
         && el.animate_layout == *animate_layout
         && el.instant_changes == *instant_changes
+        && el.animate_changes == *animate_changes
         && opt_box_eq(&el.transition, transition)
         && el.matched == *matched
         && el.scroll == *scroll

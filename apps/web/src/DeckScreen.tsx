@@ -1,13 +1,16 @@
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onSettled, Show, untrack, useContext } from "solid-js";
 import type { CardQuery } from "./api.ts";
-import { CardFace, DueLabel } from "./Card.tsx";
+import { CardFace, DueLabel, Tile } from "./Card.tsx";
 import { DeckActions } from "./DeckActions.tsx";
-import { hiddenSides, lapses, plain, reviews, until } from "./format.ts";
+import { lapses, plain, reviews, until } from "./format.ts";
 import { Field } from "./Field.tsx";
 import { Icon, type IconName } from "./Icon.tsx";
 import { useOverlay } from "./nav.ts";
+import { CramButton } from "./Review.tsx";
 import {
+  deckCards,
+  deckQuery,
   newSeed,
   nextSort,
   paths,
@@ -15,7 +18,10 @@ import {
   readStep,
   readText,
   readView,
+  type Search,
   sortParams,
+  tagCards,
+  tagKey,
   viewParam,
 } from "./routes.ts";
 import { AppContext } from "./state.ts";
@@ -48,27 +54,28 @@ const VIEWS: { view: View; label: string; icon: IconName }[] = [
   { view: "column", label: "Column view", icon: "column" },
 ];
 
-/** A deck's page, `/decks/:deck`: its search, view and sort, the open card and its menu all come from the URL. */
-export function DeckScreen() {
+/**
+ * What a page of cards lists: a deck's cards, or every card with a tag, from every deck. Both have the same view, sort
+ * and search; a deck's page adds the tag filter and New card.
+ */
+export type Page = { deck: string; name: string } | { tag: string };
+
+/** What keys the page's cards and its remembered view and sort. */
+const pageKey = (page: Page) => ("deck" in page ? page.deck : tagKey(page.tag));
+/** The cards the page lists for its URL, which a cram of it lists too. */
+const pageCards = (page: Page, search: Search): CardQuery =>
+  "deck" in page ? deckCards(page.deck, search) : tagCards(page.tag, search);
+const pageCram = (page: Page, search: Search) =>
+  "deck" in page ? paths.deckCram(page.deck, deckQuery(search)) : paths.tagCram(page.tag, deckQuery(search));
+
+/** Lists the page's cards for its URL, while it's open. */
+export function usePageCards(page: () => Page) {
   const app = useContext(AppContext);
-  const params = useParams<{ deck: string }>();
   const [search, setSearch] = useSearchParams();
-  const navigate = useNavigate();
-  const overlay = useOverlay();
-  const id = () => params.deck ?? "";
-  const deck = createMemo(() => app.state.decks.find((d) => d.id === id()));
   const sort = () => readSort(search);
-  const query = (): CardQuery => ({
-    deck_id: id(),
-    q: readText(search, "q").trim() || undefined,
-    tag: readText(search, "tag") || undefined,
-    sort: sort().by,
-    desc: sort().desc,
-    seed: sort().seed ?? undefined,
-  });
 
   createEffect(
-    () => JSON.stringify(query()),
+    () => JSON.stringify(pageCards(page(), search)),
     (key) => void app.showCards(JSON.parse(key) as CardQuery),
   );
   onCleanup(() => void app.showCards(null));
@@ -78,6 +85,18 @@ export function DeckScreen() {
     () => sort().by === "random" && sort().seed === null,
     (unseeded) => void (unseeded && setSearch({ seed: newSeed() }, { replace: true })),
   );
+}
+
+/** A deck's page, `/decks/:deck`: its search, view and sort, the open card and its menu all come from the URL. */
+export function DeckScreen() {
+  const app = useContext(AppContext);
+  const params = useParams<{ deck: string }>();
+  const [search] = useSearchParams();
+  const navigate = useNavigate();
+  const overlay = useOverlay();
+  const id = () => params.deck ?? "";
+  const deck = createMemo(() => app.state.decks.find((d) => d.id === id()));
+  usePageCards(() => ({ deck: id(), name: deck()?.name ?? "" }));
 
   // A deck that's gone, deleted here or on another device, leaves for Review.
   createEffect(
@@ -111,9 +130,9 @@ export function DeckScreen() {
       >
         {(d) => (
           <>
-            <Tools deck={d().id} />
-            <Cards deck={d().id} name={d().name} />
-            <DeckFooter deck={d().id} onNewCard={newCard} />
+            <Tools page={{ deck: d().id, name: d().name }} />
+            <Cards page={{ deck: d().id, name: d().name }} onNewCard={newCard} />
+            <PageFooter page={{ deck: d().id, name: d().name }} onNewCard={newCard} />
             <Show when={readStep(search)}>
               {(step) => (
                 <DeckActions
@@ -131,8 +150,8 @@ export function DeckScreen() {
   );
 }
 
-/** Whatever the deck's page is showing, and setters that put a change in the URL (and remember view and sort). */
-function useDeckSearch(deck: () => string) {
+/** Whatever the page is showing, and setters that put a change in the URL (and remember view and sort). */
+function usePageSearch(page: () => Page) {
   const app = useContext(AppContext);
   const [search, setSearch] = useSearchParams();
   const view = () => readView(search);
@@ -146,20 +165,20 @@ function useDeckSearch(deck: () => string) {
     tag: () => readText(search, "tag"),
     setTag: (tag: string) => setSearch({ tag: tag || undefined }),
     setView: (v: View) => {
-      app.remember(deck(), { view: v, sort: sort() });
+      app.remember(pageKey(page()), { view: v, sort: sort() });
       setSearch({ view: viewParam(v) });
     },
     /** Picking the current sort keeps its direction; picking another starts in its default direction. */
     setSort: (by: Sort, desc?: boolean) => {
       const next = nextSort(sort(), by, desc);
-      app.remember(deck(), { view: view(), sort: next });
+      app.remember(pageKey(page()), { view: view(), sort: next });
       setSearch(sortParams(next));
     },
   };
 }
 
-function Tools(props: { deck: string }) {
-  const url = useDeckSearch(() => props.deck);
+export function Tools(props: { page: Page }) {
+  const url = usePageSearch(() => props.page);
   return (
     <div class="tools">
       <div class="tool-row">
@@ -178,9 +197,9 @@ function Tools(props: { deck: string }) {
             )}
           </For>
         </div>
-        <TagFilter deck={props.deck} />
+        <Show when={"deck" in props.page && props.page.deck}>{(deck) => <TagFilter page={props.page} deck={deck()} />}</Show>
         <div class="sort-controls">
-          <SortControls deck={props.deck} />
+          <SortControls page={props.page} />
         </div>
       </div>
     </div>
@@ -188,12 +207,14 @@ function Tools(props: { deck: string }) {
 }
 
 /**
- * Search and New card, floating over the cards at the foot of the page, as on iOS: search is a button on the left that
+ * Search, Review and New card (on a deck's page), floating over the cards at the foot of the page, as on iOS: Review, in
+ * the middle, crams the cards the page lists (Review.tsx); search is a button on the left that
  * opens into a field across the footer (New card steps aside for a button that closes it), and stays open while there's
- * a search. The field leads the URL while you type; Back, Clear search or another deck set it from the URL.
+ * a search. The field leads the URL while you type; Back, Clear search or another page set it from the URL.
  */
-function DeckFooter(props: { deck: string; onNewCard: () => void }) {
-  const url = useDeckSearch(() => props.deck);
+export function PageFooter(props: { page: Page; onNewCard?: () => void }) {
+  const app = useContext(AppContext);
+  const url = usePageSearch(() => props.page);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let input: HTMLInputElement | undefined;
   const [draft, setDraft] = createSignal(untrack(url.q));
@@ -217,28 +238,8 @@ function DeckFooter(props: { deck: string; onNewCard: () => void }) {
     setFocused(false);
   };
 
-  // The footer rides up on the keyboard. iOS doesn't resize the page for it (`interactive-widget` is Chrome's), so this
-  // reads how much of the layout the visual viewport has lost at the bottom and lifts the footer by that.
   let footer!: HTMLElement;
-  onSettled(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    // Measured from where the footer rests (the bottom of the page it's pinned to, which the lift doesn't move, even
-    // mid-transition), not the window's height, which in an installed app needn't be where the page ends.
-    const update = () => {
-      const bottom = (footer.offsetParent ?? document.documentElement).getBoundingClientRect().bottom;
-      const lift = Math.max(0, Math.round(bottom - (vv.height + vv.offsetTop)));
-      footer.style.setProperty("--keyboard", `${lift}px`);
-      footer.classList.toggle("over-keyboard", lift > 0);
-    };
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  });
+  onSettled(() => liftOverKeyboard(footer));
 
   return (
     <footer ref={footer} class={["deck-footer", { searching: open() }]}>
@@ -284,12 +285,24 @@ function DeckFooter(props: { deck: string; onNewCard: () => void }) {
         />
       </Show>
       <span class="spacer" />
+      {/* Out of the way while typing; back between the field and Close once the search is in. */}
+      <Show when={!focused()}>
+        <CramButton
+          cards={app.cardsAre(pageCards(props.page, url.search)) ? app.state.cards : null}
+          at={pageCram(props.page, url.search)}
+        />
+      </Show>
+      <span class="spacer" />
       <Show
         when={open()}
         fallback={
-          <button data-component="button-v2" data-variant="neutral" data-size="touch" class="fab" aria-label="New card" onClick={() => props.onNewCard()}>
-            <Icon name="plus" />
-          </button>
+          <Show when={props.onNewCard} fallback={<span class="fab-balance" aria-hidden="true" />}>
+            {(onNewCard) => (
+              <button data-component="button-v2" data-variant="neutral" data-size="touch" class="fab" aria-label="New card" onClick={() => onNewCard()()}>
+                <Icon name="plus" />
+              </button>
+            )}
+          </Show>
         }
       >
         <button
@@ -305,10 +318,35 @@ function DeckFooter(props: { deck: string; onNewCard: () => void }) {
   );
 }
 
+/**
+ * Lifts a footer pinned to the foot of the page onto the keyboard. iOS doesn't resize the page for it
+ * (`interactive-widget` is Chrome's), so this reads how much of the layout the visual viewport has lost at the bottom
+ * and lifts the footer by that. Returns the cleanup.
+ */
+export function liftOverKeyboard(footer: HTMLElement): (() => void) | undefined {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  // Measured from where the footer rests (the bottom of the page it's pinned to, which the lift doesn't move, even
+  // mid-transition), not the window's height, which in an installed app needn't be where the page ends.
+  const update = () => {
+    const bottom = (footer.offsetParent ?? document.documentElement).getBoundingClientRect().bottom;
+    const lift = Math.max(0, Math.round(bottom - (vv.height + vv.offsetTop)));
+    footer.style.setProperty("--keyboard", `${lift}px`);
+    footer.classList.toggle("over-keyboard", lift > 0);
+  };
+  update();
+  vv.addEventListener("resize", update);
+  vv.addEventListener("scroll", update);
+  return () => {
+    vv.removeEventListener("resize", update);
+    vv.removeEventListener("scroll", update);
+  };
+}
+
 /** Shows only the cards with one tag: a native picker of the library's tags, this deck's first. */
-function TagFilter(props: { deck: string }) {
+function TagFilter(props: { page: Page; deck: string }) {
   const app = useContext(AppContext);
-  const url = useDeckSearch(() => props.deck);
+  const url = usePageSearch(() => props.page);
   const [tags, setTags] = createSignal<string[]>([]);
   createEffect(
     () => [props.deck, app.state.lastSync] as const,
@@ -337,8 +375,8 @@ function TagFilter(props: { deck: string }) {
 }
 
 /** What the cards are sorted by and which way round, in the variant picked by SORT_BAR. */
-function SortControls(props: { deck: string }) {
-  const url = useDeckSearch(() => props.deck);
+function SortControls(props: { page: Page }) {
+  const url = usePageSearch(() => props.page);
   const sort = url.sort;
   const current = () => SORTS.find((s) => s.by === sort().by) ?? SORTS[0]!;
   const dirLabel = () => {
@@ -424,14 +462,15 @@ function SortControls(props: { deck: string }) {
   }
 }
 
-function Cards(props: { deck: string; name: string }) {
+/** The page's cards as its view has them, with New card ahead of them when there's `onNewCard`. */
+export function Cards(props: { page: Page; onNewCard?: () => void }) {
   const app = useContext(AppContext);
-  const url = useDeckSearch(() => props.deck);
+  const url = usePageSearch(() => props.page);
   const overlay = useOverlay();
   const view = url.view;
-  const cards = () => (app.state.cardsFor === props.deck ? app.state.cards : []);
+  const mine = () => app.state.cardsFor === pageKey(props.page);
+  const cards = () => (mine() ? app.state.cards : []);
   const edit = (card: CardView) => overlay.open(overlay.with({ edit: card.id }));
-  const add = () => overlay.open(overlay.with({ edit: "new" }));
   // The card open in column view, `?card=<id>`: picking another replaces it, so Back closes the detail.
   const selected = () => readText(url.search, "card") || null;
   const setSelected = (id: string | null) => {
@@ -444,35 +483,33 @@ function Cards(props: { deck: string; name: string }) {
 
   return (
     <div class="cards-scroll">
-      <Show when={app.state.cardsFor === props.deck}>
-        <Show when={cards().length > 0} fallback={<EmptyDeck name={props.name} onAdd={add} />}>
+      <Show when={mine()} fallback={<p class="center faint">Finding cards…</p>}>
+        <Show when={cards().length > 0} fallback={<EmptyPage page={props.page} onAdd={props.onNewCard} />}>
           <Show when={view() === "column"} fallback={
             <div class={view() === "grid" ? "grid" : "list"}>
-              <button class="tile new-tile" onClick={add}>
-                <Icon name="plus" />
-                New card
-              </button>
-              <For each={cards()} keyed={(c) => c.id}>
-                {(card) => (
-                  <button class="tile" onClick={() => edit(card())}>
-                    <CardFace text={card().sides[0] ?? ""} size />
-                    <span class="tile-footer">
-                      <span>
-                        <Show when={card().sides.length > 1}>+ {hiddenSides(card().sides.length - 1)}</Show>
-                      </span>
-                      <DueLabel card={card()} />
-                    </span>
+              <Show when={props.onNewCard}>
+                {(add) => (
+                  <button class="tile new-tile" onClick={() => add()()}>
+                    <Icon name="plus" />
+                    New card
                   </button>
                 )}
+              </Show>
+              <For each={cards()} keyed={(c) => c.id}>
+                {(card) => <Tile card={card()} onClick={() => edit(card())} />}
               </For>
             </div>
           }>
             <div class="columns">
               <div class="column-list">
-                <button class="compact new-compact" onClick={add}>
-                  <Icon name="plus" />
-                  New card
-                </button>
+                <Show when={props.onNewCard}>
+                  {(add) => (
+                    <button class="compact new-compact" onClick={() => add()()}>
+                      <Icon name="plus" />
+                      New card
+                    </button>
+                  )}
+                </Show>
                 <For each={cards()} keyed={(c) => c.id}>
                   {(card) => (
                     <button
@@ -541,11 +578,12 @@ function Detail(props: { card: CardView; onEdit: () => void; onClose: () => void
   );
 }
 
-function EmptyDeck(props: { name: string; onAdd: () => void }) {
+function EmptyPage(props: { page: Page; onAdd?: () => void }) {
   const [search, setSearch] = useSearchParams();
   const q = () => readText(search, "q");
-  const tag = () => readText(search, "tag");
-  const what = () => [q() && `“${q()}”`, tag() && `#${tag()}`].filter(Boolean).join(" in ");
+  const tag = () => ("deck" in props.page ? readText(search, "tag") : "");
+  const what = () =>
+    [q() && `“${q()}”`, tag() && `#${tag()}`, "tag" in props.page && `#${props.page.tag}`].filter(Boolean).join(" in ");
   return (
     <Show
       when={!q() && !tag()}
@@ -561,13 +599,28 @@ function EmptyDeck(props: { name: string; onAdd: () => void }) {
         </div>
       }
     >
-      <div class="empty">
-        <h2>No cards in {props.name} yet</h2>
-        <p class="muted">Write in Markdown. A line with only --- starts the next side.</p>
-        <button data-component="button-v2" data-variant="contrast" data-size="touch" onClick={() => props.onAdd()}>
-          Add card
-        </button>
-      </div>
+      <Show
+        when={"deck" in props.page && props.page}
+        fallback={
+          <div class="empty">
+            <h2>No cards tagged {what()}</h2>
+          </div>
+        }
+      >
+        {(deck) => (
+          <div class="empty">
+            <h2>No cards in {deck().name} yet</h2>
+            <p class="muted">Write in Markdown. A line with only --- starts the next side.</p>
+            <Show when={props.onAdd}>
+              {(add) => (
+                <button data-component="button-v2" data-variant="contrast" data-size="touch" onClick={() => add()()}>
+                  Add card
+                </button>
+              )}
+            </Show>
+          </div>
+        )}
+      </Show>
     </Show>
   );
 }

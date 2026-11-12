@@ -1,23 +1,26 @@
 import { createRouter, useLocation, useMatch, useNavigate, useSearchParams } from "@solidjs/router";
-import { createMemo, createSignal, onSettled, Show, untrack, useContext } from "solid-js";
+import { createEffect, createMemo, createSignal, onSettled, Show, untrack, useContext } from "solid-js";
 import type { Element } from "solid-js";
 import { sameOrigin } from "./api.ts";
 import { DeckScreen } from "./DeckScreen.tsx";
 import { Drawer } from "./Drawer.tsx";
 import { Editor } from "./Editor.tsx";
 import { useOverlay } from "./nav.ts";
-import { Review } from "./Review.tsx";
-import { paths, readText } from "./routes.ts";
+import { DeckCram, Review, SearchCram, TagCram } from "./Review.tsx";
+import { paths, readFind, readFindCram, readText } from "./routes.ts";
 import { Settings, SignIn } from "./Settings.tsx";
 import { AppContext, createApp } from "./state.ts";
+import { SearchLayer } from "./SearchLayer.tsx";
+import { TagScreen } from "./TagScreen.tsx";
 import type { CardView } from "./types.ts";
 
 const Router = createRouter({
   routes: [
     { path: "/", component: () => <Review deck={null} /> },
     { path: "/settings", component: Settings },
-    // One route for both, so the deck's page stays put under its review.
-    { path: ["/decks/:deck", "/decks/:deck/review"], component: DeckScreen },
+    // One route for each page and what opens over it, so the page stays put under its review or cram.
+    { path: ["/decks/:deck", "/decks/:deck/review", "/decks/:deck/cram"], component: DeckScreen },
+    { path: ["/tags/:tag", "/tags/:tag/cram"], component: TagScreen },
     { path: "*", component: NotFound },
   ],
 });
@@ -25,6 +28,9 @@ const Router = createRouter({
 export function App() {
   return <Router>{(props) => <Root>{props.children}</Root>}</Router>;
 }
+
+/** How long the search layer takes to fade out (`.search-layer.leaving` in styles.css). */
+const SEARCH_LEAVE = 180;
 
 function NotFound() {
   useNavigate()(paths.inbox(), { replace: true });
@@ -67,20 +73,48 @@ function Root(props: { children?: Element }) {
 function Shell(props: { children?: Element }) {
   const app = useContext(AppContext);
   const review = useMatch(() => "/decks/:deck/review");
+  const deckCram = useMatch(() => "/decks/:deck/cram");
+  const tagCram = useMatch(() => "/tags/:tag/cram");
   const deck = useMatch(() => "/decks/:deck/*rest");
+  const tag = useMatch(() => "/tags/:tag");
   const [search] = useSearchParams();
-  // The editor, from `?edit=<card id>` or `?edit=new` on a deck's page, remade when that changes.
+  const finding = () => readFind(search) !== null;
+  // The search layer stays a moment after its `find` goes (closed, or Back), to fade out over the page.
+  const [layer, setLayer] = createSignal<"open" | "leaving" | null>(untrack(finding) ? "open" : null);
+  let leave: ReturnType<typeof setTimeout> | undefined;
+  createEffect(finding, (open) => {
+    clearTimeout(leave);
+    if (open) setLayer("open");
+    else if (untrack(layer)) {
+      setLayer("leaving");
+      leave = setTimeout(() => setLayer(null), SEARCH_LEAVE);
+    }
+  });
+  // The editor, from `?edit=<card id>` or `?edit=new` on a deck's page (or `?edit=<card id>` on a tag's, or over the
+  // search), remade when that changes.
   const editing = createMemo(() => {
-    const d = deck()?.params.deck;
+    const d = deck()?.params.deck ?? (tag() || finding() ? "" : undefined);
     const edit = readText(search, "edit");
-    return d && edit ? JSON.stringify([d, edit]) : null;
+    return d !== undefined && edit && (d || edit !== "new") ? JSON.stringify([d, edit]) : null;
   });
 
   return (
     <>
-      <Drawer>{props.children}</Drawer>
+      <Drawer>
+        {props.children}
+        <Show when={layer()}>{(state) => <SearchLayer leaving={state() === "leaving"} />}</Show>
+      </Drawer>
       <Show when={review()?.params.deck} keyed>
         {(d) => <Review deck={d} />}
+      </Show>
+      <Show when={deckCram()?.params.deck} keyed>
+        {(d) => <DeckCram deck={d} />}
+      </Show>
+      <Show when={tagCram()?.params.tag} keyed>
+        {(t) => <TagCram tag={t} />}
+      </Show>
+      <Show when={readFindCram(search)}>
+        <SearchCram />
       </Show>
       <Show when={editing()} keyed>
         {(key) => {

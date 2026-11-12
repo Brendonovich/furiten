@@ -129,9 +129,9 @@ struct PairView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "laptopcomputer.and.iphone")
                             .font(.system(size: 30))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(palette.onAccent)
                             .frame(width: 72, height: 72)
-                            .background(Color.accentColor.gradient, in: .rect(cornerRadius: 18))
+                            .background(palette.accent.gradient, in: .rect(cornerRadius: 18))
                         Text("On your computer, open Furiten’s Settings and choose **Pair a phone**. Then scan the code it shows.")
                             .foregroundStyle(.secondary)
                         if QRScanner.available {

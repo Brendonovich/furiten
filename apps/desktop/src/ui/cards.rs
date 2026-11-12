@@ -4,10 +4,7 @@
 use std::borrow::Cow;
 
 use rune::{El, GrowthSpec, ScrollSpec, TextStyle, col, el, icon, memo, row, text};
-use rune_kit::{
-    Badge, BadgeVariant, ControlSize, IconButton, IconButtonVariant, Keybind, KeybindVariant, Kit, Markdown,
-    MarkdownStyle,
-};
+use rune_kit::{ControlSize, IconButton, IconButtonVariant, Keybind, KeybindVariant, Kit, Markdown, MarkdownStyle};
 
 use super::{format, icons};
 use crate::app::{App, CardsView, GRID_GAP};
@@ -18,8 +15,8 @@ use crate::theme;
 const RING_ROOM: f32 = 4.0;
 
 /// The tallest a grid tile's front gets before it fades out.
-const GRID_FACE_MAX: f32 = 168.0;
-const LIST_FACE_MAX: f32 = 216.0;
+const GRID_FACE_MAX: f32 = 132.0;
+const LIST_FACE_MAX: f32 = 200.0;
 
 /// When a card is due, as a footer says it, and whether that's now.
 fn due(c: &CardView, now: i64) -> (String, bool) {
@@ -30,28 +27,25 @@ fn due(c: &CardView, now: i64) -> (String, bool) {
     }
 }
 
-/// The type a front is set in: a short front shows big, like a flashcard; a long one steps down.
-fn face(front: &str, list: bool) -> TextStyle {
-    let n = format::plain(front).chars().count();
-    let (size, lh) = match (n, list) {
-        (0..=24, false) => (26.0, 32.0),
-        (0..=24, true) => (30.0, 36.0),
-        (25..=60, false) => (20.0, 27.0),
-        (25..=60, true) => (22.0, 30.0),
-        (61..=140, false) => (16.0, 23.0),
-        (61..=140, true) => (17.0, 25.0),
-        (_, false) => (14.0, 21.0),
-        (_, true) => (15.0, 22.0),
-    };
-    TextStyle::new(size, if n <= 24 { 500.0 } else { 400.0 }).lh(lh).tracking(if size >= 24.0 { -0.3 } else { 0.0 })
+/// The type a front is set in: a short front shows big, like a flashcard; a long one steps down (iOS `.title`
+/// medium, `.title3`, then `.body`).
+fn face(front: &str) -> TextStyle {
+    match format::plain(front).chars().count() {
+        0..=24 => TextStyle::new(28.0, 500.0).lh(34.0).tracking(-0.3),
+        25..=60 => TextStyle::new(20.0, 400.0).lh(25.0),
+        _ => TextStyle::new(17.0, 400.0).lh(22.0),
+    }
 }
 
 /// Roughly how tall `markdown` sets at `width` in `font`, to tell whether a clamped front needs its fade.
 fn estimated_height(markdown: &str, width: f32, font: TextStyle) -> f32 {
     let per_line = (width / (font.size * 0.5)).max(8.0);
-    let paragraphs: Vec<usize> =
-        markdown.split("\n\n").map(|p| format::plain(p).chars().count()).filter(|&n| n > 0).collect();
-    let lines: f32 = paragraphs.iter().map(|&n| (n as f32 / per_line).ceil()).sum();
+    let paragraphs: Vec<Vec<usize>> = markdown
+        .split("\n\n")
+        .map(|p| p.lines().map(|l| format::plain(l).chars().count()).filter(|&n| n > 0).collect::<Vec<_>>())
+        .filter(|p| !p.is_empty())
+        .collect();
+    let lines: f32 = paragraphs.iter().flatten().map(|&n| (n as f32 / per_line).ceil()).sum();
     lines * font.line_px() + paragraphs.len().saturating_sub(1) as f32 * font.line_px() * 0.6
 }
 
@@ -64,33 +58,11 @@ fn caps(label: &str, ink: rune::Color) -> El {
     text(label.to_uppercase()).font(theme::CAPS).color(ink)
 }
 
-/// A dashed rule across a tile: the top edge of a dashed box, clipped to one point.
-pub(super) fn dashed(k: &Kit, key: &str) -> El {
-    dashed_in(k.c.border_base, key)
-}
-
-/// [`dashed`] in `color`.
-pub(super) fn dashed_in(color: rune::Color, key: &str) -> El {
-    rule(color, key, 3.0, 3.0)
-}
-
-/// The rule between a review card's sides: dotted, with wider gaps, across the card's full width.
-pub(super) fn dotted(k: &Kit, key: &str) -> El {
-    rule(k.c.border_strong, key, 3.0, 4.0)
-}
-
-fn rule(color: rune::Color, key: &str, dash: f32, gap: f32) -> El {
-    el().key(key.to_owned())
-        .w_full()
-        .h(1.0)
-        .clip_rounded(0.0)
-        .child(el().absolute(0.0, 0.0).w_full().h(8.0).border(1.0, color).border_dash(dash, gap))
-}
-
 /// When it's due and, on a full tile, how many sides it hides.
 fn footer(c: &CardView, k: &Kit, full: bool) -> El {
     let (when, is_due) = due(c, now_ms());
-    let mut footer = row().key("footer").w_full().gap(10.0).center_y();
+    let faint = theme::tertiary(k);
+    let mut footer = row().key("footer").w_full().gap(8.0).center_y();
     let more = c.sides.len().saturating_sub(1);
     if full && more > 0 {
         footer = footer.child(
@@ -98,13 +70,23 @@ fn footer(c: &CardView, k: &Kit, full: bool) -> El {
                 .key("hidden")
                 .gap(3.0)
                 .center_y()
-                .child(icon(&icons::PLUS, 10.0).color(k.c.icon_faint))
-                .child(caps(&format::hidden_sides(more), k.c.text_faint)),
+                .child(icon(&icons::PLUS, 10.0).color(faint))
+                .child(caps(&format::hidden_sides(more), faint)),
         );
     }
     footer
         .child(el().key("spacer").grow(1.0))
-        .child(caps(&when, if is_due { theme::accent(k) } else { k.c.text_faint }).key("when"))
+        .child(caps(&when, if is_due { theme::accent(k) } else { faint }).key("when"))
+}
+
+/// A tile's footer under the side rule, which runs out through the tile's padding `pad` to its edges.
+fn tile_footer(c: &CardView, k: &Kit, pad: f32) -> El {
+    col()
+        .key("foot")
+        .w_full()
+        .gap(8.0)
+        .child(col().key("rule-run").mx(-pad).child(theme::side_line(k, "rule")))
+        .child(footer(c, k, true))
 }
 
 /// The ring around the selected tile, outside its box so nothing moves.
@@ -123,13 +105,13 @@ fn tile(s: &App, c: &CardView, k: &Kit, width: f32, list: bool) -> El {
     let version = (&c.card.updated_at, c.schedule.reps, &when, selected, strong, list, width as i32);
     memo(format!("tile-{}", c.card.id), version, || {
         let front = c.sides.first().map_or("", String::as_str);
-        let font = face(front, list);
-        let pad = if list { 22.0 } else { 18.0 };
+        let font = face(front);
+        let pad = if list { 18.0 } else { 14.0 };
         let max = if list { LIST_FACE_MAX } else { GRID_FACE_MAX };
         let mut body =
             col().key("face").w_full().grow(1.0).min_w(0.0).max_h(max).child(markdown(front, font, k).key("front"));
         if estimated_height(front, width - 2.0 * pad, font) > max {
-            body = body.clip_fade(0.0, 0.0, 0.0, 32.0);
+            body = body.clip_fade(0.0, 0.0, 0.0, 28.0);
         }
         let id = c.card.id.clone();
         let tile = col()
@@ -138,15 +120,12 @@ fn tile(s: &App, c: &CardView, k: &Kit, width: f32, list: bool) -> El {
             .label(format::title(front))
             .w_full()
             .min_w(0.0)
-            .min_h(if list { 0.0 } else { 172.0 })
+            .min_h(if list { 0.0 } else { 156.0 })
             .padding(pad)
-            .gap(14.0)
-            .radius(k.radius.xl)
-            .fill(k.c.layer_01)
-            .border(1.0, k.c.border_muted)
+            .gap(10.0)
             .child(body)
-            .child(dashed(k, "rule"))
-            .child(footer(c, k, true));
+            .child(tile_footer(c, k, pad));
+        let tile = theme::card(tile, k, theme::TILE_RADIUS, false);
         k.interactive(ring(tile, k, selected, strong)).on_press(move |s: &mut App| s.press_card(&id))
     })
 }
@@ -165,7 +144,7 @@ fn new_tile(k: &Kit, key: &str, height: f32) -> El {
             .min_h(height)
             .center()
             .gap(8.0)
-            .radius(k.radius.xl)
+            .radius(theme::TILE_RADIUS)
             .border(1.0, k.c.border_base)
             .border_dash(5.0, 4.0)
             .child(icon(&icons::PLUS, 14.0).key("icon").color(k.c.icon_muted))
@@ -227,7 +206,7 @@ pub fn grid(s: &App, k: &Kit) -> El {
             for i in 0..cols {
                 let cell = r * cols + i;
                 line = line.child(match cell.checked_sub(1) {
-                    None => new_tile(&k, "new-card-tile", 172.0),
+                    None => new_tile(&k, "new-card-tile", 156.0),
                     Some(n) => match s.cards.get(n) {
                         Some(c) => tile(s, c, &k, tile_w, false),
                         None => el().key(format!("empty-{i}")).min_w(0.0),
@@ -327,7 +306,7 @@ pub fn column(s: &App, k: &Kit, search: El, empty: Option<El>) -> El {
     row().key("columns").w_full().grow(1.0).min_h(0.0).gap(20.0).items_stretch().child(left).child(detail(s, k))
 }
 
-/// Every side of the current card, its reviews, when it's due and its tags.
+/// Every side of the current card, then how its reviews have gone and its tags (the iOS app's `CardSides`).
 fn detail(s: &App, k: &Kit) -> El {
     let Some(c) = s.current() else {
         return col().key("detail-none").grow(1.0).h_full().min_w(0.0);
@@ -345,62 +324,65 @@ fn detail(s: &App, k: &Kit) -> El {
             .build(k)
             .key("edit"),
     );
-    let mut sheet = col().key("sides").w_full().gap(22.0);
+    let mut sheet = col().key("sides").w_full();
     for (i, side) in c.sides.iter().enumerate() {
         if i > 0 {
-            sheet = sheet.child(dashed(k, &format!("rule-{i}")));
+            sheet = sheet.child(theme::side_rule(k, &format!("rule-{i}")));
         }
-        let font = if i == 0 { face(side, true) } else { face(side, false) };
-        let side = markdown(side, font, k).key(format!("side-{i}"));
+        let side = markdown(side, theme::SIDE, k).key(format!("side-{i}"));
         sheet = sheet.child(match i {
             // The edit button sits beside the front, out of the way of the sides below.
             0 => row()
                 .key("front")
                 .w_full()
+                .px(theme::SIDE_X)
                 .gap(12.0)
                 .items_start()
                 .child(col().key("front-text").grow(1.0).min_w(0.0).child(side))
                 .child(el().key("edit-room").mt(-6.0).mr(-10.0).children(edit.take())),
-            _ => side,
+            _ => col().key(format!("side-box-{i}")).w_full().px(theme::SIDE_X).child(side),
         });
     }
 
-    let mut meta = row().key("meta").w_full().gap(14.0).center_y();
-    if c.schedule.reps > 0 {
+    // One line: its reviews, lapses and when it's due, the due part in the accent when it's now.
+    let s_ = &c.schedule;
+    let (history, when, is_due) = match s_.state {
+        State::New => (String::new(), "new, not reviewed yet".to_string(), false),
+        _ => {
+            let parts: Vec<String> = [
+                (s_.reps > 0).then(|| format!("✓ {}", format::reviews(s_.reps))),
+                (s_.lapses > 0).then(|| format::lapses(s_.lapses)),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            let history = if parts.is_empty() { String::new() } else { parts.join(" · ") + " · " };
+            if s_.due <= now {
+                (history, "due now".to_string(), true)
+            } else {
+                (history, format!("due {}", format::until(s_.due, now)), false)
+            }
+        }
+    };
+    let ink = theme::secondary(k);
+    let mut line = row().key("meta-line").w_full().center_y().flex_wrap();
+    if !history.is_empty() {
+        line = line.child(text(history.to_uppercase()).key("history").font(theme::META).color(ink));
+    }
+    line = line.child(text(when.to_uppercase()).key("due").font(theme::META).color(if is_due {
+        theme::accent(k)
+    } else {
+        ink
+    }));
+    let mut meta = col().key("meta").w_full().px(theme::SIDE_X).pt(24.0).gap(10.0).child(line);
+    if !c.card.tags.is_empty() {
         meta = meta.child(
-            row()
-                .key("reviews")
-                .gap(4.0)
-                .center_y()
-                .child(icon(&icons::CHECK, 12.0).color(k.c.icon_faint))
-                .child(caps(&format::reviews(c.schedule.reps), k.c.text_faint)),
+            c.card.tags.iter().fold(row().key("tags").w_full().gap(6.0).flex_wrap(), |r, t| r.child(theme::tag(k, t))),
         );
     }
-    if c.schedule.lapses > 0 {
-        meta = meta.child(caps(&format::lapses(c.schedule.lapses), k.c.text_faint).key("lapses"));
-    }
-    let (when, is_due) = match c.schedule.state {
-        State::New => ("new, not reviewed yet".to_string(), false),
-        _ if c.schedule.due <= now => ("due now".to_string(), true),
-        _ => (format!("due {}", format::until(c.schedule.due, now)), false),
-    };
-    meta = meta.child(caps(&when, if is_due { theme::accent(k) } else { k.c.text_faint }).key("due"));
-    meta = meta.child(el().key("spacer").grow(1.0));
-    for tag in &c.card.tags {
-        meta = meta.child(Badge::new(tag.clone()).variant(BadgeVariant::Subtle).build(k).key(format!("tag-{tag}")));
-    }
 
-    let surface = col()
-        .key(format!("detail-{}", c.card.id))
-        .w_full()
-        .padding(28.0)
-        .gap(22.0)
-        .radius(k.radius.xl)
-        .fill(k.c.layer_01)
-        .border(1.0, k.c.border_muted)
-        .child(sheet)
-        .child(dashed(k, "rule-meta"))
-        .child(meta);
+    let surface = col().key(format!("detail-{}", c.card.id)).w_full().py(theme::SIDE_Y).child(sheet).child(meta);
+    let surface = theme::card(surface, k, theme::CARD_RADIUS, false);
     let surface = ring(surface, k, s.detail_focused, s.window_focused);
     col()
         .key("detail")

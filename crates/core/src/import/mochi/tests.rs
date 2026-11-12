@@ -156,8 +156,8 @@ fn importing_adds_decks_with_their_history() {
     let cards = cards.unwrap();
     let hola = cards.iter().find(|c| c.front() == "hola").unwrap();
     assert_eq!(hola.card.tags, ["vocab"]);
-    assert_eq!((hola.schedule.state, hola.schedule.reps), (State::Learning, 1), "scheduled from Mochi's review");
-    assert!(hola.schedule.due < 1_704_153_600_000, "due when a review in January 2024 put it");
+    assert_eq!((hola.schedule.state, hola.schedule.reps), (State::Review, 1), "scheduled from Mochi's review");
+    assert!(hola.schedule.due < 1_704_067_200_000 + 7 * 86_400_000, "due when a review in January 2024 put it");
     assert!(hola.card.created_at <= 1_704_067_200_000, "created before its first review");
     let adios = cards.iter().find(|c| c.front() == "adiós").unwrap();
     assert_eq!(adios.schedule.state, State::New);

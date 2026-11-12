@@ -2,6 +2,7 @@
 //! or the CLI) runs it with and a blocking client for it. See `docs/contract.md` for the formats and protocol
 //! implemented here.
 
+pub mod cram;
 #[cfg(feature = "hub")]
 pub mod hub;
 pub mod import;

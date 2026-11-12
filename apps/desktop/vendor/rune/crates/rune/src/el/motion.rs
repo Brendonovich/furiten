@@ -74,6 +74,13 @@ impl El {
         self.instant_changes = true;
         self
     }
+    /// Animate changes inside this element again under an ancestor's [`Self::instant_changes`]:
+    /// a part of a window that otherwise lands every change at once, such as a card that grows
+    /// to fit a side it reveals.
+    pub fn animate_changes(mut self) -> Self {
+        self.animate_changes = true;
+        self
+    }
     /// How this element enters and exits when mounted or removed after the first frame
     /// (default: [`Transition::opacity()`] — a 0.2 s enter and 0.15 s exit fade). Because
     /// every element has this default fade, removing an element in an animated commit

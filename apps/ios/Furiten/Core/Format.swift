@@ -54,7 +54,8 @@ func counts(_ due: Int, _ new: Int) -> String {
     return "\(due) due · \(new) new"
 }
 
-func hiddenSides(_ n: Int) -> String { plural(Int64(n), "hidden side") }
+func cardCount(_ n: Int) -> String { plural(Int64(n), "card") }
+func hiddenSides(_ n: Int) -> String { plural(Int64(n), "side") }
 func reviews(_ n: Int) -> String { plural(Int64(n), "review") }
 func lapses(_ n: Int) -> String { plural(Int64(n), "lapse") }
 

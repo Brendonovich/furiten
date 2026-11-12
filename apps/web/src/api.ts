@@ -45,7 +45,8 @@ const query = (params: Record<string, string | number | boolean | undefined>) =>
   return s ? `?${s}` : "";
 };
 
-export type CardQuery = { deck_id: string; q?: string; tag?: string; sort: Sort; desc?: boolean; seed?: number };
+/** Without `deck_id`, every deck's cards. */
+export type CardQuery = { deck_id?: string; q?: string; tag?: string; sort: Sort; desc?: boolean; seed?: number };
 
 export const api = (s: Session) => ({
   decks: () => call<{ decks: DeckSummary[] }>(s, "GET", "/v1/decks").then((r) => r.decks),

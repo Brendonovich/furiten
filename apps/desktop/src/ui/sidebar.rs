@@ -7,7 +7,9 @@ use crate::app::App;
 use crate::core::now_ms;
 use crate::theme;
 
-pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
+/// `pushing`: the sidebar pushes the page aside (a narrow window), so picking a row closes it, as the phone's drawer
+/// does.
+pub fn view(s: &App, k: &Kit, pushing: bool, layer: &mut Vec<El>) -> El {
     if s.connecting.is_some() {
         // Empty until the decks arrive, so nothing shows that's about to change.
         return Sidebar::new().label("Decks").build(k);
@@ -21,7 +23,10 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
                 .depth(depth)
                 .trailing(counts(k, d.due, d.new))
                 .selected(s.deck.as_ref() == Some(&d.deck.id) && s.settings.is_none() && !s.in_inbox())
-                .on_select(move |s: &mut App, _| s.select_deck(Some(id.clone())))
+                .on_select(move |s: &mut App, _| {
+                    s.select_deck(Some(id.clone()));
+                    picked(s, pushing);
+                })
                 .build(k)
                 .key(format!("deck-{}", d.deck.id)),
         );
@@ -41,11 +46,23 @@ pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> El {
         );
     }
 
-    Sidebar::new().label("Decks").child(inbox_row(s, k)).section(decks).footer(sync_row(s, k)).build(k)
+    Sidebar::new()
+        .label("Decks")
+        .child(inbox_row(s, k, pushing))
+        .section(decks)
+        .footer(sync_row(s, k, pushing))
+        .build(k)
+}
+
+/// After a row is picked: a sidebar pushing the page aside closes to show what was picked.
+fn picked(s: &mut App, pushing: bool) {
+    if pushing {
+        s.sidebar.set_open(false);
+    }
 }
 
 /// Review, above the decks: every due card from every deck, with how many are waiting.
-fn inbox_row(s: &App, k: &Kit) -> El {
+fn inbox_row(s: &App, k: &Kit, pushing: bool) -> El {
     let waiting = s.inbox_count();
     let mut count = row().key("counts").center_y();
     if waiting > 0 {
@@ -55,7 +72,10 @@ fn inbox_row(s: &App, k: &Kit) -> El {
         .icon(&icons::INBOX)
         .trailing(count)
         .selected(s.in_inbox())
-        .on_select(|s: &mut App, _| s.open_inbox())
+        .on_select(move |s: &mut App, _| {
+            s.open_inbox();
+            picked(s, pushing);
+        })
         .build(k)
         .key("inbox")
 }
@@ -100,7 +120,7 @@ fn counts(k: &Kit, due: u64, new: u64) -> El {
     r
 }
 
-fn sync_row(s: &App, k: &Kit) -> El {
+fn sync_row(s: &App, k: &Kit, pushing: bool) -> El {
     let st = &s.status;
     let detail = match (st.signed_in, st.last_sync, &st.sync_error) {
         (false, _, _) if st.hosting => "Your phone".to_string(),
@@ -114,7 +134,10 @@ fn sync_row(s: &App, k: &Kit) -> El {
         .icon(&icons::CLOUD)
         .detail(detail)
         .selected(s.settings.is_some())
-        .on_select(|s: &mut App, _| s.open_settings())
+        .on_select(move |s: &mut App, _| {
+            s.open_settings();
+            picked(s, pushing);
+        })
         .build(k)
         .key("sync")
 }

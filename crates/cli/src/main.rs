@@ -89,6 +89,12 @@ enum Command {
         #[command(subcommand)]
         command: Option<ReviewCommand>,
     },
+    /// Cram: review the cards `cards` would list (same filters), in that order, due or not. Practice only: nothing
+    /// is recorded and no schedule changes; a forgotten card comes round again until it's remembered.
+    Cram {
+        #[command(flatten)]
+        filter: CardFilter,
+    },
     /// Counts, reviews today and 30-day retention.
     Stats {
         /// Only this deck (name or id) and its subdecks.
@@ -355,18 +361,7 @@ fn command(c: &mut Client, cli: Cli) -> Result<()> {
                 Some(CardsCommand::List(filter)) => filter,
                 None => filter,
             };
-            let deck_id = filter.deck.map(|d| c.resolve_deck(&d, false).map(|d| d.id)).transpose()?;
-            let query = CardQuery {
-                deck_id,
-                q: filter.q,
-                tag: filter.tag,
-                due: filter.due.then_some(true),
-                limit: Some(filter.limit),
-                offset: Some(filter.offset),
-                sort: filter.sort,
-                desc: filter.desc.then_some(true),
-                seed: filter.seed,
-            };
+            let query = card_query(c, filter)?;
             emit(json, &c.cards(&query)?, |c| output::cards(c))
         }
         Command::Tags { deck } => {
@@ -413,6 +408,13 @@ fn command(c: &mut Client, cli: Cli) -> Result<()> {
                 emit(json, &card, |card| output::answered(remembered, card))
             }
         },
+        Command::Cram { filter } => {
+            if json {
+                return Err(Error::invalid("cramming is interactive and has no JSON; use `cards` to list the cards"));
+            }
+            let query = card_query(c, filter)?;
+            review::cram(c.cards(&query)?)
+        }
         Command::Stats { deck } => {
             let deck_id = deck.map(|d| c.resolve_deck(&d, false).map(|d| d.id)).transpose()?;
             emit(json, &c.stats(deck_id.as_deref())?, output::stats)
@@ -468,6 +470,22 @@ fn command(c: &mut Client, cli: Cli) -> Result<()> {
             emit(json, &Ack { ok: true }, |_| "Core stopped".to_string())
         }
     }
+}
+
+/// The `cards` filters as a query, the deck resolved.
+fn card_query(c: &mut Client, filter: CardFilter) -> Result<CardQuery> {
+    let deck_id = filter.deck.map(|d| c.resolve_deck(&d, false).map(|d| d.id)).transpose()?;
+    Ok(CardQuery {
+        deck_id,
+        q: filter.q,
+        tag: filter.tag,
+        due: filter.due.then_some(true),
+        limit: Some(filter.limit),
+        offset: Some(filter.offset),
+        sort: filter.sort,
+        desc: filter.desc.then_some(true),
+        seed: filter.seed,
+    })
 }
 
 /// Prints `value` as JSON, or as the text `human` makes from it.

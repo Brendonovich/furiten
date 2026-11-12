@@ -16,7 +16,8 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 - `apps/ios`: the SwiftUI app (iOS 26), native rather than themed: a sidebar with Review (every due card from
   every deck) above the decks (a drawer on iPhone, a split view on iPad), system colours and text styles, Liquid Glass
   for controls and navigation only, opaque grouped surfaces with the web app's lit edge for cards. Settings → Theme
-  swaps the system colours for the web app's palette (`Furiten`, always dark) and keeps the system accent and glass;
+  swaps the system colours for the web app's palette (`Furiten`, always dark), accent included (`palette.accent`, the
+  desktop's), and keeps the system accent only where the system draws it (glass buttons and controls);
   screens paint from `\.palette` (`Views/Theme.swift`), never fixed colours. It has the web app's
   features and concepts one for one (`apps/web` is the reference; port changes there to here). It links the core
   (`crates/ffi`, built by `apps/ios/scripts/core.sh` before each build) and keeps a library of its own, offline, which
@@ -34,11 +35,13 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 - `bun run check`: everything CI runs (Rust fmt, clippy, tests; server typecheck and tests). Done means it passes.
 - `cargo run -p furiten -- --help`; `cargo run -p furiten-desktop`.
 - `apps/ios/scripts/deploy.sh [device]` builds the iOS app and installs it on a paired iPhone (Wi-Fi is fine).
-  `apps/ios/scripts/simulate.sh [-pair <ticket>] [-screen inbox|decks|settings|deck|new|editor]` runs it in the booted
-  simulator, paired with a desktop (a ticket from `furiten host pair`; try a scratch `FURITEN_HOME`), on that screen
-  (DEBUG launch arguments, for screenshots; `-reveal YES` shows every side under review).
+  `apps/ios/scripts/simulate.sh [-pair <ticket>] [-screen inbox|decks|settings|search|deck|new|editor|cram|tag]` runs it in the
+  booted simulator, paired with a desktop (a ticket from `furiten host pair`; try a scratch `FURITEN_HOME`), on that
+  screen (DEBUG launch arguments, for screenshots; `-reveal YES` shows every side under review, `-tag <tag>` is the
+  tag `-screen tag` opens, `-tagging <text>` types into the editor's tag field).
 - `cd server && bun run dev` runs the Worker locally; `cd apps/web && bun run dev` serves the web app on :5173
   (all interfaces, so a phone on the LAN or Tailscale can open it), proxying `/v1` to the Worker.
+- `scripts/icons.sh` renders the iOS, macOS and home screen icons from `apps/web/public/icon.svg` (macOS only).
 - `cd apps/web && bun run build`, then `furiten web on`: the desktop app serves the built web app and the HTTP API on
   :8787 for a phone to use the desktop's library directly (no Cloud).
 

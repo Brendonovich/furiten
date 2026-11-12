@@ -334,7 +334,7 @@ fn flatten_owned(
         in_row
     };
     let virtual_mount = el.virtual_mount;
-    let instant_changes = el.instant_changes || parent.is_some_and(|p| nodes[p].instant_changes);
+    let instant_changes = !el.animate_changes && (el.instant_changes || parent.is_some_and(|p| nodes[p].instant_changes));
     #[cfg(debug_assertions)]
     let scroll_source = el.scroll_source;
     let trace_namespace = el.trace_namespace.or_else(|| parent.and_then(|p| nodes[p].trace_namespace));
@@ -548,7 +548,7 @@ fn flatten_ref(
     } else {
         in_row
     };
-    let instant_changes = el.instant_changes || parent.is_some_and(|p| nodes[p].instant_changes);
+    let instant_changes = !el.animate_changes && (el.instant_changes || parent.is_some_and(|p| nodes[p].instant_changes));
     let trace_namespace = el.trace_namespace.or_else(|| parent.and_then(|p| nodes[p].trace_namespace));
     let mut style: Cow<'_, Style> = Cow::Borrowed(&el.style);
     if let Some(sx) = parent_sx {

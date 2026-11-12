@@ -223,7 +223,7 @@ fn edits_always_move_updated_at_forward() {
 }
 
 #[test]
-fn the_queue_puts_due_cards_first_then_new_cards_capped_per_deck_per_day() {
+fn the_queue_puts_due_cards_first_then_new_cards_capped_per_deck_per_day_then_forgotten_cards() {
     let mut s = store();
     let a = deck(&mut s, "A", None);
     let cards: Vec<CardView> = (0..25)
@@ -237,24 +237,38 @@ fn the_queue_puts_due_cards_first_then_new_cards_capped_per_deck_per_day() {
     assert_eq!(next(&s).remaining, Remaining { due: 0, new: 20 });
     assert_eq!(next(&s).card.unwrap().card.id, cards[0].card.id, "new cards come oldest first");
 
-    // Answer the first two; the second goes back into learning sooner, so it's due first.
+    // Remember the first and forget the second: it's due again at once, but after the rest of the new cards.
     answer(&mut s, &cards[0].card.id, true);
     answer(&mut s, &cards[1].card.id, false);
-    assert_eq!(next(&s).remaining, Remaining { due: 0, new: 18 });
-    s.now = Some(T0 + 2 * MIN);
     let n = next(&s);
     assert_eq!(n.remaining, Remaining { due: 1, new: 18 });
-    assert_eq!(n.card.unwrap().card.id, cards[1].card.id);
+    assert_eq!(n.card.unwrap().card.id, cards[2].card.id);
 
     for c in &cards[2..20] {
         answer(&mut s, &c.card.id, true);
     }
     assert_eq!(next(&s).remaining.new, 0, "20 new cards introduced today");
+    assert_eq!(next(&s).card.unwrap().card.id, cards[1].card.id, "then the forgotten card");
+    answer(&mut s, &cards[1].card.id, false);
+    assert_eq!(next(&s).card.unwrap().card.id, cards[1].card.id, "until it's remembered");
+    answer(&mut s, &cards[1].card.id, true);
+    assert_eq!(next(&s).remaining, Remaining { due: 0, new: 0 });
     // The sample deck has its own allowance.
     assert_eq!(s.next_review(None).unwrap().remaining.new, 5);
 
     s.now = Some(T0 + DAY + MIN);
     assert_eq!(next(&s).remaining.new, 5, "a new day, the rest of the new cards");
+
+    // A forgotten review comes back after the reviews still due and the new cards.
+    s.now = Some(T0 + 30 * DAY);
+    answer(&mut s, &cards[0].card.id, false);
+    let n = next(&s);
+    assert_eq!(n.remaining, Remaining { due: 20, new: 5 });
+    assert_ne!(n.card.unwrap().card.id, cards[0].card.id);
+    for c in &cards[1..25] {
+        answer(&mut s, &c.card.id, true);
+    }
+    assert_eq!(next(&s).card.unwrap().card.id, cards[0].card.id);
 }
 
 #[test]
@@ -292,8 +306,8 @@ fn answers_validate_and_schedule() {
         "not_found"
     );
     let answered = answer(&mut s, &c.card.id, true);
-    assert_eq!(answered.schedule.state, State::Learning);
-    assert_eq!(answered.schedule.due, T0 + 10 * MIN);
+    assert_eq!(answered.schedule.state, State::Review);
+    assert!(answered.schedule.due >= T0 + DAY);
     assert_eq!(answered.schedule.last_review, Some(T0));
 }
 
@@ -304,7 +318,7 @@ fn remembered_and_forgot_schedule_as_good_and_again() {
     let c = card(&mut s, &a.id, "q\n---\na");
     let fsrs = furiten_srs::Scheduler::default();
     use furiten_srs::Rating::*;
-    let answers = [(T0, true), (T0 + 10 * MIN, true), (T0 + 5 * DAY, false), (T0 + 5 * DAY + 10 * MIN, true)];
+    let answers = [(T0, true), (T0 + 5 * DAY, false), (T0 + 5 * DAY + MIN, true)];
     for (at, remembered) in answers {
         s.now = Some(at);
         answer(&mut s, &c.card.id, remembered);
@@ -312,7 +326,7 @@ fn remembered_and_forgot_schedule_as_good_and_again() {
     let expected = fsrs.fold(T0, answers.map(|(at, remembered)| (at, if remembered { Good } else { Again })));
     let schedule = s.card(&c.card.id).unwrap().schedule;
     assert_eq!(schedule, Schedule::from(expected));
-    assert_eq!((schedule.state, schedule.reps, schedule.lapses), (State::Review, 4, 1));
+    assert_eq!((schedule.state, schedule.reps, schedule.lapses), (State::Review, 3, 1));
 }
 
 #[test]
@@ -324,12 +338,11 @@ fn stats_count_retention_only_for_cards_in_review() {
     let empty = s.stats(Some(&a.id)).unwrap();
     assert_eq!((empty.cards, empty.due, empty.new, empty.reviews_today, empty.retention_30d), (2, 0, 2, 0, None));
 
-    // Remembered twice graduates both to review; answers while learning don't count towards retention.
-    for at in [T0, T0 + 10 * MIN] {
-        s.now = Some(at);
-        answer(&mut s, &c1.card.id, true);
-        answer(&mut s, &c2.card.id, true);
-    }
+    // Both graduate to review, the second after being forgotten once; answers while learning don't count towards
+    // retention.
+    answer(&mut s, &c1.card.id, true);
+    answer(&mut s, &c2.card.id, false);
+    answer(&mut s, &c2.card.id, true);
     s.now = Some(T0 + 20 * DAY);
     answer(&mut s, &c1.card.id, true);
     answer(&mut s, &c2.card.id, false);

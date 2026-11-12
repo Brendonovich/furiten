@@ -7,57 +7,61 @@
 mod app;
 mod core;
 mod editor;
+mod keys;
 mod theme;
 mod ui;
 
 use std::sync::{Mutex, OnceLock};
 
 use furiten_core::server::Hosted;
-use rune::{AppHandle, AppSpec, Chrome, Key, KeyEvent, Tx};
+use rune::{AppHandle, AppSpec, Chrome, KeyEvent, Tx};
 use rune_kit::shell;
 
 use crate::app::{App, CardsView, Editor};
 use crate::core::{CardSort, Core, Fixtures, Running};
+use crate::keys::{Action, pressed};
 
 /// The core this app hosts, stopped (pushing what's left) once the app quits.
 static HOSTED: Mutex<Option<Hosted>> = Mutex::new(None);
 /// Set for `--background` runs, whose window comes and goes.
 static BACKGROUND: OnceLock<AppHandle<App>> = OnceLock::new();
 
+/// The window's keys, once no field has taken them. Which keys do what is `keys::SECTIONS`.
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.connecting.is_some() {
         return false;
     }
-    if shell::is_sidebar_toggle(ev) && !s.first_run {
+    if s.shortcuts {
+        if pressed(ev, Action::Shortcuts) || pressed(ev, Action::Close) {
+            s.shortcuts = false;
+            return true;
+        }
+        return false;
+    }
+    if (pressed(ev, Action::ToggleSidebar) || shell::is_sidebar_toggle(ev)) && !s.first_run {
         s.sidebar.toggle();
         return true;
     }
     if s.editor.is_some() {
         return ui::editor_key(s, ev, tx);
     }
-    if ev.is_command('n') {
+    if pressed(ev, Action::NewCard) {
         s.new_card();
         return true;
     }
-    if ev.is_command(',') && !s.first_run {
+    if pressed(ev, Action::Settings) && !s.first_run {
         s.open_settings();
         return true;
     }
-    let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt);
-    if let Some(r) = &s.review {
-        let (has_card, inbox) = (r.card().is_some(), r.inbox());
-        match &ev.key {
-            Key::Text(t) if t == " " && plain && has_card => s.reveal(),
-            Key::Enter if plain && has_card => s.reveal(),
-            Key::Text(t) if plain && t == "1" => s.answer(false),
-            Key::Text(t) if plain && t == "2" => s.answer(true),
-            Key::Escape if !inbox => s.end_review(),
-            _ => return false,
-        }
+    if pressed(ev, Action::Shortcuts) {
+        s.shortcuts = true;
         return true;
     }
+    if s.review.is_some() {
+        return ui::review_key(s, ev, tx);
+    }
     if s.settings.is_some() {
-        if ev.key == Key::Escape {
+        if pressed(ev, Action::Close) {
             s.settings = None;
             return true;
         }
@@ -94,6 +98,55 @@ const SCENES: &[Scene] = &[
         s.reveal();
         s.answer(true);
         s.reveal();
+    }),
+    ("review-full-width", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.toggle_full_width_cards();
+        s.start_review();
+        s.reveal();
+    }),
+    ("review-editing", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.start_review();
+        s.edit_review_card();
+    }),
+    ("review-delete", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.start_review();
+        s.reveal();
+        s.delete_review_card();
+    }),
+    ("review-move", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.start_review();
+        s.start_move();
+    }),
+    ("cram", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.start_cram();
+        s.answer(false);
+        s.reveal();
+    }),
+    ("cram-done", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.search.replace_text("hubiera");
+        s.apply_search();
+        s.start_cram();
+        s.answer(false);
+        while s.review.as_ref().is_some_and(|r| r.card().is_some()) {
+            s.answer(true);
+        }
+    }),
+    ("shortcuts", |s| {
+        s.with_core(Core::fixtures(Fixtures::LivedIn));
+        select(s, "Spanish");
+        s.shortcuts = true;
     }),
     ("inbox", |s| {
         s.with_core(Core::fixtures(Fixtures::LivedIn));
@@ -270,9 +323,11 @@ fn main() {
     if !background {
         rune::prewarm_gpu();
     }
+    // The web app's icon on Apple's grid, from scripts/icons.sh.
+    let _ = rune::set_app_icon(include_bytes!("../assets/icon.png"));
     let chrome = Chrome { full_size_content: true, traffic_lights: Some((25.0, 25.0)), drag_regions: true };
     let spec = AppSpec {
-        min_size: Some((720.0, 480.0)),
+        min_size: Some((560.0, 480.0)),
         scenes: SCENES,
         setup: Some(setup),
         poll: Some(poll),

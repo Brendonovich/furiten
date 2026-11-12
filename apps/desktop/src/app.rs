@@ -8,14 +8,15 @@ use std::time::{Duration, Instant};
 
 use rune::prefs::Prefs;
 use rune::{FileDialogOptions, TextEdit, Tx};
-use rune_kit::PaneState;
+use rune_kit::{ComboboxState, PaneState};
 
 pub use crate::editor::Editor;
 
 use crate::core::{
-    Answer, CardSort, CardUpdate, CardView, Core, DeckSummary, Fixtures, HostStatus, Id, Imported, NewCard, NextReview,
-    Order, PairTicket, Status, WebStatus, now_ms,
+    Answer, CardSort, CardUpdate, CardView, Core, Cram, DeckSummary, Fixtures, HostStatus, Id, Imported, NewCard,
+    NextReview, Order, PairTicket, Remaining, Status, WebStatus, now_ms,
 };
+use crate::keys::Action;
 
 pub struct App {
     pub core: Core,
@@ -52,6 +53,8 @@ pub struct App {
     pub review: Option<Review>,
     pub editor: Option<Editor>,
     pub settings: Option<Settings>,
+    /// The keyboard shortcuts panel (`?`) is open.
+    pub shortcuts: bool,
     /// The name of a deck being added in the sidebar.
     pub new_deck: Option<TextEdit>,
     /// The sidebar's "+" menu (New deck, Import from Mochi) is open.
@@ -59,6 +62,11 @@ pub struct App {
     /// What the last import brought in, shown above the deck it opened until you move on.
     pub notice: Option<String>,
     pub sidebar: PaneState,
+    /// How far open the sidebar is drawn (0 to 1), stepped a frame at a time toward `sidebar` so that what's beside
+    /// it lays out again at each step.
+    pub sidebar_shown: f32,
+    /// How fast `sidebar_shown` is moving, and the clock it was last stepped at while moving.
+    sidebar_motion: Option<(f32, f64)>,
     /// Nothing has been reviewed yet: the app shows only the sample deck and "Start review".
     pub first_run: bool,
     /// The last failed call, shown where it happened until the next one succeeds.
@@ -124,6 +132,8 @@ const SEARCH_DEBOUNCE: f64 = 0.15;
 const SLOW_CONNECT: f64 = 0.4;
 /// The preference behind [`App::separate_sides`].
 const SEPARATE_SIDES: &str = "experiment.separate-sides";
+/// The preference behind [`App::full_width_cards`].
+const FULL_WIDTH_CARDS: &str = "review.full-width";
 
 /// Where the app keeps its preferences (`rune::prefs`).
 const PREFS_ID: &str = "furiten-desktop";
@@ -132,11 +142,21 @@ pub struct Review {
     /// The deck (with its subdecks) being reviewed, or `None` for the inbox: every due card from every deck.
     pub deck: Option<Id>,
     pub next: NextReview,
+    /// A cram of the cards the deck's list was showing, instead of its due cards: practice, so nothing is answered
+    /// to the core and `next` stays empty.
+    pub cram: Option<Cram>,
     /// How many of the current card's sides are showing (1 is just the front).
     pub shown: usize,
+    /// A side has been shown or hidden since the card came up (or was edited), so the card animates its changes: a
+    /// card arriving or coming back from the editor lands at once.
+    pub revealing: bool,
     pub started: Instant,
     /// Cards answered since the review started.
     pub answered: u32,
+    /// D was pressed once: pressing it again deletes the card.
+    pub confirm_delete: bool,
+    /// The deck picker that moves the card (⌃M).
+    pub moving: ComboboxState,
 }
 
 pub struct Settings {
@@ -160,11 +180,15 @@ pub struct Settings {
 const HOST_POLL: f64 = 3.0;
 
 /// The answers, with their keys: whether you remembered the card.
-pub const ANSWERS: [(bool, &str, &str); 2] = [(false, "Forgot", "1"), (true, "Remembered", "2")];
+pub const ANSWERS: [(bool, &str, Action); 2] =
+    [(false, "Forgot", Action::Forget), (true, "Remembered", Action::Remember)];
 
 impl Review {
     pub fn card(&self) -> Option<&CardView> {
-        self.next.card.as_ref()
+        match &self.cram {
+            Some(cram) => cram.current(),
+            None => self.next.card.as_ref(),
+        }
     }
 
     /// Every side is showing.
@@ -173,7 +197,16 @@ impl Review {
     }
 
     pub fn inbox(&self) -> bool {
-        self.deck.is_none()
+        self.deck.is_none() && self.cram.is_none()
+    }
+
+    /// Moves on to whatever card is current now, from its front.
+    fn next_card(&mut self) {
+        self.shown = 1;
+        self.revealing = false;
+        self.started = Instant::now();
+        self.confirm_delete = false;
+        self.moving.close();
     }
 }
 
@@ -238,10 +271,13 @@ impl App {
             review: None,
             editor: None,
             settings: None,
+            shortcuts: false,
             new_deck: None,
             deck_menu: false,
             notice: None,
             sidebar: PaneState::new(232.0).range(180.0, 360.0),
+            sidebar_shown: 1.0,
+            sidebar_motion: None,
             first_run: false,
             error: None,
             changed: Arc::new(AtomicBool::new(false)),
@@ -251,6 +287,32 @@ impl App {
             clock: 0.0,
             waker: None,
         }
+    }
+
+    /// Moves `sidebar_shown` a frame along `ui::SIDEBAR` toward whether the sidebar is open, asking for the next frame
+    /// until it's there. The first run's sidebar doesn't move: it's hidden from the start.
+    fn step_sidebar(&mut self, clock: f64, tx: &mut Tx) -> bool {
+        let target = if self.sidebar.is_open() { 1.0 } else { 0.0 };
+        if self.sidebar_shown == target {
+            return false;
+        }
+        if self.first_run {
+            self.sidebar_shown = target;
+            self.sidebar_motion = None;
+            return true;
+        }
+        // The frame the sidebar is toggled in starts it moving; each one after steps it by the time since.
+        let (velocity, at) = self.sidebar_motion.unwrap_or((0.0, clock - 1.0 / 60.0));
+        let (shown, velocity) = crate::ui::SIDEBAR.sample(self.sidebar_shown, velocity, target, (clock - at) as f32);
+        if (shown - target).abs() < 0.001 && velocity.abs() < 0.01 {
+            self.sidebar_shown = target;
+            self.sidebar_motion = None;
+        } else {
+            self.sidebar_shown = shown;
+            self.sidebar_motion = Some((velocity, clock));
+            tx.wake_after(Duration::ZERO);
+        }
+        true
     }
 
     /// Loads everything from the core and decides whether this is the first run.
@@ -287,7 +349,7 @@ impl App {
     /// True when the view needs to run again.
     pub fn tick(&mut self, clock: f64, tx: &mut Tx) -> bool {
         self.clock = clock;
-        let mut changed = false;
+        let mut changed = self.step_sidebar(clock, tx);
         // Escape closes the tag menu until the field is next focused.
         if let Some(e) = self.editor.as_mut().filter(|e| !e.tag_draft.focused) {
             e.tag_menu_closed = false;
@@ -418,6 +480,20 @@ impl App {
         else {
             return;
         };
+        if self.review.as_ref().is_some_and(|r| r.cram.is_some()) {
+            let Some(id) = current else { return };
+            let card = self.core.card(&id);
+            let review = self.review.as_mut().expect("reviewing");
+            let cram = review.cram.as_mut().expect("cramming");
+            match card {
+                Ok(card) => cram.update(card),
+                Err(_) => {
+                    cram.remove(&id);
+                    review.next_card();
+                }
+            }
+            return;
+        }
         let next = self.core.next_review(deck.as_deref());
         let Some(mut next) = self.ok(next) else { return };
         if let Some(id) = current
@@ -428,7 +504,10 @@ impl App {
         let review = self.review.as_mut().expect("reviewing");
         if review.card().map(|c| &c.card.id) != next.card.as_ref().map(|c| &c.card.id) {
             review.shown = 1;
+            review.revealing = false;
             review.started = Instant::now();
+            review.confirm_delete = false;
+            review.moving.close();
         }
         review.next = next;
     }
@@ -510,6 +589,18 @@ impl App {
 
     pub fn toggle_separate_sides(&mut self) {
         if let Err(e) = self.prefs.set(SEPARATE_SIDES, &!self.separate_sides()) {
+            eprintln!("furiten-desktop: {e}");
+        }
+    }
+
+    /// Cards under review fill the pane, rather than a fixed column. Either way a card's width never changes as
+    /// its sides are shown.
+    pub fn full_width_cards(&self) -> bool {
+        self.prefs.get::<bool>(FULL_WIDTH_CARDS).unwrap_or(false)
+    }
+
+    pub fn toggle_full_width_cards(&mut self) {
+        if let Err(e) = self.prefs.set(FULL_WIDTH_CARDS, &!self.full_width_cards()) {
             eprintln!("furiten-desktop: {e}");
         }
     }
@@ -679,24 +770,142 @@ impl App {
         self.review_deck(None);
     }
 
+    /// Crams the cards the list is showing, in its order, due or not. Nothing is recorded.
+    pub fn start_cram(&mut self) {
+        if self.cards.is_empty() {
+            return;
+        }
+        self.editor = None;
+        self.settings = None;
+        self.review = Some(Review {
+            deck: self.deck.clone(),
+            next: NextReview { card: None, remaining: Remaining::default() },
+            cram: Some(Cram::new(self.cards.clone())),
+            shown: 1,
+            revealing: false,
+            started: Instant::now(),
+            answered: 0,
+            confirm_delete: false,
+            moving: ComboboxState::default(),
+        });
+    }
+
     fn review_deck(&mut self, deck: Option<Id>) {
         self.editor = None;
         self.settings = None;
         let next = self.core.next_review(deck.as_deref());
         if let Some(next) = self.ok(next) {
-            self.review = Some(Review { deck, next, shown: 1, started: Instant::now(), answered: 0 });
+            self.review = Some(Review {
+                deck,
+                next,
+                cram: None,
+                shown: 1,
+                revealing: false,
+                started: Instant::now(),
+                answered: 0,
+                confirm_delete: false,
+                moving: ComboboxState::default(),
+            });
         }
     }
 
     pub fn reveal(&mut self) {
         if let Some(r) = self.review.as_mut().filter(|r| r.card().is_some() && !r.revealed()) {
             r.shown += 1;
+            r.revealing = true;
+        }
+    }
+
+    /// Hides the last side shown, down to the front.
+    pub fn hide(&mut self) {
+        if let Some(r) = self.review.as_mut().filter(|r| r.shown > 1) {
+            r.shown -= 1;
+            r.revealing = true;
+        }
+    }
+
+    /// Space, as Mochi has it: the next side, and on the last one, Remembered.
+    pub fn advance(&mut self) {
+        match self.review.as_ref() {
+            Some(r) if r.revealed() => self.answer(true),
+            Some(_) => self.reveal(),
+            None => {}
+        }
+    }
+
+    /// Edits the card under review in place: its sides become fields where they are.
+    pub fn edit_review_card(&mut self) {
+        let Some(c) = self.review.as_ref().and_then(Review::card).cloned() else { return };
+        let mut editor = Editor::new(Some(c.card.id), &c.card.content, c.card.tags, c.card.deck_id);
+        editor.inline = true;
+        if let Some(r) = self.review.as_mut() {
+            r.revealing = false;
+        }
+        self.open_editor(editor);
+    }
+
+    /// Deletes the card under review on the second press; the first asks.
+    pub fn delete_review_card(&mut self) {
+        let Some(r) = self.review.as_mut() else { return };
+        let Some(id) = r.card().map(|c| c.card.id.clone()) else { return };
+        if !r.confirm_delete {
+            r.confirm_delete = true;
+            return;
+        }
+        r.confirm_delete = false;
+        let deleted = self.core.delete_card(&id);
+        if self.ok(deleted).is_some() {
+            // Gone, so the review moves on rather than holding on to it.
+            if let Some(r) = self.review.as_mut() {
+                r.next.card = None;
+                if let Some(cram) = r.cram.as_mut() {
+                    cram.remove(&id);
+                    r.next_card();
+                }
+            }
+            self.refresh();
+        }
+    }
+
+    pub fn keep_review_card(&mut self) {
+        if let Some(r) = self.review.as_mut() {
+            r.confirm_delete = false;
+        }
+    }
+
+    /// Opens the deck picker for the card under review, its deck highlighted.
+    pub fn start_move(&mut self) {
+        let Some(r) = self.review.as_mut() else { return };
+        let Some(deck) = r.card().map(|c| c.card.deck_id.clone()) else { return };
+        r.moving.open = true;
+        r.moving.search.clear();
+        r.moving.search.focused = true;
+        r.moving.active = Some(deck);
+    }
+
+    /// Moves the card under review to `deck`. It stays on screen until it's answered.
+    pub fn move_review_card(&mut self, deck: &str) {
+        let Some(id) = self.review.as_ref().and_then(Review::card).map(|c| c.card.id.clone()) else { return };
+        let moved =
+            self.core.update_card(CardUpdate { id, content: None, tags: None, deck_id: Some(deck.to_string()) });
+        if self.ok(moved).is_some() {
+            self.refresh();
         }
     }
 
     /// Answers the card on screen, at any side, and moves on to the next.
     pub fn answer(&mut self, remembered: bool) {
-        let Some(review) = self.review.as_ref() else { return };
+        let Some(review) = self.review.as_mut() else { return };
+        if let Some(cram) = review.cram.as_mut() {
+            // Practice: the core hears nothing, and a forgotten card comes round again.
+            if cram.current().is_none() {
+                return;
+            }
+            cram.answer(remembered);
+            review.answered += 1;
+            review.next_card();
+            return;
+        }
         let Some(card) = review.card() else { return };
         let card_id = card.card.id.clone();
         let deck = review.deck.clone();
@@ -710,8 +919,11 @@ impl App {
         let review = self.review.as_mut().expect("reviewing");
         review.next = next;
         review.shown = 1;
+        review.revealing = false;
         review.started = Instant::now();
         review.answered += 1;
+        review.confirm_delete = false;
+        review.moving.close();
         let finished = review.card().is_none();
         if finished && self.first_run {
             // The first review is done: now the rest of the app can show itself.
@@ -1092,7 +1304,7 @@ fn shuffle_seed() -> u32 {
 }
 
 /// The narrowest a grid tile gets before the grid drops a column.
-const TILE_MIN: f32 = 280.0;
+const TILE_MIN: f32 = 240.0;
 pub const GRID_GAP: f32 = 12.0;
 
 /// Columns of at least `TILE_MIN` that fit in `width`, from one to eight; three before the width is known. Wide
@@ -1125,10 +1337,10 @@ mod tests {
     #[test]
     fn grid_columns_follow_the_width() {
         assert_eq!(grid_columns(0.0), 3);
-        assert_eq!(grid_columns(1000.0), 3);
+        assert_eq!(grid_columns(1000.0), 4);
         assert_eq!(grid_columns(720.0), 2);
         assert_eq!(grid_columns(420.0), 1);
-        assert_eq!(grid_columns(1300.0), 4);
+        assert_eq!(grid_columns(1300.0), 5);
     }
 
     #[test]
@@ -1275,6 +1487,123 @@ mod tests {
         let deck = s.decks[0].deck.id.clone();
         s.select_deck(Some(deck));
         assert!(!s.in_inbox());
+    }
+
+    /// A deck's review on the lived-in fixtures, on a card with more than one side.
+    fn reviewing() -> App {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        let spanish = s.decks.iter().find(|d| d.deck.name == "Spanish").map(|d| d.deck.id.clone());
+        s.select_deck(spanish);
+        s.start_review();
+        assert!(s.review.as_ref().unwrap().card().unwrap().sides.len() > 1);
+        s
+    }
+
+    fn on_screen(s: &App) -> Option<Id> {
+        s.review.as_ref().unwrap().card().map(|c| c.card.id.clone())
+    }
+
+    #[test]
+    fn space_shows_each_side_then_remembers() {
+        let mut s = reviewing();
+        let first = on_screen(&s);
+        let sides = s.review.as_ref().unwrap().card().unwrap().sides.len();
+        for _ in 1..sides {
+            s.advance();
+        }
+        assert!(s.review.as_ref().unwrap().revealed());
+        assert_eq!(on_screen(&s), first, "still the same card, every side shown");
+        s.hide();
+        assert_eq!(s.review.as_ref().unwrap().shown, sides - 1, "↑ takes the last side away");
+        s.advance();
+        s.advance();
+        let r = s.review.as_ref().unwrap();
+        assert_eq!((r.answered, r.shown), (1, 1), "Space on the last side was Remembered");
+        assert_ne!(on_screen(&s), first);
+        s.hide();
+        assert_eq!(s.review.as_ref().unwrap().shown, 1, "the front stays");
+    }
+
+    #[test]
+    fn only_a_card_already_up_animates() {
+        let mut s = reviewing();
+        let revealing = |s: &App| s.review.as_ref().unwrap().revealing;
+        assert!(!revealing(&s), "a new card lands at once");
+        s.reveal();
+        assert!(revealing(&s), "showing a side grows the card to it");
+        s.edit_review_card();
+        assert!(!revealing(&s), "the card comes back from the editor at once");
+        s.editor = None;
+        s.reveal();
+        s.answer(true);
+        assert!(!revealing(&s), "and so does the next card");
+    }
+
+    #[test]
+    fn deleting_under_review_asks_first() {
+        let mut s = reviewing();
+        let first = on_screen(&s).unwrap();
+        s.delete_review_card();
+        assert!(s.review.as_ref().unwrap().confirm_delete);
+        s.keep_review_card();
+        s.delete_review_card();
+        assert_eq!(on_screen(&s).as_ref(), Some(&first));
+        s.delete_review_card();
+        assert_ne!(on_screen(&s).as_ref(), Some(&first), "on to the next card");
+        assert!(s.core.card(&first).is_err(), "and the card is gone");
+    }
+
+    #[test]
+    fn moving_under_review_keeps_the_card_on_screen() {
+        let mut s = reviewing();
+        let first = on_screen(&s).unwrap();
+        let rust = s.decks.iter().find(|d| d.deck.name == "Rust").map(|d| d.deck.id.clone()).unwrap();
+        s.start_move();
+        assert!(s.review.as_ref().unwrap().moving.open);
+        s.move_review_card(&rust);
+        assert_eq!(on_screen(&s).as_ref(), Some(&first));
+        assert_eq!(s.review.as_ref().unwrap().card().unwrap().card.deck_id, rust);
+    }
+
+    #[test]
+    fn editing_under_review_saves_in_place() {
+        let mut s = reviewing();
+        let first = on_screen(&s).unwrap();
+        s.edit_review_card();
+        let e = s.editor.as_mut().unwrap();
+        assert!(e.inline);
+        e.sides[0].edit.replace_text("changed");
+        s.save_editor();
+        assert!(s.editor.is_none());
+        let r = s.review.as_ref().unwrap();
+        assert_eq!(r.card().map(|c| (c.card.id.clone(), c.sides[0].clone())), Some((first, "changed".into())));
+        assert_eq!(r.answered, 0, "editing doesn't answer");
+    }
+
+    #[test]
+    fn a_cram_reviews_the_cards_shown_and_schedules_nothing() {
+        let mut s = App::new(Core::fixtures(Fixtures::LivedIn));
+        let spanish = s.decks.iter().find(|d| d.deck.name == "Spanish").map(|d| d.deck.id.clone());
+        s.select_deck(spanish);
+        s.set_sort(CardSort::Name);
+        let shown: Vec<Id> = s.cards.iter().map(|c| c.card.id.clone()).collect();
+        let before = (s.counts(), s.cards.clone());
+        s.start_cram();
+        assert_eq!(on_screen(&s).as_ref(), shown.first(), "in the list's order");
+        s.reveal();
+        s.answer(false);
+        assert_eq!(on_screen(&s).as_ref(), shown.get(1));
+        assert_eq!(s.review.as_ref().unwrap().shown, 1, "the next card starts at its front");
+        for _ in 1..shown.len() {
+            s.answer(true);
+        }
+        assert_eq!(on_screen(&s).as_ref(), shown.first(), "the forgotten card comes round again");
+        s.answer(true);
+        let r = s.review.as_ref().unwrap();
+        assert!(r.card().is_none() && !r.inbox());
+        assert_eq!(r.answered as usize, shown.len() + 1);
+        s.refresh();
+        assert_eq!((s.counts(), s.cards.clone()), before, "no review recorded, no schedule changed");
     }
 
     #[test]

@@ -21,11 +21,12 @@ pub struct Toolbar {
     inset: f32,
     pad: Option<f32>,
     material: Option<SystemMaterial>,
+    instant: bool,
 }
 
 impl Toolbar {
     pub fn new() -> Toolbar {
-        Toolbar { leading: Vec::new(), center: None, title: None, trailing: Vec::new(), inset: 0.0, pad: None, material: None }
+        Toolbar { leading: Vec::new(), center: None, title: None, trailing: Vec::new(), inset: 0.0, pad: None, material: None, instant: false }
     }
     pub fn leading(mut self, e: El) -> Self {
         self.leading.push(e);
@@ -60,6 +61,14 @@ impl Toolbar {
         self
     }
 
+    /// What the slots hold lands every change at once ([`El::instant_changes`]), while the band
+    /// itself still moves with the panes: a toolbar whose title and controls change without
+    /// motion over a sidebar that slides.
+    pub fn instant_contents(mut self) -> Self {
+        self.instant = true;
+        self
+    }
+
     /// The leading padding a `SplitView` works out (traffic lights and its sidebar toggle).
     pub(super) fn padding(mut self, points: f32) -> Self {
         self.pad = Some(points);
@@ -76,19 +85,20 @@ impl Toolbar {
             (None, Some(t)) => Some(text(t).key("title").font(k.ty.ui_medium).color(c.text_base).truncate()),
             _ => None,
         };
+        let slot = |e: El| if self.instant { e.instant_changes() } else { e };
         if let Some(center) = center {
             // Across the whole band and centred in it, so the sides can differ in width. First,
             // so the side slots draw and take presses above it.
             band = band.child(
-                row().key("center").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().px(96.0).child(center),
+                slot(row().key("center").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().px(96.0).child(center)),
             );
         }
         band = band
             // The leading slot gives way first, so a long title truncates instead of pushing the
             // trailing controls off the band.
-            .child(row().key("leading").gap(4.0).center_y().shrink().min_w(0.0).children(self.leading))
+            .child(slot(row().key("leading").gap(4.0).center_y().shrink().min_w(0.0).children(self.leading)))
             .child(row().key("spacer").grow(1.0))
-            .child(row().key("trailing").gap(4.0).center_y().children(self.trailing));
+            .child(slot(row().key("trailing").gap(4.0).center_y().children(self.trailing)));
         if let Some(m) = self.material {
             band = band.system_material(m).fill(c.bg_base);
         }

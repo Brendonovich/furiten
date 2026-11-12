@@ -1,3 +1,4 @@
+import type { CardQuery } from "./api.ts";
 import type { Sort, View } from "./types.ts";
 
 // The app's places and their state, as URLs. Every screen, overlay, filter and tab lives in the address, so reloads,
@@ -7,10 +8,18 @@ import type { Sort, View } from "./types.ts";
 //   /settings                       Sync and account
 //   /decks/:deck                    A deck's cards
 //   /decks/:deck/review             Reviewing that deck, over its page
+//   /decks/:deck/cram               Cramming the cards its page lists (with its search, tag and sort), over it
+//   /tags/:tag                      Every card with a tag, from every deck
+//   /tags/:tag/cram                 Cramming the cards its page lists (with its search and sort), over it
 //
-// A deck's page (and its review) keeps the rest in the query: `q` (search), `tag` (only cards with it), `view` (grid, list, column), `sort`
+// A deck's page (and its review or cram) keeps the rest in the query: `q` (search), `tag` (only cards with it), `view` (grid, list, column), `sort`
 // (`name`, `name-desc`…), `seed` (a random sort's order), `card` (the card open in column view), `edit` (the editor:
-// a card's id, or `new`) and `actions` (the deck's menu, at a step). Defaults are left out.
+// a card's id, or `new`) and `actions` (the deck's menu, at a step). A tag's page keeps the same but `tag`, `actions`
+// and `edit=new`. Defaults are left out.
+//
+// Search, through every deck's cards, is a layer over whichever of these is open rather than a place of its own:
+// `find` (what's typed, empty until something is) opens it over the page, `cram=find` crams what it found, and `edit`
+// edits one of its cards. Closing it drops them, back to the page as it was.
 
 export type SortState = { by: Sort; desc: boolean; seed: number | null };
 export type DeckStep = "menu" | "rename" | "subdeck" | "move" | "delete";
@@ -33,7 +42,66 @@ export const paths = {
   settings: () => "/settings",
   deck: (id: string, search = "") => `/decks/${encodeURIComponent(id)}${search}`,
   review: (id: string, search = "") => `/decks/${encodeURIComponent(id)}/review${search}`,
+  deckCram: (id: string, search = "") => `/decks/${encodeURIComponent(id)}/cram${search}`,
+  tag: (tag: string, search = "") => `/tags/${encodeURIComponent(tag)}${search}`,
+  tagCram: (tag: string, search = "") => `/tags/${encodeURIComponent(tag)}/cram${search}`,
 };
+
+/** What keys a tag's page among the pages of cards (its cards, view and sort), apart from any deck's id. */
+export const tagKey = (tag: string) => `#${tag}`;
+
+/** What the search layer is searching for (empty while nothing's typed), or null when it's closed. */
+export const readFind = (search: Search): string | null => one(search.find) ?? null;
+/** Whether a cram of what the search layer found is open over it. */
+export const readFindCram = (search: Search): boolean => readFind(search) !== null && one(search.cram) === "find";
+
+/**
+ * `url` (a path and query) with the search layer searching for `find`, and with `cram`, cramming what it found; with
+ * `find` null, the layer closed, and what was open over it.
+ */
+export function withFind(url: string, find: string | null, cram = false): string {
+  const [path = "", query = ""] = url.split("?");
+  const q = new URLSearchParams(query);
+  if (find === null) {
+    q.delete("find");
+    q.delete("cram");
+    q.delete("edit");
+  } else {
+    q.set("find", find);
+    if (cram) q.set("cram", "find");
+    else q.delete("cram");
+  }
+  const s = q.toString();
+  return s ? `${path}?${s}` : path;
+}
+
+/** The cards a deck's page lists for its URL: its search, tag filter and sort. A cram of the page asks for the same. */
+export function deckCards(deck: string, search: Search): CardQuery {
+  const sort = readSort(search);
+  return {
+    deck_id: deck,
+    q: readText(search, "q").trim() || undefined,
+    tag: readText(search, "tag") || undefined,
+    sort: sort.by,
+    desc: sort.desc,
+    seed: sort.seed ?? undefined,
+  };
+}
+
+/** The cards a tag's page lists for its URL: its search and sort. A cram of the page asks for the same. */
+export function tagCards(tag: string, search: Search): CardQuery {
+  const sort = readSort(search);
+  return {
+    tag,
+    q: readText(search, "q").trim() || undefined,
+    sort: sort.by,
+    desc: sort.desc,
+    seed: sort.seed ?? undefined,
+  };
+}
+
+/** The cards the search layer finds for `q`, before it groups them by deck (state.ts, `byDeck`). */
+export const searchCards = (q: string): CardQuery => ({ q, sort: "updated", desc: true });
 
 const one = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
 const pick = <T extends string>(all: readonly T[], v: string | undefined): T | null =>
@@ -85,7 +153,7 @@ export function queryString(params: Record<string, string | number | undefined |
   return s ? `?${s}` : "";
 }
 
-/** A deck page's query with only its lasting state (search, tag, view, sort), dropping overlays. */
+/** A deck or tag page's query with only its lasting state (search, tag, view, sort), dropping overlays. */
 export function deckQuery(search: Search): string {
   return queryString({
     q: readText(search, "q") || undefined,

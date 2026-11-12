@@ -1,10 +1,47 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_SORT, deckQuery, nextSort, parseSort, paths, queryString, readStep, readView, sortParam } from "../src/routes.ts";
+import { DEFAULT_SORT, deckCards, deckQuery, nextSort, parseSort, paths, queryString, readFind, readFindCram, readStep, readView, sortParam, tagCards, withFind } from "../src/routes.ts";
 
 describe("routes", () => {
   test("paths encode deck ids", () => {
     expect(paths.deck("a b")).toBe("/decks/a%20b");
     expect(paths.review("x", "?view=list")).toBe("/decks/x/review?view=list");
+    expect(paths.deckCram("a b", "?tag=x")).toBe("/decks/a%20b/cram?tag=x");
+    expect(paths.tagCram("a/b")).toBe("/tags/a%2Fb/cram");
+    expect(paths.tag("a/b", "?view=list")).toBe("/tags/a%2Fb?view=list");
+  });
+
+  test("search is a layer over any page", () => {
+    expect(readFind({})).toBeNull();
+    expect(readFind({ find: "" })).toBe("");
+    expect(withFind("/decks/x?view=list", "")).toBe("/decks/x?view=list&find=");
+    expect(withFind("/decks/x?view=list&find=", "a b")).toBe("/decks/x?view=list&find=a+b");
+    const cram = withFind("/?find=cat", "cat", true);
+    expect(cram).toBe("/?find=cat&cram=find");
+    expect(readFindCram({ find: "cat", cram: "find" })).toBe(true);
+    expect(readFindCram({ cram: "find" })).toBe(false);
+    expect(withFind(cram, "cat")).toBe("/?find=cat");
+    expect(withFind("/tags/t?find=cat&cram=find&edit=c1", null)).toBe("/tags/t");
+  });
+
+  test("a deck's cram lists what its page lists", () => {
+    expect(deckCards("d", { q: " cat ", tag: "verbs", sort: "random", seed: "7", view: "list", edit: "new" })).toEqual({
+      deck_id: "d",
+      q: "cat",
+      tag: "verbs",
+      sort: "random",
+      desc: false,
+      seed: 7,
+    });
+  });
+
+  test("a tag's cram lists what its page lists, which has no tag filter", () => {
+    expect(tagCards("t", { q: " cat ", tag: "verbs", sort: "due-desc", view: "column", card: "c1" })).toEqual({
+      tag: "t",
+      q: "cat",
+      sort: "due",
+      desc: true,
+      seed: undefined,
+    });
   });
 
   test("sort round-trips through its param, defaults left out", () => {

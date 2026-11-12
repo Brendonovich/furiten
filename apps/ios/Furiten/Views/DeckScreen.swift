@@ -2,17 +2,16 @@ import SwiftUI
 
 /// A deck's page (apps/web/src/DeckScreen.tsx): its name in the top bar with the deck's actions, the web's tool row
 /// (view, tag filter, sort) pinned under it on glass, then its cards as a grid, list or column, with search and a new
-/// card in the bottom toolbar.
+/// card in the bottom toolbar, and between them Review, which crams the cards the page is showing.
 struct DeckScreen: View {
     @Environment(Library.self) private var library
     @Environment(\.palette) private var palette
     @Environment(\.showSidebar) private var showSidebar
     @State private var editing: Editing?
-    @State private var deleting: CardView?
     @State private var draft = ""
+    @State private var cramming: Cram?
     /// The card open beside the list in the column view, on iPad.
     @State private var selected: String?
-    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         Group {
@@ -26,12 +25,7 @@ struct DeckScreen: View {
             CardDetail(card: card) { editing = .edit(card) }
         }
         .sheet(item: $editing) { CardEditor(editing: $0) }
-        .confirmationDialog(
-            "Delete this card?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-            titleVisibility: .visible, presenting: deleting
-        ) { card in
-            Button("Delete card", role: .destructive) { delete(card) }
-        }
+        .cramSheet($cramming)
         .onChange(of: library.deckId) {
             draft = ""
             selected = nil
@@ -43,6 +37,7 @@ struct DeckScreen: View {
             switch Scripted.screen {
             case "new": editing = .new(deck: deck.id)
             case "editor": editing = library.cards.last.map(Editing.edit)
+            case "cram": cramming = Cram(title: deck.name, deck: deck.id, cards: library.cards)
             default: break
             }
         }
@@ -62,7 +57,7 @@ struct DeckScreen: View {
             .searchable(text: $draft, prompt: "Search cards")
             .searchToolbarBehavior(.minimize)
             .safeAreaBar(edge: .top) {
-                ToolRow(deck: deck.id)
+                ToolRow(page: deck.id, deck: deck.id)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
             }
@@ -77,6 +72,11 @@ struct DeckScreen: View {
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
                 ToolbarSpacer(.flexible, placement: .bottomBar)
                 ToolbarItem(placement: .bottomBar) {
+                    let cards = library.cardsFor == deck.id ? library.cards : []
+                    CramButton(cards: cards) { cramming = Cram(title: deck.name, deck: deck.id, cards: cards) }
+                }
+                ToolbarSpacer(.flexible, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) {
                     Button("New card", systemImage: "square.and.pencil") { editing = .new(deck: deck.id) }
                 }
             }
@@ -88,105 +88,14 @@ struct DeckScreen: View {
 
     @ViewBuilder
     private func cards(_ deck: DeckSummary) -> some View {
-        let cards = library.cardsFor == deck.id ? library.cards : []
         if library.cardsFor != deck.id {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if cards.isEmpty {
+        } else if library.cards.isEmpty {
             ScrollView { empty(deck).padding(.top, 48) }
-        } else if library.layout(deck.id) == .column {
-            if sizeClass == .regular {
-                columns(deck, cards)
-            } else {
-                List {
-                    newCardRow(deck)
-                        .listRowBackground(palette.row)
-                    ForEach(cards) { card in
-                        NavigationLink(value: card) { CompactRow(card: card) }
-                            .contextMenu { menu(card) }
-                            .swipeActions { swipe(card) }
-                            .listRowBackground(palette.row)
-                    }
-                }
-                .scrollContentBackground(.hidden)
-            }
         } else {
-            ScrollView {
-                Group {
-                    if library.layout(deck.id) == .grid {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                            newTile(deck, list: false)
-                            tiles(cards, list: false)
-                        }
-                    } else {
-                        LazyVStack(spacing: 10) {
-                            newTile(deck, list: true)
-                            tiles(cards, list: true)
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            }
-            .scrollDismissesKeyboard(.immediately)
-        }
-    }
-
-    /// The column view with room for both: the cards down the side, the open one (the first, to start with) beside.
-    private func columns(_ deck: DeckSummary, _ cards: [CardView]) -> some View {
-        let open = cards.first { $0.id == selected } ?? cards.first
-        return HStack(spacing: 0) {
-            List(selection: Binding(get: { open?.id }, set: { selected = $0 })) {
-                newCardRow(deck).selectionDisabled()
-                ForEach(cards) { card in
-                    CompactRow(card: card)
-                        .tag(card.id)
-                        .contextMenu { menu(card) }
-                        .swipeActions { swipe(card) }
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .frame(width: 340)
-            Divider().ignoresSafeArea()
-            ScrollView {
-                if let open {
-                    VStack(alignment: .trailing, spacing: 12) {
-                        Button("Edit card", systemImage: "pencil") { editing = .edit(open) }
-                            .buttonStyle(.glass)
-                        CardSides(card: open)
-                    }
-                    .frame(maxWidth: 760)
-                    .padding(20)
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-    }
-
-    /// "New card", ahead of the cards, as on the web.
-    private func newTile(_ deck: DeckSummary, list: Bool) -> some View {
-        Button { editing = .new(deck: deck.id) } label: {
-            Label("New card", systemImage: "plus")
-                .font(.body.weight(.medium))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: list ? 64 : 156)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                }
-                .contentShape(.rect(cornerRadius: 16))
-        }
-        .buttonStyle(TileButtonStyle())
-    }
-
-    private func newCardRow(_ deck: DeckSummary) -> some View {
-        Button("New card", systemImage: "plus") { editing = .new(deck: deck.id) }
-    }
-
-    private func tiles(_ cards: [CardView], list: Bool) -> some View {
-        ForEach(cards) { card in
-            Button { editing = .edit(card) } label: { Tile(card: card, list: list) }
-                .buttonStyle(TileButtonStyle())
-                .contextMenu { menu(card) }
+            CardList(
+                cards: library.cards, layout: library.layout(deck.id), selected: $selected, editing: $editing,
+                onNew: { editing = .new(deck: deck.id) })
         }
     }
 
@@ -214,6 +123,134 @@ struct DeckScreen: View {
             }
         }
     }
+}
+
+/// A page's cards as its view has them (apps/web/src/DeckScreen.tsx, `Cards`): tiles in a grid or a list, or the
+/// column view, with New card ahead of them when there's `onNew`. A tile edits its card; a row in the column view opens
+/// it, beside the list on iPad and pushed (`CardDetail`) on iPhone.
+struct CardList: View {
+    @Environment(Library.self) private var library
+    @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    let cards: [CardView]
+    let layout: CardLayout
+    @Binding var selected: String?
+    @Binding var editing: Editing?
+    var onNew: (() -> Void)?
+    @State private var deleting: CardView?
+
+    var body: some View {
+        content
+            .confirmationDialog(
+                "Delete this card?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                titleVisibility: .visible, presenting: deleting
+            ) { card in
+                Button("Delete card", role: .destructive) { delete(card) }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if layout == .column {
+            if sizeClass == .regular {
+                columns
+            } else {
+                List {
+                    newCardRow
+                        .listRowBackground(palette.row)
+                    ForEach(cards) { card in
+                        NavigationLink(value: card) { CompactRow(card: card) }
+                            .contextMenu { menu(card) }
+                            .swipeActions { swipe(card) }
+                            .listRowBackground(palette.row)
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            }
+        } else {
+            ScrollView {
+                Group {
+                    if layout == .grid {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+                            newTile(list: false)
+                            tiles(list: false)
+                        }
+                    } else {
+                        LazyVStack(spacing: 10) {
+                            newTile(list: true)
+                            tiles(list: true)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
+            .scrollDismissesKeyboard(.immediately)
+        }
+    }
+
+    /// The column view with room for both: the cards down the side, the open one (the first, to start with) beside.
+    private var columns: some View {
+        let open = cards.first { $0.id == selected } ?? cards.first
+        return HStack(spacing: 0) {
+            List(selection: Binding(get: { open?.id }, set: { selected = $0 })) {
+                newCardRow.selectionDisabled()
+                ForEach(cards) { card in
+                    CompactRow(card: card)
+                        .tag(card.id)
+                        .contextMenu { menu(card) }
+                        .swipeActions { swipe(card) }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .frame(width: 340)
+            Divider().ignoresSafeArea()
+            ScrollView {
+                if let open {
+                    VStack(alignment: .trailing, spacing: 12) {
+                        Button("Edit card", systemImage: "pencil") { editing = .edit(open) }
+                            .buttonStyle(.glass)
+                        CardSides(card: open)
+                    }
+                    .frame(maxWidth: 760)
+                    .padding(20)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    /// "New card", ahead of the cards, as on the web.
+    @ViewBuilder
+    private func newTile(list: Bool) -> some View {
+        if let onNew {
+            Button(action: onNew) {
+                Label("New card", systemImage: "plus")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: list ? 64 : 156)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                    }
+                    .contentShape(.rect(cornerRadius: 16))
+            }
+            .buttonStyle(TileButtonStyle())
+        }
+    }
+
+    @ViewBuilder
+    private var newCardRow: some View {
+        if let onNew { Button("New card", systemImage: "plus", action: onNew) }
+    }
+
+    private func tiles(list: Bool) -> some View {
+        ForEach(cards) { card in
+            Button { editing = .edit(card) } label: { Tile(card: card, list: list) }
+                .buttonStyle(TileButtonStyle())
+                .contextMenu { menu(card) }
+        }
+    }
 
     @ViewBuilder
     private func menu(_ card: CardView) -> some View {
@@ -228,7 +265,6 @@ struct DeckScreen: View {
     private func delete(_ card: CardView) {
         Task { await library.write { try await $0.deleteCard(card.id) } }
     }
-
 }
 
 enum Editing: Identifiable {
@@ -246,6 +282,7 @@ enum Editing: Identifiable {
 /// Shows only the cards with one tag (apps/web/src/DeckScreen.tsx, `TagFilter`): the library's tags, this deck's
 /// first.
 private struct TagMenu: View {
+    @Environment(\.palette) private var palette
     @Environment(Library.self) private var library
     let deck: String
     @State private var tags: [String] = []
@@ -266,7 +303,7 @@ private struct TagMenu: View {
                 Image(systemName: tag.isEmpty ? "tag" : "tag.fill")
                 if !tag.isEmpty { Text("#\(tag)").lineLimit(1) }
             }
-            .foregroundStyle(tag.isEmpty ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
+            .foregroundStyle(tag.isEmpty ? AnyShapeStyle(.primary) : AnyShapeStyle(palette.accent))
             .padding(.horizontal, 13)
             .frame(minWidth: 46, minHeight: 42)
             .contentShape(.rect)
@@ -281,13 +318,14 @@ private struct TagMenu: View {
 
 /// A card's front as a tile, with how many sides it hides and when it's due. In the list view it runs the page's
 /// width and shows more of the front.
-private struct Tile: View {
+struct Tile: View {
     let card: CardView
     var list = false
 
     var body: some View {
         let front = card.sides.first ?? ""
         let cap: CGFloat = list ? 200 : 132
+        let inset: CGFloat = list ? 18 : 14
         VStack(alignment: .leading, spacing: 0) {
             MarkdownView(text: front)
                 .modifier(FrontFont(size: FrontSize(front)))
@@ -304,18 +342,20 @@ private struct Tile: View {
                     }
                 }
             Spacer(minLength: 10)
-            Footer(card: card)
+            Footer(card: card, inset: inset)
         }
-        .padding(list ? 18 : 14)
+        .padding(inset)
         .frame(maxWidth: .infinity, minHeight: list ? 0 : 156, alignment: .topLeading)
         .cardSurface()
         .contentShape(.rect(cornerRadius: 16))
     }
 }
 
-/// "+1 side" and when it's due, in small caps under a dashed rule, beneath a card's front.
+/// "+ 1 side" and when it's due, in small caps under the side rule (across the tile), beneath a card's front.
 private struct Footer: View {
     let card: CardView
+    /// The tile's padding, which the rule runs out through to the tile's edges.
+    let inset: CGFloat
 
     var body: some View {
         HStack {
@@ -335,9 +375,7 @@ private struct Footer: View {
         .tracking(0.6)
         .foregroundStyle(.tertiary)
         .padding(.top, 8)
-        .overlay(alignment: .top) {
-            Line().stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 3])).foregroundStyle(.quaternary).frame(height: 1)
-        }
+        .overlay(alignment: .top) { SideLine().padding(.horizontal, -inset) }
     }
 }
 
@@ -376,7 +414,7 @@ private struct CompactRow: View {
 }
 
 /// A card pushed from the column view on iPhone, all its sides at once.
-private struct CardDetail: View {
+struct CardDetail: View {
     let card: CardView
     let edit: () -> Void
     @Environment(\.palette) private var palette
@@ -395,6 +433,7 @@ private struct CardDetail: View {
 /// A card's sides one under another, divided by rules, then how its reviews have gone and its tags
 /// (apps/web/src/DeckScreen.tsx, `Detail`).
 private struct CardSides: View {
+    @Environment(\.palette) private var palette
     let card: CardView
 
     var body: some View {
@@ -402,12 +441,7 @@ private struct CardSides: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(card.sides.enumerated()), id: \.offset) { i, side in
                 if i > 0 {
-                    Line()
-                        .stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-                        .foregroundStyle(.tertiary)
-                        .frame(height: 1)
-                        .padding(.vertical, 20)
-                        .padding(.horizontal, -20)
+                    SideRule().padding(.horizontal, -24)
                 }
                 MarkdownView(text: side, selectable: true).font(.title2).lineSpacing(4)
             }
@@ -420,7 +454,7 @@ private struct CardSides: View {
                             .compactMap(\.self)
                         let prefix = history.isEmpty ? "" : history.joined(separator: " · ") + " · "
                         if s.due <= nowMs() {
-                            Text("\(prefix)\(Text("Due now").foregroundStyle(.tint))")
+                            Text("\(prefix)\(Text("Due now").foregroundStyle(palette.accent))")
                         } else {
                             Text(prefix + "Due \(until(s.due))")
                         }
@@ -436,7 +470,9 @@ private struct CardSides: View {
             }
             .padding(.top, 24)
         }
-        .padding(20)
+        // Review's insets, so a card reads the same in both.
+        .padding(.horizontal, 24)
+        .padding(.vertical, 26)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface(radius: 18)
     }
@@ -449,17 +485,19 @@ private struct ToolSurface: ViewModifier {
     }
 }
 
-/// The web's tool row (apps/web/src/DeckScreen.tsx, `Tools`): the view as three segments, the tag filter, and on the
-/// right the sort with its direction beside it.
-private struct ToolRow: View {
+/// The web's tool row (apps/web/src/DeckScreen.tsx, `Tools`): the view as three segments, the tag filter on a deck's
+/// page, and on the right the sort with its direction beside it. `page` keys the view and sort the page remembers: a
+/// deck's id, or a tag's `tagKey`.
+struct ToolRow: View {
     @Environment(Library.self) private var library
-    let deck: String
+    let page: String
+    var deck: String?
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 8) {
                 views
-                TagMenu(deck: deck).modifier(ToolSurface())
+                if let deck { TagMenu(deck: deck).modifier(ToolSurface()) }
                 Spacer(minLength: 0)
                 sort
             }
@@ -469,10 +507,10 @@ private struct ToolRow: View {
     }
 
     private var views: some View {
-        let layout = library.layout(deck)
+        let layout = library.layout(page)
         return HStack(spacing: 2) {
             ForEach(CardLayout.allCases) { option in
-                Button { library.setLayout(deck, option) } label: {
+                Button { library.setLayout(page, option) } label: {
                     Image(systemName: option.icon)
                         .frame(width: 38, height: 36)
                         .background { if option == layout { Capsule().fill(.fill.secondary) } }
@@ -488,11 +526,11 @@ private struct ToolRow: View {
     }
 
     private var sort: some View {
-        let sort = library.sort(deck)
+        let sort = library.sort(page)
         let direction = sort.by.directions.map { sort.desc ? $0.1 : $0.0 } ?? "Shuffle again"
         return HStack(spacing: 0) {
             Menu {
-                Picker("Sort by", selection: Binding(get: { sort.by }, set: { library.setSort(deck, $0) })) {
+                Picker("Sort by", selection: Binding(get: { sort.by }, set: { library.setSort(page, $0) })) {
                     ForEach(Sort.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.inline)
@@ -509,7 +547,7 @@ private struct ToolRow: View {
             .accessibilityLabel("Sort by \(sort.by.label.lowercased())")
             Rectangle().fill(.quaternary).frame(width: 1, height: 20)
             Button {
-                if sort.by.directions == nil { library.setSort(deck, .random) } else { library.setSort(deck, sort.by, desc: !sort.desc) }
+                if sort.by.directions == nil { library.setSort(page, .random) } else { library.setSort(page, sort.by, desc: !sort.desc) }
             } label: {
                 Image(systemName: sort.by.directions == nil ? "shuffle" : sort.desc ? "arrow.down" : "arrow.up")
                     .frame(width: 44, height: 42)

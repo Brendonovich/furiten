@@ -72,7 +72,8 @@ final class Core: @unchecked Sendable {
         let _: Ack = try await call("decks.delete", ID(id: id))
     }
 
-    func cards(deck: String, query: String, tag: String, sort: SortState) async throws -> [CardView] {
+    /// A deck's cards, or with no deck every deck's.
+    func cards(deck: String?, query: String, tag: String, sort: SortState) async throws -> [CardView] {
         try await call("cards.list", CardQuery(
             deckId: deck, q: query.isEmpty ? nil : query, tag: tag.isEmpty ? nil : tag, limit: 500,
             sort: sort.by.rawValue, desc: sort.desc ? true : nil, seed: sort.by == .random ? sort.seed : nil))
@@ -228,7 +229,7 @@ private struct Paired: Decodable, Sendable { let libraryId: String }
 private struct LoggedIn: Decodable, Sendable { let token: String }
 
 private struct CardQuery: Encodable, Sendable {
-    let deckId: String
+    let deckId: String?
     let q: String?
     let tag: String?
     let limit: Int

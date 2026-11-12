@@ -11,6 +11,8 @@ final class Library {
     /// The linked core; nil only if the library couldn't be opened.
     @ObservationIgnored let core: Core?
     private(set) var decks: [DeckSummary] = []
+    /// Every tag on a card in any deck, as the core orders them (the most recently used first).
+    private(set) var tags: [TagSummary] = []
     private(set) var loaded = false
     private(set) var deckId: String?
     private(set) var cards: [CardView] = []
@@ -92,6 +94,7 @@ final class Library {
         do {
             sync = try? await core.status()
             let decks = try await core.decks()
+            if let tags = try? await core.tags(deck: nil) { self.tags = tags }
             let open = deckId
             // A deck that's gone, deleted here or on another device, leaves for Review (the screens follow `deckId`).
             let deck: String? =
@@ -177,6 +180,7 @@ final class Library {
         Task { await refreshCards() }
     }
 
+    /// A page's view, by a deck's id or a tag's `tagKey`, as last picked there; so too its sort.
     func layout(_ deck: String) -> CardLayout {
         layouts[deck] ?? defaults.string(forKey: Keys.layout(deck)).flatMap(CardLayout.init) ?? .grid
     }
@@ -275,6 +279,9 @@ struct SortState: Equatable, Sendable {
     var seed: UInt32
 }
 
+/// What keys a tag's page's remembered view and sort, apart from any deck's id (apps/web/src/routes.ts, `tagKey`).
+func tagKey(_ tag: String) -> String { "#\(tag)" }
+
 /// The deck tree: each deck followed by its subdecks, alphabetical at every level; orphans go to the top.
 func deckTree(_ decks: [DeckSummary]) -> [(deck: DeckSummary, depth: Int)] {
     let ids = Set(decks.map(\.id))
@@ -316,12 +323,18 @@ func deckPath(_ decks: [DeckSummary], _ id: String) -> String {
 #if DEBUG
 /// Launch arguments for scripted runs (`apps/ios/scripts/simulate.sh`).
 enum Scripted {
-    /// `-screen inbox|decks|settings|deck|new|editor` opens that screen; the deck's screens once it has loaded.
-    /// With none, or `inbox`, the app opens on Review.
+    /// `-screen inbox|decks|settings|search|deck|new|editor|cram|tag` opens that screen; the deck's screens once it has
+    /// loaded. With none, or `inbox`, the app opens on Review.
     static var screen: String? { UserDefaults.standard.string(forKey: "screen") }
+    /// `-tag <tag>` is the tag `-screen tag` opens.
+    static var tag: String? { UserDefaults.standard.string(forKey: "tag") }
+    /// `-query <text>` is what `-screen search` searches for.
+    static var query: String? { UserDefaults.standard.string(forKey: "query") }
     /// `-reveal YES` shows every side of each card under review, for screenshots of the answers.
     static var reveal: Bool { UserDefaults.standard.bool(forKey: "reveal") }
     /// `-unfocus 3` hides the editor's keyboard that many seconds after it opens, to record unfocusing.
     static var unfocus: Double { UserDefaults.standard.double(forKey: "unfocus") }
+    /// `-tagging <text>` types that into the editor's tag field once it opens (`-tagging ""` just focuses it).
+    static var tagging: String? { UserDefaults.standard.string(forKey: "tagging") }
 }
 #endif

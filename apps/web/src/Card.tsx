@@ -1,5 +1,5 @@
 import { createMemo, Show } from "solid-js";
-import { frontSize, untilShort } from "./format.ts";
+import { frontSize, hiddenSides, untilShort } from "./format.ts";
 import { renderMarkdown } from "./markdown.ts";
 import type { CardView } from "./types.ts";
 
@@ -11,6 +11,21 @@ export function CardFace(props: { text: string; size?: boolean }) {
       class={["markdown", props.size ? `size-${frontSize(props.text)}` : undefined]}
       innerHTML={html()}
     />
+  );
+}
+
+/** A card as a tile: its front, how many sides it hides, and when it's due. */
+export function Tile(props: { card: CardView; onClick: () => void }) {
+  return (
+    <button class="tile" onClick={() => props.onClick()}>
+      <CardFace text={props.card.sides[0] ?? ""} size />
+      <span class="tile-footer">
+        <span>
+          <Show when={props.card.sides.length > 1}>+ {hiddenSides(props.card.sides.length - 1)}</Show>
+        </span>
+        <DueLabel card={props.card} />
+      </span>
+    </button>
   );
 }
 

@@ -1,5 +1,6 @@
 //! The contract's types, straight from `furiten-core`.
 
+pub use furiten_core::cram::Cram;
 pub use furiten_core::model::{content_from_sides, sides};
 pub use furiten_core::now_ms;
 pub use furiten_core::protocol::{

@@ -14,6 +14,7 @@ cargo run -p furiten -- add --deck Geography "What is the capital of France?
 ---
 Paris"
 cargo run -p furiten -- review
+cargo run -p furiten -- cram --deck Geography   # practice every card, due or not; nothing is scheduled
 cargo run -p furiten-desktop
 ```
 

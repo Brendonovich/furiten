@@ -1,10 +1,12 @@
 //! FSRS-6 with its published default parameters. Deterministic (no fuzz) so every device and the server derive the
 //! same schedule from the same reviews.
+//!
+//! There are no learning steps: remembering a new card schedules it, and a card you forget (learning or relearning)
+//! is due again at once, for the review queue to bring back once the rest of the session is done.
 
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
-const MINUTE: i64 = 60_000;
 const DAY: i64 = 86_400_000;
 const MAX_INTERVAL_DAYS: f64 = 36_500.0;
 
@@ -106,10 +108,10 @@ impl Scheduler {
             let stability = self.init_stability(rating);
             let difficulty = self.init_difficulty(rating);
             return match rating {
-                Rating::Easy => self.graduate(stability, difficulty, reps, s.lapses, now),
-                _ => Schedule {
+                Rating::Good | Rating::Easy => self.graduate(stability, difficulty, reps, s.lapses, now),
+                Rating::Again | Rating::Hard => Schedule {
                     state: State::Learning,
-                    due: now + step(rating, State::Learning),
+                    due: now,
                     stability,
                     difficulty,
                     reps,
@@ -133,7 +135,7 @@ impl Scheduler {
                 };
                 return Schedule {
                     state: State::Relearning,
-                    due: now + step(rating, State::Relearning),
+                    due: now,
                     stability,
                     difficulty,
                     reps,
@@ -160,7 +162,7 @@ impl Scheduler {
         match rating {
             Rating::Again | Rating::Hard => Schedule {
                 state: s.state,
-                due: now + step(rating, s.state),
+                due: now,
                 stability,
                 difficulty,
                 reps,
@@ -249,15 +251,6 @@ impl Scheduler {
         let inc = (w[17] * (rating.g() - 3.0 + w[18])).exp() * s.powf(-w[19]);
         let inc = if rating.g() >= 3.0 { inc.max(1.0) } else { inc };
         s * inc
-    }
-}
-
-fn step(rating: Rating, state: State) -> i64 {
-    match (state, rating) {
-        (State::Relearning, _) => 10 * MINUTE,
-        (_, Rating::Again) => MINUTE,
-        (_, Rating::Hard) => 5 * MINUTE,
-        _ => 10 * MINUTE,
     }
 }
 

@@ -1,13 +1,13 @@
-import { useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, flush, For, onSettled, Show, useContext } from "solid-js";
+import { useLocation, useSearchParams } from "@solidjs/router";
+import { createEffect, createMemo, createSignal, flush, For, onSettled, Show, untrack, useContext } from "solid-js";
 import { CardFace } from "./Card.tsx";
 import { DRAWER_EDGE, wide } from "./Drawer.tsx";
-import { counts, until } from "./format.ts";
+import { counts, plural, until } from "./format.ts";
 import { Icon } from "./Icon.tsx";
 import { useOverlay } from "./nav.ts";
-import { deckQuery, paths, readText } from "./routes.ts";
-import { AppContext, deckPath } from "./state.ts";
-import type { NextReview } from "./types.ts";
+import { deckCards, deckQuery, paths, readFind, readText, searchCards, tagCards, withFind } from "./routes.ts";
+import { AppContext, byDeck, deckPath } from "./state.ts";
+import type { CardView, NextReview } from "./types.ts";
 
 const label = (remembered: boolean) => (remembered ? "Remembered" : "Forgot");
 /** How far a card is dragged before letting go answers it. */
@@ -16,11 +16,104 @@ const SWIPE = 96;
 const FLY_OFF = 220;
 
 /**
+ * A cram (docs/contract.md, "Scheduling"): the cards a list is showing, in its order, due or not. Answers record
+ * nothing; a forgotten card goes to the back until it's remembered. `back` is the list's URL, for closing.
+ */
+export type Cram = { title: string; cards: () => Promise<CardView[]>; back: string };
+
+/** The cards a list was showing when its Review was pressed, for the cram it opened at `at`. */
+let pressed: { at: string; cards: CardView[] } | null = null;
+
+/**
+ * Review, centred at the foot of a list: a cram of exactly the cards it's showing (`null` while they load), opened at
+ * `at`. A reload there lists them again from the URL.
+ */
+export function CramButton(props: { cards: readonly CardView[] | null; at: string }) {
+  const overlay = useOverlay();
+  return (
+    <Show when={props.cards?.length}>
+      <button
+        data-component="button-v2" data-variant="contrast" data-size="touch" class="cram"
+        title="Review these cards, without changing when they’re due"
+        onClick={() => {
+          pressed = { at: props.at, cards: [...(props.cards ?? [])] };
+          overlay.open(props.at);
+        }}
+      >
+        <Icon name="play" />
+        Review
+      </button>
+    </Show>
+  );
+}
+
+/** A cram's cards: the ones its list showed when Review was pressed, or after a reload, listed again with `list`. */
+function cramCards(at: string, list: () => Promise<CardView[]>): Promise<CardView[]> {
+  const p = pressed;
+  pressed = null;
+  return p?.at === at ? Promise.resolve(p.cards) : list();
+}
+
+/** `/decks/:deck/cram`: the deck's page as its URL has it, searched, filtered and sorted. */
+export function DeckCram(props: { deck: string }) {
+  const app = useContext(AppContext);
+  const [search] = useSearchParams();
+  const { deck, query } = untrack(() => ({ deck: props.deck, query: deckQuery(search) }));
+  const name = () => app.state.decks.find((d) => d.id === deck)?.name ?? "Review";
+  const list = () => app.client()?.cards(deckCards(deck, search)) ?? Promise.resolve([]);
+  return (
+    <Review
+      deck={deck}
+      cram={{
+        get title() {
+          return name();
+        },
+        cards: () => cramCards(paths.deckCram(deck, query), list),
+        back: paths.deck(deck, query),
+      }}
+    />
+  );
+}
+
+/** `/tags/:tag/cram`: every card with the tag, as its page lists them, searched and sorted. */
+export function TagCram(props: { tag: string }) {
+  const app = useContext(AppContext);
+  const [search] = useSearchParams();
+  const { tag, query } = untrack(() => ({ tag: props.tag, query: deckQuery(search) }));
+  const list = () => app.client()?.cards(tagCards(tag, search)) ?? Promise.resolve([]);
+  return (
+    <Review
+      deck={null}
+      cram={{ title: `#${tag}`, cards: () => cramCards(paths.tagCram(tag, query), list), back: paths.tag(tag, query) }}
+    />
+  );
+}
+
+/** `?find=…&cram=find`: what the search layer found, deck by deck as it shows them, over it. */
+export function SearchCram() {
+  const app = useContext(AppContext);
+  const location = useLocation();
+  const [search] = useSearchParams();
+  const { url, find } = untrack(() => ({ url: location.pathname + location.search, find: readFind(search) ?? "" }));
+  const q = find.trim();
+  const list = async () => {
+    const cards = q ? ((await app.client()?.cards(searchCards(q))) ?? []) : [];
+    return byDeck(app.state.decks, cards).flatMap((g) => g.cards);
+  };
+  return (
+    <Review
+      deck={null}
+      cram={{ title: `“${q}”`, cards: () => cramCards(withFind(url, find, true), list), back: withFind(url, find) }}
+    />
+  );
+}
+
+/**
  * One review session over a deck (and its subdecks), or with no deck, the inbox: every due card from every deck,
  * shown in place rather than over the deck. Sides reveal one at a time with a tap, as on the desktop. Swipe right if
- * you remembered it or left if you forgot, or use the buttons, at any side.
+ * you remembered it or left if you forgot, or use the buttons, at any side. With `cram`, a cram over the list instead.
  */
-export function Review(props: { deck: string | null }) {
+export function Review(props: { deck: string | null; cram?: Cram }) {
   const app = useContext(AppContext);
   const overlay = useOverlay();
   const [search] = useSearchParams();
@@ -31,8 +124,11 @@ export function Review(props: { deck: string | null }) {
   const [leaving, setLeaving] = createSignal<0 | 1 | -1>(0);
   const [busy, setBusy] = createSignal(false);
   let started = Date.now();
+  let queue: CardView[] | null = null;
+  const [cramTotal, setCramTotal] = createSignal(0);
+  const [forgotten, setForgotten] = createSignal(0);
 
-  const inbox = () => props.deck === null;
+  const inbox = () => props.deck === null && !props.cram;
   const deck = createMemo(() => app.state.decks.find((d) => d.id === props.deck));
   const card = () => next()?.card ?? null;
   const revealed = () => {
@@ -44,7 +140,16 @@ export function Review(props: { deck: string | null }) {
     const c = app.client();
     if (!c) return;
     try {
-      const n = await c.next(props.deck ?? undefined);
+      let n: NextReview;
+      if (props.cram) {
+        if (!queue) {
+          queue = await props.cram.cards();
+          setCramTotal(queue.length);
+        }
+        n = { card: queue[0] ?? null, remaining: { due: queue.length, new: 0 } };
+      } else {
+        n = await c.next(props.deck ?? undefined);
+      }
       setNext(n);
       setShown(1);
       setDrag(0);
@@ -63,6 +168,7 @@ export function Review(props: { deck: string | null }) {
   );
 
   const close = () => {
+    if (props.cram) return overlay.close(props.cram.back);
     const d = props.deck;
     if (d === null) return;
     overlay.close(paths.deck(d, deckQuery(search)));
@@ -92,7 +198,8 @@ export function Review(props: { deck: string | null }) {
     setLeaving(remembered ? 1 : -1);
     try {
       await Promise.all([
-        client.answer(c.id, remembered, Date.now() - started),
+        // A cram records nothing: a forgotten card only goes to the back of it.
+        props.cram ? cramAnswer(remembered) : client.answer(c.id, remembered, Date.now() - started),
         new Promise((done) => setTimeout(done, FLY_OFF)),
       ]);
       setAnswered(answered() + 1);
@@ -105,6 +212,14 @@ export function Review(props: { deck: string | null }) {
       setDrag(0);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const cramAnswer = async (remembered: boolean) => {
+    const card = queue?.shift();
+    if (card && !remembered) {
+      queue!.push(card);
+      setForgotten(forgotten() + 1);
     }
   };
 
@@ -223,9 +338,13 @@ export function Review(props: { deck: string | null }) {
           </button>
         </Show>
         <div class="toolbar-title stacked">
-          <span>{deck()?.name ?? "Review"}</span>
+          <span>{props.cram?.title ?? deck()?.name ?? "Review"}</span>
           <Show when={next()}>
-            {(n) => <span class="faint small">{counts(n().remaining.due, n().remaining.new)}</span>}
+            {(n) => (
+              <span class="faint small">
+                {props.cram ? `${n().remaining.due} left` : counts(n().remaining.due, n().remaining.new)}
+              </span>
+            )}
           </Show>
         </div>
         <Show when={!inbox()} fallback={<span class="icon-button toolbar-balance" aria-hidden="true" />}>
@@ -243,7 +362,12 @@ export function Review(props: { deck: string | null }) {
           when={card()}
           fallback={
             <Show when={!inbox()} fallback={<CaughtUp answered={answered()} />}>
-              <Finished answered={answered()} onClose={close} />
+              <Show
+                when={props.cram}
+                fallback={<Finished answered={answered()} onClose={close} />}
+              >
+                <Crammed cards={cramTotal()} forgotten={forgotten()} onClose={close} />
+              </Show>
             </Show>
           }
         >
@@ -332,6 +456,27 @@ function CaughtUp(props: { answered: number }) {
     <div class="empty">
       <h2>{props.answered > 0 ? "That’s everything for now" : "All caught up"}</h2>
       <p class="muted">Cards from every deck show up here when they’re due.</p>
+    </div>
+  );
+}
+
+/** The end of a cram: every card remembered once. */
+function Crammed(props: { cards: number; forgotten: number; onClose: () => void }) {
+  return (
+    <div class="empty">
+      <h2>{props.cards > 0 ? "That’s every card" : "No cards to review"}</h2>
+      <Show when={props.cards > 0}>
+        <p class="muted">
+          {plural(props.cards, "card")}
+          {props.forgotten > 0 ? `, ${props.forgotten} forgotten along the way` : ", none forgotten"}. Cramming leaves
+          their schedules as they were.
+        </p>
+      </Show>
+      <div class="sheet-buttons">
+        <button data-component="button-v2" data-variant="contrast" data-size="touch" onClick={() => props.onClose()}>
+          Done
+        </button>
+      </div>
     </div>
   );
 }

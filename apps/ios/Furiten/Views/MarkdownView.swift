@@ -28,6 +28,8 @@ struct MarkdownView: View {
             }
         }
         .modifier(Selectable(on: selectable))
+        // Links take the theme's accent.
+        .tint(palette.accent)
     }
 
     private func inline(_ markdown: String) -> Text {

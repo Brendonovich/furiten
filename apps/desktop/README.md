@@ -38,17 +38,34 @@ first, when the one it showed goes away); there's no view of every deck at once.
 (`import.mochi`, the same as `furiten import mochi`), then opens the first deck it added with a line saying what came
 in and what stayed behind.
 
+The sidebar slides open and closed. In a window too narrow to share (the main pane would be under 480 points), it
+pushes the main pane aside instead, as the phone's drawer does: what's left of the page dims, and picking Review, a
+deck or Sync, or clicking the dimmed page, closes it.
+
 **Review**, above the decks, is the inbox: every due card from every deck, with how many are waiting (`review.next`
 without a deck). Each card says which deck it's from. When nothing's left it says "All caught up", and it picks up
 cards as they come due or arrive from elsewhere.
 
 ## Review
 
-A deck's review (Review in its title bar, or Space) and the inbox work the same way. The card sits near the top, as
-wide as its text needs (420 to 760 pt), with the deck it's from above it (always in the inbox; in a deck's review
-only for a subdeck's card). A click anywhere but the buttons, or Space, reveals the next side, under a dotted rule
-across the card; "Click to reveal the next side" shows until they all are. The tags wait for the last side. The ✕
-and ✓ buttons (or 1 and 2) are always there and answer at any side; each takes its answer's colour under the pointer.
+A deck's review (Review in its title bar, or Space) and the inbox work the same way. The card sits near the top, 760 pt
+wide (narrower in a narrow window) whatever its text, so it never changes width as sides are shown; Settings →
+Review → **Full-width cards** has cards fill the pane instead (a local preference, like the card views), with the deck it's from above it (always in the inbox; in a deck's review
+only for a subdeck's card). A click anywhere but the buttons, Space or ↓ reveals the next side, under a dashed rule
+across the card, and ↑ hides it again; the line under the card says which keys to press. The tags wait for the last
+side. Space on the last side is Remembered, as in Mochi. The ✕ and ✓ buttons (F and ⇧Space, or 1 and 2) are always
+there and answer at any side; each takes its answer's colour under the pointer.
+
+E edits the card where it is: its sides become fields in place, with Cancel and Save card (Esc, ⌘Return) where the
+answers were; its tags and deck stay as they are. D asks "Delete this card?" in the answers' place, and D again
+deletes it and moves on (Esc keeps it). ⌃M, or pressing the deck's name over the card, opens a searchable list of
+decks to move it to; it stays on screen until it's answered. When a deck's review is done, Space or Esc ends it.
+
+**Review** in a deck's title bar (or Space) crams exactly the cards shown, with the search and sort as they are,
+due or not, in that order. It's practice: nothing is recorded and no schedule changes. The review screen works
+the same, with how many cards are left in the title bar; a forgotten card comes round again at the end, and the
+cram is done once every card has been remembered once. The button is off when the list is empty. Due cards from
+every deck are reviewed, and scheduled, from Review at the top of the sidebar.
 
 ## Card views
 
@@ -79,46 +96,70 @@ most its first 500 cards.
 
 ## Keys
 
-| Where | Key | Does |
+The keys follow Mochi's, so they work the same for someone coming from it; Furiten's own 1 and 2 still answer too.
+They're all in one table, `src/keys.rs`: the key handlers ask it, `?` shows it in a panel, and a test keeps this
+table in step with it.
+
+| Where | Keys | Does |
 | --- | --- | --- |
 | Anywhere | ⌘N | New card |
-| A deck | N | New card |
-| A deck | ⌘1 / ⌘2 / ⌘3 | Grid / List / Column view |
-| A deck | / | Search; Esc clears it, Esc again leaves it |
-| A deck | ← → ↑ ↓ | Move the selection (by grid position in the grid) |
-| A deck | Return | Open the selected card: the editor in Grid and List; in Column, the detail, then the editor |
-| A deck | Esc | Clear the selection |
 | Anywhere | ⌘, | Settings and sync |
-| Anywhere | ⇧⌘B | Show or hide the sidebar |
-| A deck | Space (or Return with nothing selected) | Start review |
-| Review | Space or Return (or a click) | Reveal the next side |
-| Review | 1 / 2 | Forgot / Remembered, at any side |
-| Review | Esc | End a deck's review |
+| Anywhere | ⌘\\, ⇧⌘B | Show or hide the sidebar |
+| Anywhere | ? | Keyboard shortcuts |
+| Anywhere | Esc | Close settings or this panel |
+| Review | Space | Show the next side; on the last, Remembered |
+| Review | ↓, J, Return | Show the next side |
+| Review | ↑, K | Hide the last side shown |
+| Review | ⇧Space, 2 | Remembered, from any side |
+| Review | F, 1 | Forgot, from any side |
+| Review | E | Edit the card in place |
+| Review | D | Delete the card (press again to confirm) |
+| Review | ⌃M | Move the card to another deck |
+| Review | Esc | End a deck’s review |
+| A deck | N | New card |
+| A deck | / | Search (Esc clears it, Esc again leaves it) |
+| A deck | Space | Review the cards shown, due or not, without scheduling them |
+| A deck | ↑, ↓, ←, → | Move the selection |
+| A deck | Return | Open the selected card (in Column, its detail first); with none, review the cards shown |
+| A deck | Esc | Clear the selection |
+| A deck | ⌘1 | Grid view |
+| A deck | ⌘2 | List view |
+| A deck | ⌘3 | Column view |
+| Editor | ⌘Return | Save card |
+| Editor | Esc | Cancel |
+| Editor | ⇧Return, ⌘- | Start a new side at the caret |
+| Editor | ⌘B | Bold |
+| Editor | ⌘I | Italic |
+
+Writing, and in the tag field, a few keys do what they would in any text field with a twist:
+
+| Where | Key | Does |
+| --- | --- | --- |
 | Editor | Return | New line; in a list, the next item (next number, empty task box), or ends the list on an empty one; on a line with only `---`, starts the next side there |
 | Editor | Backspace (at the start of a side) | Join it to the side before |
 | Editor | ↑ at a side's start / ↓ at its end | Move to the side before / after |
-| Editor | ⌘Return | Save card |
-| Editor | Esc | Cancel |
 | Tag field | ↓ ↑, Return | Highlight a suggested tag, add it (while typing, the first match is highlighted) |
 | Tag field | Esc | Close the suggestions (again: cancel) |
 | Sidebar | ↑ ↓, Return | Move between decks |
 
 ## Editor
 
-The editor is a dialog over the deck or review it was opened from. Its sides sit in a well at least 260 pt tall that
-scrolls past about 400 pt (Settings → Experiments → "A field for each side" gives each side a box of its own
+The editor is a dialog over the deck or review it was opened from, on the page's colour so the card in it looks as
+cards do everywhere else (the iOS app is the reference for how cards, sides, rules and tags look: `src/theme.rs`).
+Its sides sit on a card at least 300 pt tall, whose sides scroll past about 400 pt (Settings → Experiments → "A field for each side" gives each side a box of its own
 instead, the `editor-separate` scene). Clicking outside it cancels, as Esc does. Inside it is the card
 as it reviews: its sides one under another, a dashed rule between, each side its
-own field, all set alike and none of them named. A new card is one empty side; giving new cards a shape (a front and
+own field, all set alike and none of them named. (E in a review edits the sides the same way, in place.) A new card is one empty side; giving new cards a shape (a front and
 a back, or "Word / Reading / Meaning") is for templates (PLAN.md, milestone 9), not the editor. Markdown is styled in
 place as you write (bold reads bold, a heading reads large, code reads in mono on a tint, a link in the accent) while
 the marks that do it (`**`, `#`, `>`, backticks, a link's URL) show, faded, only on the lines the caret or selection
-is on, and are hidden elsewhere, so the rest reads as it will render. A bullet item's `- ` is always drawn as a
+is on, and are hidden elsewhere, so the rest reads as it will render. ⌘B and ⌘I put `**` and `*` around the selection, or take them off. A bullet item's `- ` is always drawn as a
 bullet, indented to its nesting, even on the caret's line: the caret steps over it, and Backspace at the item's start
 deletes the space, so the plain `-` shows again. Numbers, task boxes, rules and HTML always show. It parses with the same parser the cards render with (`src/ui/markup.rs`). Return is a new line. Typing `---` on a line of its own and pressing Return
-splits the side there, with what followed the caret starting the next side, and pasting a whole card splits it into
-its sides; Backspace at the start of a side joins it back. **Add side** adds an empty one at the end. Empty sides are
-dropped on save. Tags are chips in one field under the card: a comma, space or Return after a word makes it a chip
+(or ⇧Return or ⌘- anywhere) splits the side there, with what followed the caret starting the next side, and pasting a whole card splits it into
+its sides; Backspace at the start of a side joins it back. **+ Side**, at the card's foot, adds an empty one at the
+end. Empty sides are dropped on save. Under the card is one row of pills: the deck (pick another from its menu), the
+tags in the accent, and **+ Tag**, which widens to type in: a comma, space or Return after a word makes it a chip
 (a leading `#` is dropped, and a tag is only there once), Backspace in the empty field takes the last chip off, and
 each chip's × removes it. A word still being typed saves too. While the field has the caret a menu under it (or above,
 when there's no room) suggests tags already in the library that the card hasn't got, those used in the card's deck
@@ -137,7 +178,8 @@ action, Start review: no sidebar and no settings. The sidebar opens once the fir
 ## Screenshots
 
 `./snap.sh` renders every screen headless from fixture scenes into `screenshots/` (light and dark, 1040×680 at 2×):
-`first-run`, `review-front`, `review-revealed`, `review-graded`, `inbox`, `inbox-revealed`, `grid`, `grid-selected`, `grid-narrow` (820 wide),
+`first-run`, `review-front`, `review-revealed`, `review-graded`, `review-full-width`, `review-editing`, `review-delete`, `review-move`,
+`cram`, `cram-done`, `shortcuts`, `inbox`, `inbox-revealed`, `grid`, `grid-selected`, `grid-narrow` (820 wide),
 `list`, `column`, `view-menu`, `sort-menu`, `search`, `deck-menu`, `connecting`, `editor`, `tag-menu`, `empty` and
 `settings`.
 Each is taken at 0.5 s, once the first layout has told the grid its width. One by hand:

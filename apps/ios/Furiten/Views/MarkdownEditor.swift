@@ -4,10 +4,12 @@ import UIKit
 /// One side's field: Markdown styled as it's typed (as `MarkdownView` would show it, with the syntax dimmed), so
 /// there's no separate preview. Above the keyboard, a toolbar for common Markdown and a new side.
 struct MarkdownEditor: UIViewRepresentable {
+    @Environment(\.palette) private var palette
     @Binding var text: String
     var placeholder: String
-    /// The text's size, in points at the default Dynamic Type size, which scales it.
-    var size: CGFloat = 17
+    /// The text's size, in points at the default Dynamic Type size, which scales it. Review and a card's detail show
+    /// every side at `.title2`, so that's what it's written at.
+    var size: CGFloat = 22
     /// Take the keyboard as soon as the field can.
     var wantsFocus = false
     /// Where the caret goes when it does (UTF-16 offset); nil leaves it where UIKit puts it.
@@ -27,6 +29,9 @@ struct MarkdownEditor: UIViewRepresentable {
         context.coordinator.view = view
         view.size = size
         view.backgroundColor = .clear
+        // The caret, list markers and links (`UIColor.tintColor` below) take the theme's accent.
+        view.accent = palette.accent
+        view.tintColor = UIColor(palette.accent)
         view.isScrollEnabled = false
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
@@ -47,6 +52,11 @@ struct MarkdownEditor: UIViewRepresentable {
 
     func updateUIView(_ view: TextView, context: Context) {
         context.coordinator.parent = self
+        if view.accent != palette.accent {
+            view.accent = palette.accent
+            view.tintColor = UIColor(palette.accent)
+            MarkdownStyle.apply(to: view)
+        }
         if view.size != size {
             view.size = size
             view.placeholder.font = MarkdownStyle.body(size)
@@ -71,12 +81,13 @@ struct MarkdownEditor: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: TextView, context: Context) -> CGSize? {
         guard let width = proposal.width, width.isFinite else { return nil }
         let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        return CGSize(width: width, height: max(height, MarkdownStyle.body(size).lineHeight * 2))
+        return CGSize(width: width, height: max(height, MarkdownStyle.body(size).lineHeight))
     }
 
     final class TextView: UITextView {
         let placeholder = UILabel()
-        var size: CGFloat = 17
+        var size: CGFloat = 22
+        var accent: Color?
         var wantsFocus = false
         var caret: Int?
         var onJoin: (() -> Void)?
@@ -167,8 +178,14 @@ struct MarkdownEditor: UIViewRepresentable {
             return false
         }
 
-        func toolbar() -> UIToolbar {
+        /// The toolbar, with a gap under it so it doesn't sit on the keyboard.
+        func toolbar() -> UIView {
+            let gap: CGFloat = 8
+            let container = UIView(frame: CGRect(x: 0, y: 0, width: 400, height: 44 + gap))
+            container.backgroundColor = .clear
             let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 400, height: 44))
+            bar.autoresizingMask = [.flexibleWidth]
+            container.addSubview(bar)
             let appearance = UIToolbarAppearance()
             appearance.configureWithTransparentBackground()
             bar.standardAppearance = appearance
@@ -191,7 +208,7 @@ struct MarkdownEditor: UIViewRepresentable {
                 UIBarButtonItem(title: "Hide keyboard", image: UIImage(systemName: "keyboard.chevron.compact.down"),
                                 primaryAction: UIAction(title: "Hide keyboard") { [weak self] _ in self?.view?.resignFirstResponder() }),
             ]
-            return bar
+            return container
         }
 
         /// Wraps the selection in a marker (or an empty pair around the cursor), or unwraps it if it's wrapped already.
@@ -261,21 +278,29 @@ struct MarkdownEditor: UIViewRepresentable {
 
 /// Live styling for Markdown being written: the look of `MarkdownView`, syntax kept but dimmed.
 enum MarkdownStyle {
-    /// Text at `size` points, scaled for Dynamic Type as body text is.
+    /// Text at `size` points, scaled for Dynamic Type as `.title2` is (how review shows a side).
     static func body(_ size: CGFloat) -> UIFont {
-        UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: size))
+        UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: size))
     }
 
     @MainActor
     static func apply(to view: UITextView) {
-        let size = (view as? MarkdownEditor.TextView)?.size ?? 17
+        let size = (view as? MarkdownEditor.TextView)?.size ?? 22
         let body = body(size)
         let mono = mono(size)
         let selected = view.selectedRange
         let storage = view.textStorage
         let ns = storage.string as NSString
         storage.beginEditing()
-        storage.setAttributes([.font: body, .foregroundColor: UIColor.label], range: NSRange(location: 0, length: ns.length))
+        let all = NSRange(location: 0, length: ns.length)
+        let base: [NSAttributedString.Key: Any] = [.font: body, .foregroundColor: UIColor.label, .paragraphStyle: paragraph]
+        // Only the attributes styling sets are reset. The paragraph style is added where it's missing and otherwise left
+        // alone: replacing it re-lays out the paragraph mid-edit, and UIKit moved the caret to the line's end on delete.
+        for key in [NSAttributedString.Key.backgroundColor, .strikethroughStyle] { storage.removeAttribute(key, range: all) }
+        storage.addAttributes([.font: body, .foregroundColor: UIColor.label], range: all)
+        storage.enumerateAttribute(.paragraphStyle, in: all) { value, range, _ in
+            if (value as? NSParagraphStyle) != paragraph { storage.addAttribute(.paragraphStyle, value: paragraph, range: range) }
+        }
         var fenced = false
         ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, range, _, _ in
             guard let line else { return }
@@ -291,13 +316,20 @@ enum MarkdownStyle {
             style(line: line, at: range, size: size, in: storage)
         }
         storage.endEditing()
-        view.typingAttributes = [.font: body, .foregroundColor: UIColor.label]
+        view.typingAttributes = base
         view.selectedRange = selected
     }
 
+    /// The line spacing review and a card's detail show a side with (`.lineSpacing(4)`).
+    @MainActor private static let paragraph: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = 4
+        return style
+    }()
+
     /// Code, a little smaller than the text around it (`.cm-md-code` on the web).
     private static func mono(_ size: CGFloat) -> UIFont {
-        UIFontMetrics(forTextStyle: .body).scaledFont(for: .monospacedSystemFont(ofSize: (size * 0.88).rounded(), weight: .regular))
+        UIFontMetrics(forTextStyle: .title2).scaledFont(for: .monospacedSystemFont(ofSize: (size * 0.88).rounded(), weight: .regular))
     }
     private static let marker = UIColor.tertiaryLabel
 
@@ -352,7 +384,7 @@ enum MarkdownStyle {
     private static let code = try! NSRegularExpression(pattern: #"`[^`]+`"#)
 
     private static func bold(_ size: CGFloat) -> UIFont {
-        UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: size.rounded(), weight: .bold))
+        UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: size.rounded(), weight: .bold))
     }
 
     /// Adds a trait to whatever font each part of the range already has, so bold in a heading stays heading-sized.

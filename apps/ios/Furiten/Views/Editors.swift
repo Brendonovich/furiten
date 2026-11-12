@@ -58,17 +58,30 @@ struct CardEditor: View {
             // written), Add side under its last side, then the deck and tags. Nothing is pinned to the sheet's bottom,
             // because a system sheet changing height (dragged, or for the keyboard) moves first and resizes its content
             // only at the end, and whatever sits at its bottom slides away and pops back; this way only empty space does.
-            ScrollView {
-                VStack(spacing: 10) {
-                    card
-                    meta
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(spacing: 10) {
+                        card
+                        meta
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
+                // While a tag is typed, its row stays in sight above the suggestions, however the pills wrap.
+                .onChange(of: tagsFocused) { _, focused in
+                    if focused { revealTags(scroll) }
+                }
+                .onChange(of: draft) { revealTags(scroll) }
+                .onChange(of: tags) { if tagsFocused { revealTags(scroll) } }
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(palette.page)
+            // The tag field's keyboard toolbar, as the sides have the Markdown one: suggestions, by the thumb.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if tagsFocused { suggestionBar }
+            }
+            // Under the keyboard too: the Markdown toolbar above it is transparent and shows what's behind.
+            .background { palette.page.ignoresSafeArea() }
             .navigationTitle(initial == nil ? "New card" : "Edit card")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -89,6 +102,9 @@ struct CardEditor: View {
         }
         // Half the screen to start; drag it up for room to write more. The keyboard brings it up and takes it back.
         .presentationDetents([.medium, .large], selection: $detent)
+        // The sheet's own surface, opaque: the page covers it anyway, but not for the frame the sheet resizes in when
+        // the keyboard goes, where the system's glass showed through, lit by what's behind the sheet.
+        .presentationBackground(palette.page)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             detent = .medium
         }
@@ -107,6 +123,13 @@ struct CardEditor: View {
         }
         .interactiveDismissDisabled(dirty)
         #if DEBUG
+        .task {
+            guard let text = Scripted.tagging else { return }
+            try? await Task.sleep(for: .seconds(1))
+            pending = nil
+            tagsFocused = true
+            draft = text
+        }
         .task {
             guard Scripted.unfocus > 0 else { return }
             try? await Task.sleep(for: .seconds(Scripted.unfocus))
@@ -168,22 +191,24 @@ struct CardEditor: View {
         }
     }
 
-    /// The sides, divided by rules, with Add side under the last of them.
+    /// The sides, divided by rules, with Add side at the card's foot.
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sidesStack.padding(.horizontal, 18)
+            sidesStack.padding(.horizontal, 24)
+            Spacer(minLength: 0)
             HStack {
                 Button("Side", systemImage: "plus") { addSide(after: nil) }
                     .font(.subheadline.weight(.medium))
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .tint(.secondary)
+                    .buttonStyle(PillButtonStyle())
                 Spacer()
                 Text("or type --- on its own line")
                     .font(.footnote)
                     .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 18)
+            // The pill sits as far in from the card's left edge as from its bottom, so its corner nests in the
+            // card's corner. Its label then lines up with the sides' text.
+            .padding(.leading, 12)
+            .padding(.trailing, 24)
             .padding(.vertical, 12)
         }
         .frame(maxWidth: .infinity, minHeight: 300, alignment: .top)
@@ -197,12 +222,10 @@ struct CardEditor: View {
     private var sidesStack: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(sides.indices, id: \.self) { i in
-                if i > 0 { Divider() }
+                if i > 0 { SideRule().padding(.horizontal, -24) }
                 MarkdownEditor(
                     text: side(i),
                     placeholder: sides.count == 1 ? "Write in Markdown" : "Empty side",
-                    // The first side is the prompt, so it's written larger, as review shows it.
-                    size: i == 0 ? 22 : 17,
                     wantsFocus: pending == i,
                     caret: pending == i ? caret : nil,
                     onFocus: { if $0 { pending = nil } },
@@ -210,15 +233,16 @@ struct CardEditor: View {
                     onJoin: i > 0 ? { join(i) } : nil,
                     onLeave: { leave(i, by: $0) }
                 )
-                .padding(.vertical, 14)
+                // Review's spacing: the rule keeps 20 either side, and the card 26 above its first side.
+                .padding(.top, i == 0 ? 26 : 0)
+                .padding(.bottom, i == sides.count - 1 ? 20 : 0)
             }
         }
     }
 
-    /// Suggestions, any error, then one row of pills: the deck, the tags and a field for the next tag.
+    /// Any error, then one row of pills: the deck, the tags and a field for the next tag.
     private var meta: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if tagsFocused && !suggestions.isEmpty { suggestionRow }
             if let error { Text(error).font(.subheadline).foregroundStyle(.red) }
             FlowLayout(spacing: 6) {
                 Menu {
@@ -243,6 +267,16 @@ struct CardEditor: View {
                 .accessibilityLabel("Deck, \(deckPath(library.decks, deck))")
                 tagsField
             }
+            .id(tagsRow)
+        }
+    }
+
+    private let tagsRow = "tags"
+
+    private func revealTags(_ scroll: ScrollViewProxy) {
+        // After the keyboard and the suggestions have taken their room.
+        DispatchQueue.main.async {
+            withAnimation(.snappy(duration: 0.25)) { scroll.scrollTo(tagsRow, anchor: .bottom) }
         }
     }
 
@@ -258,11 +292,11 @@ struct CardEditor: View {
                     .opacity(0.7)
             }
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(.tint)
+            .foregroundStyle(palette.accent)
             .padding(.leading, 12)
             .padding(.trailing, 4)
             .frame(height: 32)
-            .background(.tint.quaternary, in: .capsule)
+            .background(palette.accent.quaternary, in: .capsule)
         }
         // A pill until it's tapped, then it widens to type in.
         HStack(spacing: 4) {
@@ -296,18 +330,54 @@ struct CardEditor: View {
         .animation(.snappy(duration: 0.2), value: tagsFocused)
     }
 
-    private var suggestionRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(Array(suggestions.enumerated()), id: \.element) { i, tag in
-                    Button("#\(tag)") { addTag(tag) }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .controlSize(.small)
-                        .tint(i == 0 && !draft.isEmpty ? .accentColor : .secondary)
+    /// Above the keyboard, drawn like the Markdown toolbar the sides have: one glass bar of the library's tags that
+    /// match what's typed (the one Return takes in the accent colour), and Hide keyboard on its own. Typing something
+    /// new says so, rather than showing nothing.
+    private var suggestionBar: some View {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(suggestions.enumerated()), id: \.element) { i, tag in
+                            suggestion("#\(tag)", primary: i == 0 && !draft.isEmpty) { addTag(tag) }
+                        }
+                        if suggestions.isEmpty {
+                            let tag = normalizeTag(draft)
+                            if tag.isEmpty {
+                                Text("No tags yet").foregroundStyle(.tertiary).padding(.horizontal, 12)
+                            } else {
+                                suggestion("New tag #\(tag)", primary: true) { addTag(draft) }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 6)
                 }
+                .frame(height: barHeight)
+                .clipShape(.capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") { tagsFocused = false }
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.primary)
+                    .frame(width: barHeight, height: barHeight)
+                    .contentShape(.circle)
+                    .glassEffect(.regular.interactive(), in: .circle)
             }
+            .font(.subheadline.weight(.medium))
+            .buttonStyle(.plain)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+
+    private let barHeight: CGFloat = 40
+
+    private func suggestion(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .foregroundStyle(primary ? AnyShapeStyle(palette.accent) : AnyShapeStyle(.primary))
+            .fontWeight(primary ? .semibold : .medium)
+            .padding(.horizontal, 12)
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
     }
 
     private var suggestions: [String] {
@@ -345,5 +415,21 @@ struct CardEditor: View {
         }
         saving = false
         if done != nil { close() }
+    }
+}
+
+/// A capsule button whose fill is drawn with its label, so the two always move as one. The system's bordered style
+/// animates its own background on release, which slid away from a label that moved in the same update (Add side
+/// moving down the card). Nothing about it animates: not the press, and not where it moves to.
+private struct PillButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(.fill.tertiary, in: .capsule)
+            .contentShape(.capsule)
+            .opacity(configuration.isPressed ? 0.5 : 1)
+            .transaction { $0.animation = nil }
     }
 }

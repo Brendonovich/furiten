@@ -528,7 +528,7 @@ pub(super) fn parse_doc(src: &str, autolink: bool) -> (Vec<Block>, Vec<Source>, 
             Event::SoftBreak => {
                 let inl = b.inline();
                 let start = inl.1.text.len();
-                inl.1.text.push(' ');
+                inl.1.text.push('\n');
                 inl.3.push(range, start..inl.1.text.len());
             }
             Event::HardBreak => {

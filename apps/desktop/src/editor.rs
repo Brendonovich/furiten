@@ -30,6 +30,8 @@ pub struct Editor {
     /// The first press on "Delete card" asks again in place.
     pub confirm_delete: bool,
     pub error: Option<String>,
+    /// Editing the card under review where it is (E), rather than in the dialog.
+    pub inline: bool,
 }
 
 pub struct Side {
@@ -54,6 +56,7 @@ impl Editor {
             picking_deck: false,
             confirm_delete: false,
             error: None,
+            inline: false,
         };
         for text in sides(content) {
             e.push(text);
@@ -295,6 +298,36 @@ impl Editor {
         let prev = prev.id;
         self.focus(prev, at);
         true
+    }
+
+    /// ⇧Return or ⌘- in side `id`: splits it at the caret (replacing what's selected), what follows starting the
+    /// next side with the caret at its start.
+    pub fn new_side_at(&mut self, id: u32) {
+        if let Some(edit) = self.side_mut(id) {
+            edit.insert("\n---\n");
+        }
+        self.split();
+    }
+
+    /// ⌘B (`**`) or ⌘I (`*`) in side `id`: wraps the selection in `mark`, or unwraps it when it's wrapped already.
+    /// With nothing selected, the caret lands between a new pair.
+    pub fn toggle_mark(&mut self, id: u32, mark: &str) {
+        let Some(edit) = self.side_mut(id) else { return };
+        let (a, b) = (edit.anchor.min(edit.focus), edit.anchor.max(edit.focus));
+        let (t, n) = (&edit.text, mark.len());
+        let before = t[..a].len() - t[..a].trim_end_matches('*').len();
+        let after = t[b..].len() - t[b..].trim_start_matches('*').len();
+        // Italic's `*` is the odd one out of a run (`*`, or the third of `***`); a bold `**` alone isn't it.
+        let wrapped = if n == 1 { before % 2 == 1 && after % 2 == 1 } else { before >= n && after >= n };
+        let inner = t[a..b].to_string();
+        if wrapped {
+            edit.set_selection(a - n, b + n);
+            edit.insert(&inner);
+            edit.set_selection(a - n, b - n);
+        } else {
+            edit.insert(&format!("{mark}{inner}{mark}"));
+            edit.set_selection(a + n, b + n);
+        }
     }
 
     /// A new empty side at the end, with the caret in it. An empty last side is reused.
@@ -614,6 +647,43 @@ mod tests {
         assert_eq!(texts(&e), ["q\na\nmore"]);
         let first = e.sides[0].id;
         assert!(!e.join_previous(first), "nothing before the first side");
+    }
+
+    #[test]
+    fn a_new_side_starts_at_the_caret() {
+        let mut e = editor("question answer\n---\nmore");
+        let first = e.sides[0].id;
+        e.focus(first, "question".len());
+        e.new_side_at(first);
+        assert_eq!(texts(&e), ["question", " answer", "more"]);
+        assert_eq!(focused(&e), Some((1, 0)));
+        let last = e.sides[2].id;
+        e.focus(last, 4);
+        e.new_side_at(last);
+        assert_eq!(texts(&e), ["question", " answer", "more", ""], "at the end, an empty side");
+    }
+
+    #[test]
+    fn marks_wrap_the_selection_and_come_off_again() {
+        let mut e = editor("a word here");
+        let id = e.sides[0].id;
+        e.side_mut(id).unwrap().set_selection(2, 6);
+        e.toggle_mark(id, "**");
+        assert_eq!(texts(&e), ["a **word** here"]);
+        let edit = e.side_mut(id).unwrap();
+        assert_eq!((edit.anchor, edit.focus), (4, 8), "the word stays selected");
+        e.toggle_mark(id, "*");
+        assert_eq!(texts(&e), ["a ***word*** here"], "italic inside bold isn't bold's to take off");
+        e.toggle_mark(id, "*");
+        e.toggle_mark(id, "**");
+        assert_eq!(texts(&e), ["a word here"]);
+
+        let mut e = editor("ab");
+        let id = e.sides[0].id;
+        e.focus(id, 1);
+        e.toggle_mark(id, "**");
+        assert_eq!(texts(&e), ["a****b"]);
+        assert_eq!(e.side_mut(id).unwrap().focus, 3, "the caret between the pair");
     }
 
     #[test]

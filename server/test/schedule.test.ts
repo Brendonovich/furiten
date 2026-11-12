@@ -15,8 +15,8 @@ test("Remembered on a new card through the API schedules exactly like crates/srs
   const card = (await a.post("/v1/cards", { deck_id: deck, content: "q\n---\na" })).body;
   const reviewed = (await a.post(`/v1/cards/${card.id}/reviews`, { remembered: true })).body;
   const t0 = reviewed.schedule.last_review;
-  // Good on a new card: learning, back in 10 minutes.
-  expect(reviewed.schedule).toMatchObject({ state: "learning", due: t0 + 10 * MINUTE, reps: 1, lapses: 0 });
+  // Good on a new card: scheduled at once, round(w[2]) days out (90 % retention makes the interval the stability).
+  expect(reviewed.schedule).toMatchObject({ state: "review", due: t0 + Math.round(W2) * DAY, reps: 1, lapses: 0 });
   expect(reviewed.schedule.stability).toBe(W2);
   expect(reviewed.schedule.difficulty).toBeCloseTo(W4 - Math.exp(W5 * 2) + 1, 12);
 });
@@ -31,7 +31,7 @@ test("synced reviews fold in (reviewed_at, id) order, matching the wasm schedule
   const card = { id: ulid(t0), deck_id: deck.id, content: "q", tags: [], created_at: t0, updated_at: t0, deleted: false };
   const reviews = [
     { at: t0, rating: 3 },
-    { at: t0 + 10 * MINUTE, rating: 3 },
+    { at: t0 + MINUTE, rating: 1 },
     { at: t0 + 3 * DAY, rating: 2 },
     { at: t0 + 20 * DAY, rating: 1 },
   ].map((r) => ({ id: ulid(r.at), card_id: card.id, rating: r.rating, reviewed_at: r.at, duration_ms: null }));
@@ -61,5 +61,5 @@ test("synced reviews fold in (reviewed_at, id) order, matching the wasm schedule
   const view = (await a.get(`/v1/cards/${card.id}`)).body;
   expect(view.schedule).toEqual(expected);
   expect(view.schedule).toMatchObject({ state: "relearning", reps: 4, lapses: 1, last_review: t0 + 20 * DAY });
-  expect(view.schedule.due).toBe(t0 + 20 * DAY + 10 * MINUTE);
+  expect(view.schedule.due).toBe(t0 + 20 * DAY);
 });

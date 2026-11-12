@@ -23,7 +23,8 @@ Review { id, card_id, rating: 1 | 2 | 3 | 4, reviewed_at, duration_ms: number | 
 ## Card content
 
 A card is Markdown. A line containing only `---` splits it into sides: side 0 is the front, the rest are revealed in
-order. Content with no separator is a one-sided note card whose whole text is the front.
+order. Content with no separator is a one-sided note card whose whole text is the front. A line break within a
+paragraph renders as a line break (GitHub-flavoured Markdown with `breaks`), not a space.
 
 ```
 What is the capital of France?
@@ -46,9 +47,21 @@ result but must recompute it when a review arrives out of order.
 Schedule { state: "new" | "learning" | "review" | "relearning", due: ms, stability, difficulty, reps, lapses, last_review: ms | null }
 ```
 
-A new card is due immediately. A card is due when `due <= now`. The review queue is due cards ordered by `due`, then
-new cards ordered by `created_at`, capped at 20 new cards per deck per local day (a deck's allowance is 20 minus
-the cards in it first reviewed today).
+There are no learning steps. Remembering a new card (or a learning or relearning one) schedules it in `review`, its
+interval from FSRS's stability; forgetting a card moves it to `learning` (from new) or `relearning` (from review) and
+makes it due at once (`due` is the review's time), and it stays there until it's remembered.
+
+A new card is due immediately. A card is due when `due <= now`. The review queue is, in order: due cards in `review`
+ordered by `due`; then new cards ordered by `created_at`, capped at 20 new cards per deck per local day (a deck's
+allowance is 20 minus the cards in it first reviewed today); then cards in `learning` or `relearning` ordered by
+`due`, so a forgotten card comes back once the rest of the session is done, and again until it's remembered.
+
+**Cramming** reviews exactly the cards a list is showing (a deck's page with its search and tag filter, a tag's
+page with its search, or a search of every deck, its matches deck by deck as shown), in the list's order, due or not, as Mochi's cram does. It's practice: answers record no review and change no
+schedule, so a cram runs entirely in the client from the listed cards. Forgetting a card puts it back at the end of
+the cram, so it comes round again until it's remembered; the cram ends when every card has been remembered once.
+`furiten cram` crams the cards `furiten cards` would list with the same filters (`--deck`, `--q`, `--tag`, `--sort`,
+`--desc`, `--seed`, ...), interactively and with no JSON.
 
 ## Sync
 

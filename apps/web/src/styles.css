@@ -457,6 +457,12 @@ body {
   padding: 4px 0;
 }
 
+/* Under the decks, and as tall as their header with its New deck button. */
+.tags-head {
+  min-height: 44px;
+  margin-top: 8px;
+}
+
 .deck-row,
 .sync-row {
   display: flex;
@@ -507,7 +513,7 @@ body {
   color: var(--faint);
 }
 
-.inbox-row {
+.search-row {
   margin-bottom: 8px;
 }
 
@@ -732,6 +738,49 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Search: a layer over whichever page is open (SearchLayer.tsx), each deck's matches under its name. It rises in,
+   and fades back out to the page as it was. */
+
+.search-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+  animation: search-layer-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.search-layer.leaving {
+  opacity: 0;
+  translate: 0 8px;
+  transition: opacity 0.18s, translate 0.18s cubic-bezier(0.4, 0, 1, 1);
+}
+
+@keyframes search-layer-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-layer,
+  .search-layer.leaving {
+    animation: none;
+    transition: none;
+  }
+}
+
+
+.search-group + .search-group {
+  margin-top: 20px;
+}
+
+.search-group .section-title {
+  padding: 8px 4px 10px;
+}
+
 /* Grid and list tiles */
 
 .grid {
@@ -776,6 +825,11 @@ body {
   padding: 18px;
 }
 
+.list .tile-footer {
+  margin-inline: -18px;
+  padding-inline: 18px;
+}
+
 .tile .markdown {
   flex: 1;
   max-height: 168px;
@@ -794,9 +848,11 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--border);
+  /* Out through the tile's padding, so the rule runs edge to edge like the side rule between a card's sides. */
+  margin: 10px -14px 0;
+  padding: 8px 14px 0;
+  background: repeating-linear-gradient(to right, var(--border-strong) 0 3px, transparent 3px 7px) top / 100% 1px
+    no-repeat;
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -1053,6 +1109,20 @@ body {
   padding: 0;
   border-radius: 14px;
   background: var(--layer-2);
+}
+
+/* Where New card sits on a deck's page, on a tag's, so Review stays centred. */
+.fab-balance {
+  flex: none;
+  width: 52px;
+}
+
+/* Review, centred between the footer's spacers: the page's one call to action. */
+[data-component="button-v2"].cram {
+  height: 52px;
+  gap: 8px;
+  padding: 0 22px 0 18px;
+  border-radius: 26px;
 }
 
 .empty {

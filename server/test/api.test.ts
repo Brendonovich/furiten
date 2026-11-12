@@ -201,8 +201,8 @@ describe("reviewing", () => {
 
     const answered = await a.post(`/v1/cards/${first.id}/reviews`, { remembered: true, duration_ms: 1200 });
     expect(answered.status).toBe(200);
-    expect(answered.body.schedule).toMatchObject({ state: "learning", reps: 1 });
-    expect(answered.body.schedule.due - answered.body.schedule.last_review).toBe(10 * 60_000);
+    expect(answered.body.schedule).toMatchObject({ state: "review", reps: 1 });
+    expect(answered.body.schedule.due - answered.body.schedule.last_review).toBe(2 * 86_400_000);
 
     const after = await a.get("/v1/review/next");
     expect(after.body.card.id).toBe(second.id);
@@ -215,5 +215,30 @@ describe("reviewing", () => {
 
     const stats = await a.get(`/v1/stats?deck_id=${deck}`);
     expect(stats.body).toEqual({ cards: 2, due: 0, new: 1, reviews_today: 1, retention_30d: null });
+  });
+
+  test("a forgotten card comes back at once, after the new cards, until it's remembered", async () => {
+    const a = await account();
+    const deck = (await a.post("/v1/decks", { name: "D" })).body.id;
+    const [first, second] = (
+      await a.post("/v1/cards", {
+        cards: [
+          { deck_id: deck, content: "first" },
+          { deck_id: deck, content: "second" },
+        ],
+      })
+    ).body.cards;
+    const next = async () => (await a.get(`/v1/review/next?deck_id=${deck}`)).body;
+
+    const forgot = (await a.post(`/v1/cards/${first.id}/reviews`, { remembered: false })).body;
+    expect(forgot.schedule).toMatchObject({ state: "learning", due: forgot.schedule.last_review });
+    expect(await next()).toMatchObject({ card: { id: second.id }, remaining: { due: 1, new: 1 } });
+
+    await a.post(`/v1/cards/${second.id}/reviews`, { remembered: true });
+    expect(await next()).toMatchObject({ card: { id: first.id }, remaining: { due: 1, new: 0 } });
+    await a.post(`/v1/cards/${first.id}/reviews`, { remembered: false });
+    expect((await next()).card.id).toBe(first.id);
+    await a.post(`/v1/cards/${first.id}/reviews`, { remembered: true });
+    expect(await next()).toMatchObject({ card: null, remaining: { due: 0, new: 0 } });
   });
 });

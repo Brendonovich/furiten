@@ -1,7 +1,7 @@
 import { createContext, createStore } from "solid-js";
 import { type Api, ApiError, api, type CardQuery, type Session } from "./api.ts";
-import { DEFAULT_VIEW, parseSort, type SortState, sortParam } from "./routes.ts";
-import type { CardView, DeckSummary, View } from "./types.ts";
+import { DEFAULT_VIEW, parseSort, type SortState, sortParam, tagKey } from "./routes.ts";
+import type { CardView, DeckSummary, TagSummary, View } from "./types.ts";
 
 // What the screens show. Where you are (the screen, deck, search, sort, view and any open sheet) is the URL's
 // (routes.ts); this holds the data for it, from the server, refetched after every write and whenever the page comes
@@ -10,9 +10,14 @@ import type { CardView, DeckSummary, View } from "./types.ts";
 type AppState = {
   session: Session | null;
   decks: DeckSummary[];
+  /** Every tag on a card in any deck, as the server orders them (the most recently used first). */
+  tags: TagSummary[];
   loaded: boolean;
   cards: CardView[];
-  /** The deck `cards` came from, and the exact query, so a deck's page knows when they're its own and current. */
+  /**
+   * The page `cards` came from (a deck's id, or a tag's `tagKey`), and the exact query, so a deck or tag's page knows
+   * when they're its own and current.
+   */
   cardsFor: string | null;
   cardsKey: string | null;
   drawer: boolean;
@@ -20,7 +25,7 @@ type AppState = {
   lastSync: number | null;
 };
 
-/** A deck's view and sort as last picked, so its sidebar link opens it that way. */
+/** A deck or tag's view and sort as last picked, so its sidebar link opens it that way. */
 export type DeckPrefs = { view: View; sort: Pick<SortState, "by" | "desc"> };
 
 const SESSION = "furiten.session";
@@ -36,6 +41,8 @@ const stored = <T>(key: string): T | null => {
 const store = (key: string, value: unknown) =>
   value === null ? localStorage.removeItem(key) : localStorage.setItem(key, JSON.stringify(value));
 
+/** The page a query is for: a deck's id, or a tag's key. */
+const pageOf = (q: CardQuery) => q.deck_id ?? tagKey(q.tag ?? "");
 const queryKey = (q: CardQuery) => JSON.stringify([q.deck_id, q.q ?? "", q.tag ?? "", q.sort, !!q.desc, q.seed ?? null]);
 
 export function createApp() {
@@ -45,6 +52,7 @@ export function createApp() {
   const [state, setState] = createStore<AppState>({
     session: current,
     decks: [],
+    tags: [],
     loaded: false,
     cards: [],
     cardsFor: null,
@@ -74,9 +82,10 @@ export function createApp() {
     const c = client();
     if (!c) return;
     try {
-      const decks = await c.decks();
+      const [decks, tags] = await Promise.all([c.decks(), c.tags().catch(() => null)]);
       setState((s) => {
         s.decks = decks;
+        if (tags) s.tags = tags;
         s.loaded = true;
         s.lastSync = Date.now();
       });
@@ -85,11 +94,11 @@ export function createApp() {
     }
   }
 
-  /** Shows the cards for `q`, a deck page's query from its URL; `null` when no deck's page is open. */
+  /** Shows the cards for `q`, a deck or tag page's query from its URL; `null` when neither is open. */
   async function showCards(q: CardQuery | null) {
     shown = q;
     if (!q) return;
-    if (state.cardsFor !== q.deck_id) {
+    if (state.cardsFor !== pageOf(q)) {
       setState((s) => {
         s.cards = [];
         s.cardsFor = null;
@@ -109,7 +118,7 @@ export function createApp() {
       if (!shown || queryKey(shown) !== key) return;
       setState((s) => {
         s.cards = cards;
-        s.cardsFor = q.deck_id;
+        s.cardsFor = pageOf(q);
         s.cardsKey = key;
       });
     } catch (e) {
@@ -138,21 +147,22 @@ export function createApp() {
     }
   }
 
-  const prefsOf = (deck: string): DeckPrefs =>
-    prefs[deck] ?? {
-      view: stored<View>(`furiten.view.${deck}`) ?? DEFAULT_VIEW,
-      sort: parseSort(stored<string>(`furiten.sort.${deck}`) ?? undefined),
+  /** A page's view and sort as last picked, by a deck's id or a tag's `tagKey`. */
+  const prefsOf = (page: string): DeckPrefs =>
+    prefs[page] ?? {
+      view: stored<View>(`furiten.view.${page}`) ?? DEFAULT_VIEW,
+      sort: parseSort(stored<string>(`furiten.sort.${page}`) ?? undefined),
     };
 
-  /** Remembers a deck's view and sort as they're picked. */
-  function remember(deck: string, p: DeckPrefs) {
-    const was = prefsOf(deck);
+  /** Remembers a deck or tag's view and sort as they're picked. */
+  function remember(page: string, p: DeckPrefs) {
+    const was = prefsOf(page);
     if (was.view === p.view && was.sort.by === p.sort.by && was.sort.desc === p.sort.desc) return;
     setPrefs((s) => {
-      s[deck] = { view: p.view, sort: { by: p.sort.by, desc: p.sort.desc } };
+      s[page] = { view: p.view, sort: { by: p.sort.by, desc: p.sort.desc } };
     });
-    store(`furiten.view.${deck}`, p.view);
-    store(`furiten.sort.${deck}`, sortParam(p.sort) ?? "created");
+    store(`furiten.view.${page}`, p.view);
+    store(`furiten.sort.${page}`, sortParam(p.sort) ?? "created");
   }
 
   // A desktop pushes changes as server-sent events; Furiten Cloud doesn't, so there the 30 s poll does the job.
@@ -185,6 +195,7 @@ export function createApp() {
     setState((s) => {
       s.session = null;
       s.decks = [];
+      s.tags = [];
       s.cards = [];
       s.cardsFor = null;
       s.cardsKey = null;
@@ -245,6 +256,13 @@ export function deckTree(decks: DeckSummary[]): { deck: DeckSummary; depth: numb
   };
   walk(null, 0);
   return out;
+}
+
+/** Cards grouped by deck, in the sidebar's order, leaving out decks with none. */
+export function byDeck(decks: DeckSummary[], cards: readonly CardView[]): { deck: DeckSummary; cards: CardView[] }[] {
+  return deckTree(decks)
+    .map(({ deck }) => ({ deck, cards: cards.filter((c) => c.deck_id === deck.id) }))
+    .filter((g) => g.cards.length > 0);
 }
 
 /** Cards to review across every deck: the top-level decks' counts, which include their subdecks'. */

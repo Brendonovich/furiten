@@ -4,7 +4,7 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 const round = (ms: number, unit: number) => Math.floor((ms + unit / 2) / unit);
 
@@ -50,7 +50,7 @@ export function counts(due: number, fresh: number): string {
   return `${due} due · ${fresh} new`;
 }
 
-export const hiddenSides = (n: number) => plural(n, "hidden side");
+export const hiddenSides = (n: number) => plural(n, "side");
 export const reviews = (n: number) => plural(n, "review");
 export const lapses = (n: number) => plural(n, "lapse");
 

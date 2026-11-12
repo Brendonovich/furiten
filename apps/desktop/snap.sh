@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 cargo build -q
-for scene in first-run review-front review-revealed review-graded inbox inbox-revealed grid grid-selected grid-narrow list column \
+for scene in first-run review-front review-revealed review-graded review-full-width review-editing review-delete review-move cram cram-done shortcuts inbox inbox-revealed grid grid-selected grid-narrow list column \
   view-menu sort-menu search deck-menu connecting editor tag-menu empty settings; do
   # grid-narrow is the default scene in a narrow window, where the grid drops to two columns.
   size=1040x680

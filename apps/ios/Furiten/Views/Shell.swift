@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// What the sidebar has open: the inbox (every due card from every deck) or a deck.
+/// What the sidebar has open: the inbox (every due card from every deck), a deck, or every card with a tag.
 enum SidebarItem: Hashable {
     case review
     case deck(String)
+    case tag(String)
 }
 
 extension EnvironmentValues {
@@ -13,7 +14,8 @@ extension EnvironmentValues {
 }
 
 /// The sidebar: Review at the top, then the decks. On iPhone a drawer that slides in from the leading edge over the
-/// inbox or a deck (the inbox to start with), as OpenCode's app does; on iPad a split view. Settings open as a sheet.
+/// inbox or a deck (the inbox to start with), as OpenCode's app does; on iPad a split view. Settings open as a sheet;
+/// search, through every deck's cards, as a layer over whatever's open, which closing it leaves as it was.
 struct Shell: View {
     @Environment(Library.self) private var library
     @Environment(\.horizontalSizeClass) private var size
@@ -24,21 +26,25 @@ struct Shell: View {
     @State private var drawer = false
     @State private var path = NavigationPath()
     @State private var settings = false
+    @State private var searching = false
 
     var body: some View {
         Group {
             if size == .compact {
                 Drawer(open: $drawer, edgeSwipe: path.isEmpty) {
                     NavigationStack {
-                        DeckList(selection: Binding(get: { selection }, set: { pick($0) }), settings: $settings)
-                            .listBackground(palette.sidebar)
+                        DeckList(
+                            selection: Binding(get: { selection }, set: { pick($0) }), settings: $settings,
+                            search: { search() }, drawer: true
+                        )
+                        .listBackground(palette.sidebar)
                     }
                 } content: {
                     detail.environment(\.showSidebar, { withAnimation(drawerSpring) { drawer = true } })
                 }
             } else {
                 NavigationSplitView {
-                    DeckList(selection: $selection, settings: $settings)
+                    DeckList(selection: $selection, settings: $settings, search: { search() })
                 } detail: {
                     detail
                 }
@@ -51,12 +57,15 @@ struct Shell: View {
             case nil, "inbox": break
             case "decks": drawer = true
             case "settings": settings = true
+            case "search": searching = true
+            case "tag": selection = Scripted.tag.map(SidebarItem.tag)
             default: selection = library.deckId.map(SidebarItem.deck)
             }
         }
         #endif
         .onChange(of: selection) { _, item in
             path = NavigationPath()
+            if searching { withAnimation(searchAnimation) { searching = false } }
             if case .deck(let id) = item, id != library.deckId { library.selectDeck(id) }
         }
         // The library moved to another deck (one just made, or after the open one was deleted): follow it.
@@ -65,13 +74,32 @@ struct Shell: View {
         }
     }
 
-    @ViewBuilder
+    /// What's open, with the search over it while it's open.
     private var detail: some View {
+        ZStack {
+            page
+                .accessibilityHidden(searching)
+                // Under the search, the page's own drags (the review's card) don't hold the drawer back.
+                .transformPreference(DrawerExclusion.self) { if searching { $0 = [] } }
+            if searching {
+                NavigationStack {
+                    SearchScreen { withAnimation(searchAnimation) { searching = false } }
+                }
+                .transition(.opacity.combined(with: .offset(y: 12)))
+                .zIndex(1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var page: some View {
         switch selection {
         case .review:
             ReviewView(deckId: nil)
         case .deck:
             NavigationStack(path: $path) { DeckScreen() }
+        case .tag(let tag):
+            NavigationStack(path: $path) { TagScreen(tag: tag) }.id(tag)
         case nil:
             NavigationStack {
                 ContentUnavailableView("Choose a deck", systemImage: "book.closed", description: Text("Its cards show up here."))
@@ -81,14 +109,22 @@ struct Shell: View {
         }
     }
 
-    /// Picking anything in the drawer, even what's already open, closes it.
+    /// Picking anything in the drawer, even what's already open, closes it, and the search.
     private func pick(_ item: SidebarItem?) {
         if let item { selection = item }
+        withAnimation(searchAnimation) { searching = false }
+        withAnimation(drawerSpring) { drawer = false }
+    }
+
+    /// Opens the search over what's open, closing the drawer.
+    private func search() {
+        withAnimation(searchAnimation) { searching = true }
         withAnimation(drawerSpring) { drawer = false }
     }
 }
 
 private let drawerSpring = Animation.spring(duration: 0.22, bounce: 0)
+private let searchAnimation = Animation.smooth(duration: 0.25)
 
 /// A sidebar under the page: the page slides aside, dimming, to show it, from the toolbar's button or a drag to the right
 /// anywhere on the page, and slides back with a tap on what's left of the page or a drag to the left anywhere. A drag
@@ -245,11 +281,17 @@ private struct DrawerPan: UIGestureRecognizerRepresentable {
 
 private struct DeckList: View {
     @Environment(Library.self) private var library
+    @Environment(\.palette) private var palette
+    @Environment(\.defaultMinListRowHeight) private var systemRowHeight
     @Binding var selection: SidebarItem?
     @Binding var settings: Bool
+    /// Opens the search over what's open.
+    let search: () -> Void
+    /// In iPhone's drawer, which has no navigation bar, so the list starts right under the status bar; iPad's split view
+    /// keeps its bar for the sidebar toggle.
+    var drawer = false
     @State private var naming = false
     @State private var name = ""
-
     var body: some View {
         List(selection: $selection) {
             Section {
@@ -257,16 +299,41 @@ private struct DeckList: View {
                     Label("Review", systemImage: "tray.full")
                     Spacer(minLength: 8)
                     let count = inboxCount(library.decks)
-                    if count > 0 { Text("\(count)").font(.subheadline.monospacedDigit()).foregroundStyle(.tint) }
+                    if count > 0 { Text("\(count)").font(.subheadline.monospacedDigit()).foregroundStyle(palette.accent) }
                 }
-                .tag(SidebarItem.review)
+                .sidebarRow(.review, selection: selection, drawer: drawer)
+            } header: {
+                if drawer {
+                    Text("Furiten")
+                        .font(.title2.bold())
+                        .foregroundStyle(Color.primary)
+                        .textCase(nil)
+                        .padding(.bottom, 4)
+                }
             }
-            Section("Decks") {
+            Section {
                 ForEach(deckTree(library.decks), id: \.deck.id) { row in
-                    DeckRow(deck: row.deck, depth: row.depth).tag(SidebarItem.deck(row.deck.id))
+                    DeckRow(deck: row.deck, depth: row.depth)
+                        .sidebarRow(.deck(row.deck.id), selection: selection, drawer: drawer)
+                }
+            } header: {
+                Text("Decks").sidebarHeader(drawer)
+            }
+            if !library.tags.isEmpty {
+                Section {
+                    ForEach(library.tags.sorted { $0.tag.localizedStandardCompare($1.tag) == .orderedAscending }, id: \.tag) {
+                        TagRow(tag: $0).sidebarRow(.tag($0.tag), selection: selection, drawer: drawer)
+                    }
+                } header: {
+                    Text("Tags").sidebarHeader(drawer)
                 }
             }
         }
+        .listStyle(.sidebar)
+        .listSectionSpacing(drawer ? .custom(4) : .compact)
+        .environment(\.defaultMinListRowHeight, drawer ? 44 : systemRowHeight)
+        .contentMargins(.top, drawer ? 4 : nil, for: .scrollContent)
+        .contentMargins(.horizontal, drawer ? 10 : nil, for: .scrollContent)
         .overlay {
             if library.loaded && library.decks.isEmpty {
                 ContentUnavailableView {
@@ -284,17 +351,20 @@ private struct DeckList: View {
         .navigationTitle("Furiten")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: .title)
+        .toolbar(drawer ? .hidden : .automatic, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Text("Furiten").font(.title2.bold()).fixedSize().padding(.leading, 8)
-            }
-            .sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Settings", systemImage: "gearshape") { settings = true }
-            }
-            ToolbarItem(placement: .bottomBar) { status }
+            if !drawer {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("Furiten").font(.title2.bold()).fixedSize().padding(.leading, 8)
+                }
                 .sharedBackgroundVisibility(.hidden)
+            }
+            ToolbarItem(placement: .bottomBar) { settingsButton }
             ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button("Search", systemImage: "magnifyingglass", action: search)
+            }
+            ToolbarSpacer(.fixed, placement: .bottomBar)
             ToolbarItem(placement: .bottomBar) {
                 Button("New deck", systemImage: "folder.badge.plus", action: newDeck)
             }
@@ -314,34 +384,13 @@ private struct DeckList: View {
         }
     }
 
-    /// Where the library syncs and how that's going: the computer's connection, or when it last synced.
-    private var status: some View {
-        let sync = library.sync
-        let synced = sync?.lastSync.map { "Synced \(ago(Date(ms: $0)))" } ?? "Not synced yet"
-        return Button { settings = true } label: {
-            HStack(spacing: 6) {
-                if let sync, sync.signedIn {
-                    if sync.syncError != nil {
-                        Image(systemName: "exclamationmark.triangle")
-                        Text("Sync failed")
-                    } else if sync.paired {
-                        Circle().fill(sync.connected == true ? .green : .orange).frame(width: 7, height: 7)
-                        Text(sync.connected == true ? "Synced with your computer" : synced)
-                    } else {
-                        Image(systemName: "icloud")
-                        Text(synced)
-                    }
-                } else {
-                    Image(systemName: "laptopcomputer.and.iphone")
-                    Text("Pair with your computer")
-                }
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .fixedSize()
-            .padding(.horizontal, 8)
+    /// Settings in the bottom bar, with the sync dot on its corner.
+    private var settingsButton: some View {
+        Button { settings = true } label: {
+            Image(systemName: "gearshape")
+                .overlay(alignment: .topTrailing) { SyncDot(sync: library.sync).offset(x: 3, y: -2) }
         }
-        .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
     }
 
     private func newDeck() {
@@ -350,7 +399,25 @@ private struct DeckList: View {
     }
 }
 
+/// A green dot, on Settings, while syncing is connected: open to the paired computer or hub, or signed in to Furiten
+/// Cloud and syncing without error. Nothing otherwise, since working offline is fine; Settings says more.
+private struct SyncDot: View {
+    let sync: CoreStatus?
+
+    private var connected: Bool {
+        guard let sync, sync.signedIn, sync.syncError == nil else { return false }
+        return sync.paired ? sync.connected == true : sync.lastSync != nil
+    }
+
+    var body: some View {
+        if connected {
+            Circle().fill(.green).frame(width: 7, height: 7).accessibilityLabel("Syncing")
+        }
+    }
+}
+
 private struct DeckRow: View {
+    @Environment(\.palette) private var palette
     let deck: DeckSummary
     let depth: Int
 
@@ -359,15 +426,78 @@ private struct DeckRow: View {
             Label {
                 Text(deck.name).lineLimit(1)
             } icon: {
-                Image(systemName: depth > 0 ? "arrow.turn.down.right" : "book.closed").foregroundStyle(.tint)
+                Image(systemName: depth > 0 ? "arrow.turn.down.right" : "book.closed").foregroundStyle(palette.icon)
             }
             Spacer(minLength: 8)
             HStack(spacing: 8) {
-                if deck.due > 0 { Text("\(deck.due)").foregroundStyle(.tint) }
+                if deck.due > 0 { Text("\(deck.due)").foregroundStyle(palette.accent) }
                 if deck.new > 0 { Text("\(deck.new)").foregroundStyle(.secondary) }
             }
             .font(.subheadline.monospacedDigit())
         }
         .padding(.leading, CGFloat(depth) * 22)
+    }
+}
+
+extension View {
+    /// A row of the sidebar that opens `item`. In iPhone's drawer, where the sidebar list style still draws inset
+    /// grouped cards, it's drawn as iPad's sidebar is instead: no card or separators, a capsule behind the open row.
+    fileprivate func sidebarRow(_ item: SidebarItem, selection: SidebarItem?, drawer: Bool) -> some View {
+        tag(item).modifier(SidebarRow(selected: item == selection, drawer: drawer))
+    }
+}
+
+private struct SidebarRow: ViewModifier {
+    let selected: Bool
+    let drawer: Bool
+
+    func body(content: Content) -> some View {
+        if drawer {
+            content
+                .labelStyle(DrawerLabel())
+                .frame(minHeight: 44)
+                .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
+                .listRowBackground(Capsule().fill(selected ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear)))
+                .listRowSeparator(.hidden)
+        } else {
+            content
+        }
+    }
+}
+
+/// A drawer row's icon and name, closer together than the list's own spacing.
+private struct DrawerLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.icon.frame(width: 24)
+            configuration.title
+        }
+    }
+}
+
+extension View {
+    /// A section's title in the drawer, small, as iPad's sidebar has them.
+    fileprivate func sidebarHeader(_ drawer: Bool) -> some View {
+        font(drawer ? .subheadline.weight(.semibold) : nil)
+    }
+}
+
+/// A tag in the sidebar, styled as a deck's row, with how many cards carry it.
+private struct TagRow: View {
+    @Environment(\.palette) private var palette
+    let tag: TagSummary
+
+    var body: some View {
+        HStack {
+            Label {
+                Text(tag.tag).lineLimit(1)
+            } icon: {
+                Image(systemName: "number").foregroundStyle(palette.icon)
+            }
+            Spacer(minLength: 8)
+            Text("\(tag.cards)")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
     }
 }

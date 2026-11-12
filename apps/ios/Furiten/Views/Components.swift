@@ -38,15 +38,36 @@ extension View {
     }
 }
 
+/// The dashed rule between a card's sides (the web's `.review-card .side-rule`), the same in review, a card's detail and
+/// the editor. It runs the card's full width, so give it the card's horizontal padding back.
+struct SideRule: View {
+    var body: some View {
+        SideLine().padding(.vertical, 20)
+    }
+}
+
+/// The side rule's line alone, for a tile's footer, where it marks the sides the front hides.
+struct SideLine: View {
+    var body: some View {
+        Line()
+            .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            .foregroundStyle(.secondary)
+            .opacity(0.55)
+            .frame(height: 1)
+            .accessibilityHidden(true)
+    }
+}
+
 /// "New", "Due" (tinted), or how long until it's due, in the surrounding style otherwise.
 struct DueLabel: View {
     let card: CardView
+    @Environment(\.palette) private var palette
 
     var body: some View {
         if card.schedule.state == .new {
             Text("New")
         } else if card.schedule.due <= nowMs() {
-            Text("Due").foregroundStyle(.tint).fontWeight(.semibold)
+            Text("Due").foregroundStyle(palette.accent).fontWeight(.semibold)
         } else {
             Text(untilShort(card.schedule.due))
         }
@@ -56,14 +77,30 @@ struct DueLabel: View {
 /// A card's tags as small tinted capsules.
 struct TagChip: View {
     let tag: String
+    @Environment(\.palette) private var palette
 
     var body: some View {
         Text("#\(tag)")
             .font(.footnote)
-            .foregroundStyle(.tint)
+            .foregroundStyle(palette.accent)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(.tint.quaternary, in: .capsule)
+            .background(palette.accent.quaternary, in: .capsule)
+    }
+}
+
+/// Review in a card list's bottom toolbar: crams the cards the list is showing, so it's off while there are none.
+struct CramButton: View {
+    let cards: [CardView]
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            // In a bottom bar the system sets the title in a darker tint, hard to read on the button's fill.
+            Text("Review").fontWeight(.semibold).foregroundStyle(.white)
+        }
+        .buttonStyle(.glassProminent)
+            .disabled(cards.isEmpty)
     }
 }
 

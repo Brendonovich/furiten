@@ -143,6 +143,8 @@ pub struct SplitView {
     in_panel: bool,
     padding: [f32; 2],
     slide: bool,
+    push: bool,
+    shown: Option<f32>,
     header: Option<El>,
     motion: PaneMotion,
     peek: Option<SidebarPeek>,
@@ -163,6 +165,8 @@ impl SplitView {
             in_panel: false,
             padding: [0.0; 2],
             slide: false,
+            push: false,
+            shown: None,
             header: None,
             motion: PaneMotion::new(),
             peek: None,
@@ -227,6 +231,21 @@ impl SplitView {
         self.slide = true;
         self
     }
+    /// The open sidebar pushes the main column past the window's trailing edge, keeping its
+    /// width, instead of narrowing it: for a window too narrow to share with the sidebar.
+    pub fn push_main(mut self, push: bool) -> Self {
+        self.push = push;
+        self
+    }
+    /// How far open the sidebar is drawn, from 0 (closed) to 1 (open), for an app that steps
+    /// its opening and closing itself, a frame at a time: the panes and what's in them lay out
+    /// at each step instead of springing to where they end up, so the main pane's contents
+    /// reflow as it resizes. The commits that step it should land at once
+    /// ([`El::instant_changes`]).
+    pub fn sidebar_shown(mut self, fraction: f32) -> Self {
+        self.shown = Some(fraction.clamp(0.0, 1.0));
+        self
+    }
     /// An element in the sidebar's title bar row, past the traffic lights: an account or
     /// workspace switcher, say.
     pub fn sidebar_header(mut self, e: El) -> Self {
@@ -261,6 +280,9 @@ impl SplitView {
         let top = if self.in_panel { self.frame } else { 0.0 };
         let sidebar_state = self.sidebar.as_ref().map(|p| p.state);
         let sidebar_open = sidebar_state.is_some_and(|s| s.is_open());
+        // How far open the sidebar is drawn: where it's going, unless the app steps it.
+        let shown = self.shown.unwrap_or(if sidebar_open { 1.0 } else { 0.0 });
+        let between = |closed: f32, open: f32| closed + (open - closed) * shown;
         let inspector_state = self.inspector.as_ref().map(|p| p.state);
         let inspector_open = inspector_state.is_some_and(|s| s.is_open());
         let spring = self.motion.spring_for(k, sidebar_state.or(inspector_state).map_or(0.0, |s| s.width()));
@@ -300,7 +322,7 @@ impl SplitView {
                     let fade = Curve::tween(DOT_FADE, Easing::EASE_IN_OUT);
                     button = button.child(dot.absolute(side - 5.0, -2.0).opacity(if open { 0.0 } else { 1.0 }).opacity_motion(fade));
                 }
-                let x = if open && t.in_header { s.width() - self.padding[1] - side } else { lights };
+                let x = if t.in_header { between(lights, s.width() - self.padding[1] - side) } else { lights };
                 let mut b = tg(button).key("sidebar-toggle").absolute(x, top + (TOOLBAR_HEIGHT - side) / 2.0).motion(spring);
                 if let (Some(pk), Some(h)) = (peek, &hover)
                     && !open
@@ -325,13 +347,11 @@ impl SplitView {
             }
             // The title bar row clears the traffic lights, and the toggle wherever it floats
             // over the row.
-            let clear = if toggle && (!open || !t.in_header) {
-                past_toggle
-            } else if self.inset > 0.0 {
-                self.inset + t.past_lights
-            } else {
-                0.0
-            };
+            let lights_only = if self.inset > 0.0 { self.inset + t.past_lights } else { 0.0 };
+            let clear = between(
+                if toggle { past_toggle } else { lights_only },
+                if toggle && !t.in_header { past_toggle } else { lights_only },
+            );
             let mut band = row()
                 .key("sidebar-titlebar")
                 .w_full()
@@ -347,12 +367,12 @@ impl SplitView {
                 band = band.child(el().key("sidebar-spacer").grow(1.0)).child(el().key("sidebar-toggle-slot").w(side).ml(8.0));
             }
             let content = Contents { pad: self.padding, slide: self.slide || peek.is_some(), peek, band: Some(band) };
-            dock(&d, "sidebar-pane", p, true, content)
+            dock(&d, "sidebar-pane", p, true, content, self.shown)
         });
         let toolbar = self
             .toolbar
             .unwrap_or_default()
-            .padding(if sidebar_open { 12.0 } else if self.in_panel { (past_toggle - self.frame).max(12.0) } else { past_toggle })
+            .padding(between(if self.in_panel { (past_toggle - self.frame).max(12.0) } else { past_toggle }, 12.0))
             .build(k)
             .motion(spring);
         let (toolbar, above) = if self.in_panel { (Some(toolbar), None) } else { (None, Some(toolbar)) };
@@ -361,7 +381,7 @@ impl SplitView {
             .grow(1.0)
             .min_w(0.0)
             .min_h(0.0)
-            .ml(if sidebar_open { 0.0 } else { self.frame })
+            .ml(between(self.frame, 0.0))
             .mr(if inspector_open { 0.0 } else { self.frame })
             .mb(self.frame)
             .fill(c.bg_base)
@@ -377,10 +397,12 @@ impl SplitView {
                 clears.push(c);
             }
             let content = Contents { pad: [0.0; 2], slide: false, peek: None, band: None };
-            below = below.child(dock(&d, "inspector-pane", p, false, content));
+            below = below.child(dock(&d, "inspector-pane", p, false, content, None));
         }
         let strip = self.in_panel.then(|| el().key("titlebar-strip").w_full().h(self.frame).window_drag());
-        let main = col().key("main-column").grow(1.0).min_w(0.0).h_full().motion(spring).children(above).children(strip).child(below);
+        let main = col().key("main-column").min_w(0.0).h_full();
+        let main = if self.push { main.w_full() } else { main.grow(1.0) };
+        let main = main.motion(spring).children(above).children(strip).child(below);
         let mut split = row().key("split").w_full().h_full().motion(spring);
         if let Some(s) = sidebar {
             split = split.child(s);
@@ -560,7 +582,7 @@ struct Contents {
 /// its full width, clipped, pinned to the leading edge (or the trailing one, sliding). The
 /// content fades as the motion says. A peeking sidebar's content slides out past the slot's
 /// edge, unclipped and raised over the main pane, on a floating surface.
-fn dock(d: &Dock, key: &str, p: Pane, leading: bool, content: Contents) -> El {
+fn dock(d: &Dock, key: &str, p: Pane, leading: bool, content: Contents, shown: Option<f32>) -> El {
     let (k, spring) = (d.k, d.spring);
     let s = p.state;
     let open = s.is_open();
@@ -571,6 +593,8 @@ fn dock(d: &Dock, key: &str, p: Pane, leading: bool, content: Contents) -> El {
         if d.reduced && pk.reduced_fade > 0.0 { Curve::tween(pk.reduced_fade, Easing::EASE_IN_OUT).into() } else { Anim::INSTANT }
     };
     let (opacity, fade) = match (open, phase, &content.peek) {
+        // Stepped by the app, it's uncovered and covered as it moves.
+        _ if shown.is_some() => (if shown > Some(0.0) { 1.0 } else { 0.0 }, Anim::INSTANT),
         (false, Peek::Shown, Some(pk)) => (1.0, fade_peek(pk)),
         // It slides out past the edge; under Reduce Motion it fades where it is.
         (false, Peek::Left, Some(pk)) => (if d.reduced { 0.0 } else { 1.0 }, fade_peek(pk)),
@@ -623,7 +647,7 @@ fn dock(d: &Dock, key: &str, p: Pane, leading: bool, content: Contents) -> El {
     let body = body
         .children(content.band)
         .child(col().key("pane-body").w_full().grow(1.0).min_h(0.0).child(p.content.w_full().h_full()));
-    let mut slot = el().key(key).w(s.shown_width()).h_full().motion(spring).child(body);
+    let mut slot = el().key(key).w(shown.map_or(s.shown_width(), |f| w * f)).h_full().motion(spring).child(body);
     if !floating {
         slot = slot.clip_soft(0.0);
     }

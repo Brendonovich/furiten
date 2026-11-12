@@ -29,7 +29,7 @@ const NEW_QUEUE: &str = "WITH intro AS (
      WHERE r.rn <= :cap - COALESCE(i.n, 0)";
 
 /// Reviewed cards that are due: `:scope` as above.
-const DUE: &str = "SELECT c.id, c.deck_id, s.due FROM cards c JOIN schedules s ON s.card_id = c.id
+const DUE: &str = "SELECT c.id, c.deck_id, s.due, s.state FROM cards c JOIN schedules s ON s.card_id = c.id
      WHERE c.deleted = 0 AND s.state != 'new' AND s.due <= :now
        AND (:scope IS NULL OR c.deck_id IN (SELECT value FROM json_each(:scope)))";
 
@@ -47,10 +47,18 @@ impl Store {
             Ok(self.conn.query_row(&sql, params, |r| r.get(0)).optional()?)
         };
         let remaining = Remaining { due: count(DUE, due_params)?, new: count(NEW_QUEUE, new_params)? };
-        let id = match first(format!("SELECT id FROM ({DUE}) ORDER BY due, id LIMIT 1"), due_params)? {
-            Some(id) => Some(id),
-            None => first(format!("SELECT id FROM ({NEW_QUEUE}) ORDER BY created_at, id LIMIT 1"), new_params)?,
-        };
+        // Scheduled reviews, then new cards, then the cards forgotten so far, longest ago first.
+        let id =
+            match first(format!("SELECT id FROM ({DUE}) WHERE state = 'review' ORDER BY due, id LIMIT 1"), due_params)?
+            {
+                Some(id) => Some(id),
+                None => {
+                    match first(format!("SELECT id FROM ({NEW_QUEUE}) ORDER BY created_at, id LIMIT 1"), new_params)? {
+                        Some(id) => Some(id),
+                        None => first(format!("SELECT id FROM ({DUE}) ORDER BY due, id LIMIT 1"), due_params)?,
+                    }
+                }
+            };
         let card = id.map(|id| self.card(&id)).transpose()?;
         Ok(NextReview { card, remaining })
     }

@@ -1,5 +1,5 @@
-//! A deck's screen: "Review" in the title bar, then the view switcher, the search and "New card", then its cards as
-//! a grid, a list or a column. On first run, the sample deck with one action.
+//! A deck's screen: "Review" in the title bar, which crams the cards shown, then the view switcher, the search and
+//! "New card", then its cards as a grid, a list or a column. On first run, the sample deck with one action.
 
 use rune::{El, Key, KeyEvent, Shadow, Tx, col, el, icon, row, text};
 use rune_kit::shell::Toolbar;
@@ -8,9 +8,10 @@ use rune_kit::{
     MarkdownStyle, Menu, MenuItem, Placement, TextInput,
 };
 
-use super::{cards, error_line, format, icons, keyed, toolbar};
+use super::{cards, error_line, icons, keyed, toolbar};
 use crate::app::{App, CardsView, sort_directions, sort_label, sort_short_label};
-use crate::core::{CardSort, Order, now_ms};
+use crate::core::{CardSort, Order};
+use crate::keys::{self, Action};
 use crate::theme;
 
 pub fn view(s: &App, k: &Kit, layer: &mut Vec<El>) -> (El, Toolbar) {
@@ -62,22 +63,15 @@ fn no_decks(s: &App, k: &Kit) -> El {
     page
 }
 
-/// "Review" with how many cards are waiting, or when the next one comes due.
+/// "Review" with how many cards the list shows: a cram of exactly those, in their order, due or not, recording nothing.
 fn review(s: &App, k: &Kit) -> El {
-    let (due, new) = s.counts();
-    if due + new == 0 {
-        let when = match s.next_due() {
-            Some(at) => format!("Next card {}", format::until(at, now_ms())),
-            None => "Nothing due".to_string(),
-        };
-        return text(when).key("next").font(k.ty.ui).color(k.c.text_faint);
-    }
-    let count = (due + new).to_string();
+    let count = s.cards.len().to_string();
     Button::new("Review")
         .variant(ButtonVariant::Contrast)
         .control_size(ControlSize::Large)
-        .help("Start review")
-        .shortcut("Space")
+        .help("Review these cards, due or not, without scheduling them")
+        .shortcut(keys::hint(Action::StartReview))
+        .disabled(s.cards.is_empty())
         .label_with(move |font, ink| {
             row()
                 .gap(8.0)
@@ -85,7 +79,7 @@ fn review(s: &App, k: &Kit) -> El {
                 .child(text("Review").key("label").font(font).color(ink))
                 .child(text(count).key("count").font(theme::COUNT).color(ink.alpha(0.6)))
         })
-        .on_press(|s: &mut App| s.start_review())
+        .on_press(|s: &mut App| s.start_cram())
         .build(k)
         .key("review")
 }
@@ -258,42 +252,54 @@ fn step(s: &mut App, dx: i32, dy: i32, tx: &mut Tx) {
 
 /// The deck screen's keys while nothing (or a tile) has focus.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt);
+    let pressed = |action| keys::pressed(ev, action);
     let (due, new) = s.counts();
     if s.first_run {
-        match &ev.key {
-            Key::Text(t) if t == " " && plain && due + new > 0 => s.start_review(),
-            Key::Enter if plain && due + new > 0 => s.start_review(),
-            _ => return false,
+        if due + new > 0 && (pressed(Action::StartReview) || pressed(Action::Open)) {
+            s.start_review();
+            return true;
         }
-        return true;
+        return false;
     }
-    if let Some(v) = CardsView::ALL.into_iter().find(|v| ev.is_command(v.shortcut().1)) {
+    let views = [
+        (Action::GridView, CardsView::Grid),
+        (Action::ListView, CardsView::List),
+        (Action::ColumnView, CardsView::Column),
+    ];
+    if let Some((_, v)) = views.into_iter().find(|(a, _)| pressed(*a)) {
         switch_view(s, v, tx);
         return true;
     }
-    if s.picking_view || s.picking_sort || !plain {
+    if s.picking_view || s.picking_sort {
         return false;
     }
-    match &ev.key {
-        Key::Text(t) if t.eq_ignore_ascii_case("n") => s.new_card(),
-        Key::Text(t) if t == "/" => s.focus_search(),
-        Key::Text(t) if t == " " && due + new > 0 => s.start_review(),
-        Key::Up => step(s, 0, -1, tx),
-        Key::Down => step(s, 0, 1, tx),
-        Key::Left => step(s, -1, 0, tx),
-        Key::Right => step(s, 1, 0, tx),
-        Key::Enter => {
-            if !s.open_selected() {
-                if due + new == 0 {
-                    return false;
-                }
-                s.start_review();
+    if pressed(Action::AddCard) {
+        s.new_card();
+    } else if pressed(Action::Search) {
+        s.focus_search();
+    } else if pressed(Action::StartReview) && !s.cards.is_empty() {
+        s.start_cram();
+    } else if pressed(Action::SelectUp) {
+        step(s, 0, -1, tx);
+    } else if pressed(Action::SelectDown) {
+        step(s, 0, 1, tx);
+    } else if pressed(Action::SelectLeft) {
+        step(s, -1, 0, tx);
+    } else if pressed(Action::SelectRight) {
+        step(s, 1, 0, tx);
+    } else if pressed(Action::Open) {
+        if !s.open_selected() {
+            if s.cards.is_empty() {
+                return false;
             }
+            s.start_cram();
         }
-        Key::Escape if s.detail_focused => s.detail_focused = false,
-        Key::Escape if s.selected.is_some() => s.selected = None,
-        _ => return false,
+    } else if pressed(Action::ClearSelection) && s.detail_focused {
+        s.detail_focused = false;
+    } else if pressed(Action::ClearSelection) && s.selected.is_some() {
+        s.selected = None;
+    } else {
+        return false;
     }
     true
 }

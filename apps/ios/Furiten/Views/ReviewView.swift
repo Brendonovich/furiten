@@ -4,22 +4,42 @@ import SwiftUI
 /// card from every deck. Sides reveal one at a time with a tap anywhere. Swipe right if you remembered it or left if you
 /// forgot, anywhere below the toolbar, or use the buttons, at any side (VoiceOver gets the answers as actions on the
 /// card). In the inbox on iPhone, a drag from the leading edge or on the buttons pulls the sidebar instead. The queue
-/// and scheduling are the desktop's; this only asks for the next card.
+/// and scheduling are the desktop's; this only asks for the next card. A cram goes through the cards it was given
+/// instead, in their order, recording nothing (docs/contract.md, Cramming), in a sheet a swipe down dismisses.
 struct ReviewView: View {
     @Environment(Library.self) private var library
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(\.showSidebar) private var showSidebar
     let deckId: String?
+    private let cram: Cram?
 
-    private var inbox: Bool { deckId == nil }
+    init(deckId: String?) {
+        self.deckId = deckId
+        cram = nil
+    }
+
+    init(cram: Cram) {
+        deckId = cram.deck
+        self.cram = cram
+        _queue = State(initialValue: cram.cards)
+    }
+
+    private var inbox: Bool { deckId == nil && cram == nil }
+
+    /// The cram's cards still to remember, the current one first.
+    @State private var queue: [CardView] = []
 
     @State private var next: NextReview?
     @State private var shown = 1
+    /// Counts the cards shown, to key each one.
+    @State private var dealt = 0
     @State private var answered = 0
     @State private var drag: CGFloat = 0
     @State private var leaving: CGFloat = 0
     @State private var horizontal: Bool?
+    /// Whether a finger is down on the card, so a drag cancelled before it ends still lets go of its axis.
+    @GestureState private var dragging = false
     @State private var busy = false
     @State private var started = Date.now
     @State private var adding = false
@@ -41,8 +61,9 @@ struct ReviewView: View {
                 }
             }
             .background(palette.page.ignoresSafeArea())
-            .navigationTitle(deckId.flatMap { id in library.decks.first { $0.id == id }?.name } ?? "Review")
-            .navigationSubtitle(next.map { counts($0.remaining.due, $0.remaining.new) } ?? "")
+            .navigationTitle(
+                cram?.title ?? deckId.flatMap { id in library.decks.first { $0.id == id }?.name } ?? "Review")
+            .navigationSubtitle(subtitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if inbox, let showSidebar {
@@ -57,6 +78,9 @@ struct ReviewView: View {
                 }
             }
         }
+        // A drag goes the way it started: across answers, and only down dismisses a cram's sheet.
+        .interactiveDismissDisabled(sideways)
+        .onChange(of: dragging) { if !dragging { horizontal = nil } }
         .sensoryFeedback(.impact(weight: .light), trigger: answered)
         .sensoryFeedback(.selection, trigger: abs(drag) >= swipe)
         .sheet(isPresented: $adding, onDismiss: { Task { await load() } }) {
@@ -67,6 +91,11 @@ struct ReviewView: View {
         .onChange(of: library.refreshed) {
             if inbox, next != nil, next?.card == nil, !busy { Task { await load() } }
         }
+    }
+
+    private var subtitle: String {
+        if cram != nil { return queue.isEmpty ? "" : "\(queue.count) left" }
+        return next.map { counts($0.remaining.due, $0.remaining.new) } ?? ""
     }
 
     private func revealed(_ card: CardView) -> Bool { shown >= card.sides.count }
@@ -104,12 +133,15 @@ struct ReviewView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .id(card.id)
+                    // A forgotten card can come straight back, and comes in afresh too.
+                    .id(dealt)
                     .transition(.asymmetric(
                         insertion: .offset(y: 16).combined(with: .scale(scale: 0.98)).combined(with: .opacity),
                         removal: .identity))
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                // Stops the scroll, and the sheet it pulls down, once a drag has gone sideways.
+                .scrollDisabled(sideways)
                 .simultaneousGesture(swiping)
                 .drawerExcluded(inbox)
                 answers(card)
@@ -150,12 +182,7 @@ struct ReviewView: View {
             ForEach(Array(card.sides.prefix(shown).enumerated()), id: \.offset) { i, side in
                 if i > 0 {
                     // Runs the card's full width.
-                    Line()
-                        .stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-                        .foregroundStyle(.tertiary)
-                        .frame(height: 1)
-                        .padding(.vertical, 20)
-                        .layoutValue(key: Stretches.self, value: true)
+                    SideRule().layoutValue(key: Stretches.self, value: true)
                 }
                 MarkdownView(text: side)
                     .font(.title2)
@@ -189,9 +216,13 @@ struct ReviewView: View {
         .offset(x: dx)
     }
 
+    /// Whether the drag under way started sideways, so it answers rather than scrolls or dismisses.
+    private var sideways: Bool { dragging && horizontal == true }
+
     /// The card follows the finger, at any side; past `swipe` it flies off and answers.
     private var swiping: some Gesture {
         DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .updating($dragging) { _, dragging, _ in dragging = true }
             .onChanged { value in
                 if horizontal == nil {
                     // In the inbox on iPhone, a drag from the leading edge pulls the sidebar instead.
@@ -236,7 +267,17 @@ struct ReviewView: View {
 
     @ViewBuilder
     private var finished: some View {
-        if inbox { caughtUp } else { deckFinished }
+        if let cram { cramFinished(cram) } else if inbox { caughtUp } else { deckFinished }
+    }
+
+    private func cramFinished(_ cram: Cram) -> some View {
+        ContentUnavailableView {
+            Label("Cram finished", systemImage: "checkmark.circle")
+        } description: {
+            Text("You went through \(cardCount(cram.cards.count)).")
+        } actions: {
+            Button("Done", action: close).buttonStyle(.glassProminent).controlSize(.large)
+        }
     }
 
     private var caughtUp: some View {
@@ -274,34 +315,47 @@ struct ReviewView: View {
     }
 
     private func load() async {
+        if cram != nil { return show(NextReview(card: queue.first, remaining: Remaining(due: 0, new: 0))) }
         guard let core = library.core else { return }
         do {
             let next = try await core.next(deck: deckId)
-            withAnimation(ReviewCurve.cardIn) {
-                self.next = next
-                shown = 1
-                #if DEBUG
-                if Scripted.reveal { shown = next.card?.sides.count ?? 1 }
-                #endif
-                drag = 0
-                leaving = 0
-            }
-            started = .now
+            show(next)
             if next.card == nil, !inbox { await library.refresh() }
         } catch {
             library.fail(error)
         }
     }
 
+    private func show(_ next: NextReview) {
+        withAnimation(ReviewCurve.cardIn) {
+            self.next = next
+            dealt += 1
+            shown = 1
+            #if DEBUG
+            if Scripted.reveal { shown = next.card?.sides.count ?? 1 }
+            #endif
+            drag = 0
+            leaving = 0
+        }
+        started = .now
+    }
+
     private func answer(_ recalled: Recalled) async {
-        guard let card = next?.card, let core = library.core, !busy else { return }
+        let core = library.core
+        guard let card = next?.card, cram != nil || core != nil, !busy else { return }
         busy = true
         defer { busy = false }
         // The card flies off the way a swipe would send it, and the next one comes in once it's gone.
         withAnimation(ReviewCurve.flyOff) { leaving = recalled == .remembered ? 1 : -1 }
         do {
             async let gone: Void? = try? Task.sleep(for: .seconds(ReviewCurve.flyOffDuration))
-            _ = try await core.answer(card.id, recalled, durationMs: Int64(Date.now.timeIntervalSince(started) * 1000))
+            if cram != nil {
+                // Practice: nothing is recorded. A forgotten card goes to the back to come round again.
+                queue.removeFirst()
+                if recalled == .forgot { queue.append(card) }
+            } else if let core {
+                _ = try await core.answer(card.id, recalled, durationMs: Int64(Date.now.timeIntervalSince(started) * 1000))
+            }
             _ = await gone
             answered += 1
             await load()
@@ -313,6 +367,26 @@ struct ReviewView: View {
                 leaving = 0
                 drag = 0
             }
+        }
+    }
+}
+
+/// A cram over the cards a list is showing, in its order, as they were when it started.
+struct Cram: Identifiable {
+    let id = UUID()
+    let title: String
+    /// The deck whose page it's from, so its own cards don't show their deck.
+    let deck: String?
+    let cards: [CardView]
+}
+
+extension View {
+    /// Presents a cram as a sheet over the list it's from, which a swipe down dismisses.
+    func cramSheet(_ cram: Binding<Cram?>) -> some View {
+        sheet(item: cram) { cram in
+            ReviewView(cram: cram)
+                .presentationDragIndicator(.visible)
+                .presentationSizing(.page)
         }
     }
 }

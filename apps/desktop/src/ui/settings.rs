@@ -84,6 +84,7 @@ pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
             .child(sync)
             .child(phones(s, settings, k))
             .child(web(settings, k))
+            .child(review(s, k))
             .child(experiments(s, k))
             .child(
                 col()
@@ -334,6 +335,31 @@ fn qr(data: &str) -> El {
         rows = rows.child(line);
     }
     col().key("qr").padding(4.0 * MODULE).fill(Color::WHITE).radius(8.0).child(rows)
+}
+
+/// How the review lays cards out.
+fn review(s: &App, k: &Kit) -> El {
+    let label = "Full-width cards";
+    let what = "Cards under review fill the window, instead of a fixed column down the middle.";
+    let switch = Switch::new(s.full_width_cards())
+        .label(label)
+        .hide_label()
+        .on_toggle(|s: &mut App| s.toggle_full_width_cards())
+        .build(k)
+        .key("full-width");
+    let text_col = col()
+        .key("text")
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(2.0)
+        .child(text(label).key("label").font(k.ty.ui_medium).color(k.c.text_base))
+        .child(text(what).key("description").font(k.ty.ui).color(k.c.text_muted).wrap());
+    col()
+        .key("review")
+        .w_full()
+        .gap(10.0)
+        .child(text("Review").key("title").font(k.ty.body_medium).color(k.c.text_base))
+        .child(row().key("full-width-row").w_full().gap(16.0).center_y().child(text_col).child(switch))
 }
 
 /// Designs being tried out, off until switched on here.
