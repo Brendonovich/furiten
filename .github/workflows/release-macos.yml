@@ -50,13 +50,18 @@ jobs:
           current="${package_id##*[@#]}"
           latest="$(gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" \
             --jq '.[].name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | ltrimstr("v")' | semver_max)"
-          base="$(printf '%s\n%s\n' "$current" "$latest" | sed '/^$/d' | semver_max)"
-          IFS=. read -r major minor patch <<< "$base"
-          case "$BUMP" in
-            major) version="$((major + 1)).0.0" ;;
-            minor) version="$major.$((minor + 1)).0" ;;
-            patch) version="$major.$minor.$((patch + 1))" ;;
-          esac
+          if [[ -z "$latest" ]]; then
+            # The first release is the version the crates already are.
+            version="$current"
+          else
+            base="$(printf '%s\n%s\n' "$current" "$latest" | semver_max)"
+            IFS=. read -r major minor patch <<< "$base"
+            case "$BUMP" in
+              major) version="$((major + 1)).0.0" ;;
+              minor) version="$major.$((minor + 1)).0" ;;
+              patch) version="$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
           # The desktop app's version, and the workspace's (the CLI and core beside it).
           VERSION="$version" perl -pi -e 's/^version = "[^"]+"/version = "$ENV{VERSION}"/' \
             Cargo.toml apps/desktop/Cargo.toml
