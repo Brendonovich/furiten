@@ -39,10 +39,25 @@ ad hoc signed unless `APPLE_SIGNING_IDENTITY` names a Developer ID Application i
 `scripts/icons.sh` renders): its own library in `~/Library/Application Support/Furiten Dev` and its own preferences, so
 it installs and runs beside Furiten. `--dmg` also makes `target/release/bundle/dmg/<name>.dmg`, and `--notarize`
 notarizes and staples the app, then the DMG made from it (`APPLE_NOTARY_PROFILE`, or `APPLE_NOTARY_KEY_PATH` and
-`APPLE_NOTARY_KEY_ID`). In CI, with the repository's `APPLE_*` secrets, `build-macos` builds the notarized Furiten Dev
-DMG as an artifact on every push to `dev` that touches the app, and `release-macos` (run from the Actions tab with a
-patch, minor or major bump) builds Furiten at the next version past the newest `v*` tag and publishes it as a GitHub
-release, tagged `v<version>`.
+`APPLE_NOTARY_KEY_ID`); `--zip` (and `--notarize`) also makes the updater zip, with the app at its root.
+
+## Updates
+
+A Developer ID build of the release app carries Sparkle (`scripts/embed-sparkle.sh`, pinned and checksummed), so it
+checks for updates an hour or so after launch and has App › Check for Updates…. The feed is in `Info.plist`:
+`https://github.com/Brendonovich/furiten/releases/latest/download/appcast.xml` (GitHub redirects it if the repo moves),
+and the app pins the EdDSA public key the appcast is signed with. The dev app and unpackaged runs have no Sparkle and
+never update.
+
+`release-macos` (run from the Actions tab with a patch, minor or major bump) makes everything: the notarized DMG, the
+updater zip, and an appcast signed with the `SPARKLE_PRIVATE_KEY` secret (its public half is the `SPARKLE_PUBLIC_KEY`
+variable, `scripts/appcast.sh`). It builds Furiten at the next version past the newest `v*` tag and publishes all three
+as a GitHub release, tagged `v<version>`; installs follow the newest release, since the appcast is served from
+`releases/latest`. A local release-shaped build is
+`APPLE_SIGNING_IDENTITY=… SPARKLE_PUBLIC_KEY=… apps/desktop/scripts/bundle.sh --notarize`.
+
+In CI, with the repository's `APPLE_*` secrets, `build-macos` builds the notarized Furiten Dev DMG as an artifact on
+every push to `dev` that touches the app.
 
 ## Decks
 

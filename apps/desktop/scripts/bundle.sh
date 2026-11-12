@@ -8,7 +8,10 @@
 #
 # --dmg also makes a disk image; --notarize notarizes and staples the app, then the disk image made from it, with
 # APPLE_NOTARY_PROFILE (a `notarytool store-credentials` profile) or APPLE_NOTARY_KEY_PATH and APPLE_NOTARY_KEY_ID
-# (and APPLE_NOTARY_ISSUER_ID for a team key).
+# (and APPLE_NOTARY_ISSUER_ID for a team key). --zip also makes the app's updater zip, which Sparkle installs from.
+#
+# Developer ID builds of the release app carry Sparkle (`embed-sparkle.sh`) with SPARKLE_PUBLIC_KEY in the plist and the
+# feed at FURITEN_FEED_URL; that's what App › Check for Updates… and the scheduled checks use. Dev builds have neither.
 set -euo pipefail
 
 desktop="${0:A:h:h}"
@@ -39,16 +42,18 @@ app="$out/macos/$app_name.app"
 dmg="$out/dmg/$app_name.dmg"
 build_number="${FURITEN_BUILD_NUMBER:-1}"
 make_dmg=false
+make_zip=false
 notarize=false
 
 usage() {
-  print "Usage: bundle.sh [--dmg] [--notarize]"
+  print "Usage: bundle.sh [--dmg] [--notarize] [--zip]"
 }
 
 while (( $# > 0 )); do
   case "$1" in
     --dmg) make_dmg=true ;;
-    --notarize) notarize=true make_dmg=true ;;
+    --zip) make_zip=true ;;
+    --notarize) notarize=true make_dmg=true make_zip=true ;;
     -h|--help) usage; exit 0 ;;
     *) print -u2 "Unknown option: $1"; usage >&2; exit 2 ;;
   esac
@@ -92,6 +97,8 @@ plutil -replace CFBundleName -string "$app_name" "$app/Contents/Info.plist"
 plutil -replace CFBundleIdentifier -string "$bundle_id" "$app/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$build_number" "$app/Contents/Info.plist"
+plutil -replace SUFeedURL -string "${FURITEN_FEED_URL:-https://github.com/Brendonovich/furiten/releases/latest/download/appcast.xml}" \
+  "$app/Contents/Info.plist"
 ditto "$root/apps/web/dist" "$app/Contents/Resources/web"
 
 iconset="$(mktemp -d)/AppIcon.iconset"
@@ -103,7 +110,12 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 
-# Inside out: the CLI, then the app (whose main executable is the desktop app).
+# Inside out: Sparkle (when this release build carries it), the CLI, then the app (whose main executable is the desktop
+# app).
+if [[ "$channel" == production && "$identity" != - && -n "${SPARKLE_PUBLIC_KEY:-}" ]]; then
+  "$desktop/scripts/embed-sparkle.sh" "$app" "$desktop/target" "$identity"
+  plutil -replace SUPublicEDKey -string "$SPARKLE_PUBLIC_KEY" "$app/Contents/Info.plist"
+fi
 sign() {
   if [[ "$identity" == - ]]; then
     codesign --force --sign - "$@"
@@ -131,6 +143,15 @@ if [[ "$notarize" == true ]]; then
   notarize "${iconset:h}/notarize.zip"
   xcrun stapler staple "$app" >&2
   xcrun stapler validate "$app" >&2
+fi
+
+if [[ "$make_zip" == true ]]; then
+  # Sparkle installs from this: the app at the zip's root, made after the app is stapled so its ticket is inside.
+  arch="$(uname -m)"
+  [[ "$arch" == arm64 ]] || arch=x86_64
+  archive="$out/dmg/$app_name-$version-macos-$arch.zip"
+  rm -f "$archive"
+  ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
 fi
 
 if [[ "$make_dmg" == true ]]; then
@@ -168,4 +189,5 @@ fi
 
 print -u2 "App: $app"
 [[ "$make_dmg" == true ]] && print -u2 "DMG: $dmg"
+[[ "$make_zip" == true ]] && print -u2 "ZIP: $archive"
 print "$app"

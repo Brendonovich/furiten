@@ -24,6 +24,10 @@ pulldown-cmark = { version = "=0.13.6", default-features = false }
 rune-theme-opencode = { path = "vendor/rune/themes/opencode" }
 # The web access QR code in Settings, drawn as Rune boxes (no image or SVG output needed).
 qrcode = { version = "=0.14.1", default-features = false }
+# Sparkle's updater is loaded from the bundle at runtime (src/updater.rs), through the runtime classes and dlopen; both
+# are already in the tree through Rune, pinned to them so there's one copy.
+objc2 = "=0.6.5"
+libc = "=0.2.191"
 
 [dev-dependencies]
 serde_json = "=1.0.154"

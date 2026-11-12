@@ -30,5 +30,13 @@
   <true/>
   <key>NSLocalNetworkUsageDescription</key>
   <string>Furiten syncs your decks with your phone and serves web access on your local network.</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUAutomaticallyUpdate</key>
+  <true/>
+  <key>SUFeedURL</key>
+  <string>https://github.com/Brendonovich/furiten/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key>
+  <string></string>
 </dict>
 </plist>

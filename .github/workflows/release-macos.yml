@@ -78,11 +78,33 @@ jobs:
           FURITEN_BUILD_NUMBER: ${{ github.run_number }}
           FURITEN_CHANNEL: production
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
+          [[ -n "$SPARKLE_PUBLIC_KEY" ]] || { echo "SPARKLE_PUBLIC_KEY is not set; the release would have no updater." >&2; exit 1; }
           app="$(apps/desktop/scripts/bundle.sh --notarize)"
           built="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
           [[ "$built" == "$RELEASE_VERSION" ]] || { echo "Built $built, not $RELEASE_VERSION" >&2; exit 1; }
+          # The app pins the key the appcast is signed with.
+          [[ "$(plutil -extract SUPublicEDKey raw "$app/Contents/Info.plist")" == "$SPARKLE_PUBLIC_KEY" ]] ||
+            { echo "The app has the wrong SUPublicEDKey." >&2; exit 1; }
+          ls -l apps/desktop/target/release/bundle/dmg
+
+      - name: Make the appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          [[ "$arch" == arm64 ]] || arch=x86_64
+          dmg=apps/desktop/target/release/bundle/dmg
+          zip="$dmg/Furiten-$RELEASE_VERSION-macos-$arch.zip"
+          # A stable name, so the appcast's URL outlives the version in it.
+          cp "$zip" "$dmg/Furiten.zip"
+          apps/desktop/scripts/appcast.sh "$dmg/Furiten.zip" Furiten.zip "$RELEASE_VERSION" \
+            "$GITHUB_RUN_NUMBER" "$RELEASE_TAG" "$dmg/appcast.xml"
+          cat "$dmg/appcast.xml"
+
       - name: Remove the signing keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
@@ -91,5 +113,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$RELEASE_TAG" apps/desktop/target/release/bundle/dmg/Furiten.dmg \
+          gh release create "$RELEASE_TAG" \
+            apps/desktop/target/release/bundle/dmg/Furiten.dmg \
+            apps/desktop/target/release/bundle/dmg/Furiten.zip \
+            apps/desktop/target/release/bundle/dmg/appcast.xml \
             --target "$GITHUB_SHA" --title "Furiten $RELEASE_VERSION" --generate-notes

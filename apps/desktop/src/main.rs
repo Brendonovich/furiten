@@ -11,6 +11,7 @@ mod identity;
 mod keys;
 mod theme;
 mod ui;
+mod updater;
 
 use std::sync::{Mutex, OnceLock};
 
@@ -303,6 +304,7 @@ fn host_core(app: rune::App<App>, background: bool) -> rune::App<App> {
     let mut started = false;
     app.on_ready(move |_| {
         if !std::mem::replace(&mut started, true) {
+            updater::start();
             start();
         }
     })
@@ -338,6 +340,11 @@ fn main() {
         ..AppSpec::new(identity::name(), (1040.0, 680.0), app::init, ui::view)
     };
     let mut app = rune::App::new(spec).chrome(chrome);
+    // App › Check for Updates…, when the bundle carries Sparkle.
+    let updates = rune::MenuItem::new("Check for Updates…", |_: &mut App, _: &mut Tx| updater::check_for_updates())
+        .id("furiten.check-for-updates")
+        .enabled(updater::available());
+    app = app.menu_item(updates);
     if background {
         app = app.windowless().accessory().standard_menus().on_close(hide_dock).on_reopen(reopen);
         let _ = BACKGROUND.set(app.handle());
