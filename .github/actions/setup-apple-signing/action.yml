@@ -1,0 +1,53 @@
+name: Set up Apple signing
+description: >
+  Imports the Developer ID certificate into a throwaway keychain and writes the App Store Connect API key to the
+  runner's temp directory, for apps/desktop/scripts/bundle.sh. Both go with the runner.
+
+inputs:
+  certificate-p12-base64:
+    description: Base64 Developer ID Application certificate and private key (.p12).
+    required: true
+  certificate-password:
+    description: The .p12's password.
+    required: false
+  api-key-p8-base64:
+    description: Base64 App Store Connect API key (.p8), for notarytool.
+    required: true
+  api-key-id:
+    description: The API key's ID.
+    required: true
+  signing-identity:
+    description: The Developer ID Application identity's name or SHA-1.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        CERTIFICATE_P12_BASE64: ${{ inputs.certificate-p12-base64 }}
+        CERTIFICATE_PASSWORD: ${{ inputs.certificate-password }}
+        API_KEY_P8_BASE64: ${{ inputs.api-key-p8-base64 }}
+        API_KEY_ID: ${{ inputs.api-key-id }}
+        SIGNING_IDENTITY: ${{ inputs.signing-identity }}
+      run: |
+        set -euo pipefail
+        certificate="$RUNNER_TEMP/developer-id.p12"
+        key="$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8"
+        keychain="$RUNNER_TEMP/signing.keychain-db"
+        password="$(openssl rand -hex 32)"
+        (umask 077 && printf '%s' "$CERTIFICATE_P12_BASE64" | openssl base64 -d -A -out "$certificate")
+        (umask 077 && printf '%s' "$API_KEY_P8_BASE64" | openssl base64 -d -A -out "$key")
+        security create-keychain -p "$password" "$keychain"
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$password" "$keychain"
+        security import "$certificate" -P "$CERTIFICATE_PASSWORD" -f pkcs12 -k "$keychain" \
+          -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+        rm -f "$certificate"
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+        security list-keychains -d user -s "$keychain"
+        {
+          echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY"
+          echo "APPLE_NOTARY_KEY_PATH=$key"
+          echo "APPLE_NOTARY_KEY_ID=$API_KEY_ID"
+        } >> "$GITHUB_ENV"

@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Builds Furiten.app for this Mac's architecture: the desktop app, the CLI beside it (so the CLI finds the app), and
 # the built web app in Resources/web (for web access). Ad hoc signed unless APPLE_SIGNING_IDENTITY names a Developer ID
-# Application identity. --dmg also makes a disk image; --notarize notarizes and staples it, with APPLE_NOTARY_PROFILE
+# Application identity. --dmg also makes a disk image; --notarize notarizes and staples the app, then the disk image
+# made from it, with APPLE_NOTARY_PROFILE
 # (a `notarytool store-credentials` profile) or APPLE_NOTARY_KEY_PATH and APPLE_NOTARY_KEY_ID
 # (and APPLE_NOTARY_ISSUER_ID for a team key).
 set -euo pipefail
@@ -85,13 +86,36 @@ sign "$app"
 plutil -lint "$app/Contents/Info.plist" >&2
 codesign --verify --deep --strict --verbose=2 "$app" >&2
 
+if [[ "$notarize" == true ]]; then
+  if [[ -n "${APPLE_NOTARY_PROFILE:-}" ]]; then
+    notary=(--keychain-profile "$APPLE_NOTARY_PROFILE")
+  else
+    notary=(--key "$APPLE_NOTARY_KEY_PATH" --key-id "$APPLE_NOTARY_KEY_ID")
+    [[ -n "${APPLE_NOTARY_ISSUER_ID:-}" ]] && notary+=(--issuer "$APPLE_NOTARY_ISSUER_ID")
+  fi
+  notarize() {
+    xcrun notarytool submit "$1" "${notary[@]}" --wait --timeout 45m >&2
+  }
+  # The app first, so its ticket is stapled inside the DMG and it opens offline once copied out.
+  ditto -c -k --sequesterRsrc --keepParent "$app" "${iconset:h}/notarize.zip"
+  notarize "${iconset:h}/notarize.zip"
+  xcrun stapler staple "$app" >&2
+  xcrun stapler validate "$app" >&2
+fi
+
 if [[ "$make_dmg" == true ]]; then
   staging="$out/dmg/staging"
   rm -rf "$staging" "$dmg"
   mkdir -p "$staging"
   ditto "$app" "$staging/Furiten.app"
   ln -s /Applications "$staging/Applications"
-  hdiutil create -volname Furiten -srcfolder "$staging" -ov -format UDZO "$dmg" >&2
+  # hdiutil fails now and then while a disk image helper is busy ("Resource busy", "temporarily unavailable").
+  for attempt in 1 2 3 4 5; do
+    hdiutil create -volname Furiten -srcfolder "$staging" -ov -format UDZO "$dmg" >&2 && break
+    (( attempt < 5 )) || exit 1
+    rm -f "$dmg"
+    sleep 10
+  done
   rm -rf "$staging"
   # A disk image helper can hold the new image for a moment ("Resource temporarily unavailable").
   for attempt in 1 2 3 4 5; do
@@ -106,13 +130,7 @@ if [[ "$make_dmg" == true ]]; then
 fi
 
 if [[ "$notarize" == true ]]; then
-  if [[ -n "${APPLE_NOTARY_PROFILE:-}" ]]; then
-    notary=(--keychain-profile "$APPLE_NOTARY_PROFILE")
-  else
-    notary=(--key "$APPLE_NOTARY_KEY_PATH" --key-id "$APPLE_NOTARY_KEY_ID")
-    [[ -n "${APPLE_NOTARY_ISSUER_ID:-}" ]] && notary+=(--issuer "$APPLE_NOTARY_ISSUER_ID")
-  fi
-  xcrun notarytool submit "$dmg" "${notary[@]}" --wait --timeout 45m >&2
+  notarize "$dmg"
   xcrun stapler staple "$dmg" >&2
   xcrun stapler validate "$dmg" >&2
   spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg" >&2

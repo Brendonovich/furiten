@@ -1,0 +1,94 @@
+name: release-macos
+
+# Publishes Furiten for macOS from the Actions tab: bumps the version past the newest v* tag (or the crates' version,
+# if that's newer), builds, signs and notarizes Furiten.dmg at that version, and creates the GitHub release, tagging
+# the commit v<version>. The version is set only in the build; nothing is committed. The latest release's DMG is
+# always at releases/latest/download/Furiten.dmg.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop -> target
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+        working-directory: apps/web
+
+      - name: Set the release version
+        env:
+          BUMP: ${{ inputs.bump }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          semver_max() { sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1; }
+          package_id="$(cargo pkgid --manifest-path apps/desktop/Cargo.toml -p furiten-desktop)"
+          current="${package_id##*[@#]}"
+          latest="$(gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" \
+            --jq '.[].name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | ltrimstr("v")' | semver_max)"
+          base="$(printf '%s\n%s\n' "$current" "$latest" | sed '/^$/d' | semver_max)"
+          IFS=. read -r major minor patch <<< "$base"
+          case "$BUMP" in
+            major) version="$((major + 1)).0.0" ;;
+            minor) version="$major.$((minor + 1)).0" ;;
+            patch) version="$major.$minor.$((patch + 1))" ;;
+          esac
+          # The desktop app's version, and the workspace's (the CLI and core beside it).
+          VERSION="$version" perl -pi -e 's/^version = "[^"]+"/version = "$ENV{VERSION}"/' \
+            Cargo.toml apps/desktop/Cargo.toml
+          cargo metadata --format-version 1 >/dev/null
+          cargo metadata --format-version 1 --manifest-path apps/desktop/Cargo.toml >/dev/null
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
+          echo "Furiten $version ($BUMP bump from $base)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: ./.github/actions/setup-apple-signing
+        with:
+          certificate-p12-base64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          api-key-p8-base64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          api-key-id: ${{ secrets.APPLE_API_KEY_ID }}
+          signing-identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      - name: Build, sign and notarize
+        env:
+          FURITEN_BUILD_NUMBER: ${{ github.run_number }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          app="$(apps/desktop/scripts/bundle.sh --notarize)"
+          built="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
+          [[ "$built" == "$RELEASE_VERSION" ]] || { echo "Built $built, not $RELEASE_VERSION" >&2; exit 1; }
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" apps/desktop/target/release/bundle/dmg/Furiten.dmg \
+            --target "$GITHUB_SHA" --title "Furiten $RELEASE_VERSION" --generate-notes

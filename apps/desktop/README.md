@@ -35,9 +35,11 @@ shows nothing in between; one that takes longer than 0.4 s says "Opening your de
 `scripts/bundle.sh` builds `target/release/bundle/macos/Furiten.app`: the app, the `furiten` CLI beside it in
 `Contents/MacOS` (link it onto `PATH` and it starts this app), and the built web app in `Contents/Resources/web`. It's
 ad hoc signed unless `APPLE_SIGNING_IDENTITY` names a Developer ID Application identity; `--dmg` also makes
-`target/release/bundle/dmg/Furiten.dmg`, and `--notarize` notarizes and staples it (`APPLE_NOTARY_PROFILE`, or
-`APPLE_NOTARY_KEY_PATH` and `APPLE_NOTARY_KEY_ID`). The `build-macos` workflow (run it from the Actions tab) does the
-same with the repository's `APPLE_*` secrets and uploads the DMG.
+`target/release/bundle/dmg/Furiten.dmg`, and `--notarize` notarizes and staples the app, then the DMG made from it
+(`APPLE_NOTARY_PROFILE`, or `APPLE_NOTARY_KEY_PATH` and `APPLE_NOTARY_KEY_ID`). In CI, with the repository's `APPLE_*`
+secrets, `build-macos` builds the notarized DMG as an artifact on every push to `dev` that touches the app, and
+`release-macos` (run from the Actions tab with a patch, minor or major bump) builds it at the next version past the
+newest `v*` tag and publishes it as a GitHub release, tagged `v<version>`.
 
 ## Decks
 
