@@ -45,15 +45,23 @@ notarizes and staples the app, then the DMG made from it (`APPLE_NOTARY_PROFILE`
 
 A Developer ID build of the release app carries Sparkle (`scripts/embed-sparkle.sh`, pinned and checksummed), so it
 checks for updates an hour or so after launch and has App › Check for Updates…. The feed is in `Info.plist`:
-`https://github.com/Brendonovich/furiten/releases/latest/download/appcast.xml` (GitHub redirects it if the repo moves),
-and the app pins the EdDSA public key the appcast is signed with. The dev app and unpackaged runs have no Sparkle and
-never update.
+`https://anoma.ly/release/furiten/desktop/stable/macos-arm64-feed`, Anomaly's release service (`anoma.ly/release`),
+whose latest link redirects to the newest appcast the `release-macos` workflow signed; the app pins the EdDSA public
+key the appcast is signed with. The dev app and unpackaged runs have no Sparkle and never update.
 
 `release-macos` (run from the Actions tab with a patch, minor or major bump) makes everything: the notarized DMG, the
 updater zip, and an appcast signed with the `SPARKLE_PRIVATE_KEY` secret (its public half is the `SPARKLE_PUBLIC_KEY`
-variable, `scripts/appcast.sh`). It builds Furiten at the next version past the newest `v*` tag and publishes all three
-as a GitHub release, tagged `v<version>`; installs follow the newest release, since the appcast is served from
-`releases/latest`. A local release-shaped build is
+variable, `scripts/appcast.sh`). It builds Furiten at the next version past the newest `v*` tag, publishes all three to
+the release service as the `desktop` artifact's `stable` channel, then tags the commit `v<version>`. The service
+authorizes the run by its GitHub OIDC token against `registry/furiten.json` in `anomalyco/release` (this repository,
+this workflow file, `dev`, environment `release`), so the job runs in that environment and holds no release
+credentials. Installs follow the channel's current release, and the download links never change:
+
+- `https://anoma.ly/release/furiten/desktop/stable/macos-arm64-dmg`: the DMG (302 to the current file)
+- `https://anoma.ly/release/furiten/desktop/stable/macos-arm64`: the updater zip
+- `https://anoma.ly/release/furiten/desktop/stable/macos-arm64-feed`: the Sparkle appcast
+
+A local release-shaped build is
 `APPLE_SIGNING_IDENTITY=… SPARKLE_PUBLIC_KEY=… apps/desktop/scripts/bundle.sh --notarize`.
 
 In CI, with the repository's `APPLE_*` secrets, `build-macos` builds the notarized Furiten Dev DMG as an artifact on

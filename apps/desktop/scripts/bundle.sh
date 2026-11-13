@@ -97,7 +97,7 @@ plutil -replace CFBundleName -string "$app_name" "$app/Contents/Info.plist"
 plutil -replace CFBundleIdentifier -string "$bundle_id" "$app/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$build_number" "$app/Contents/Info.plist"
-plutil -replace SUFeedURL -string "${FURITEN_FEED_URL:-https://github.com/Brendonovich/furiten/releases/latest/download/appcast.xml}" \
+plutil -replace SUFeedURL -string "${FURITEN_FEED_URL:-https://anoma.ly/release/furiten/desktop/stable/macos-arm64-feed}" \
   "$app/Contents/Info.plist"
 ditto "$root/apps/web/dist" "$app/Contents/Resources/web"
 

@@ -1,9 +1,14 @@
 name: release-macos
 
 # Publishes Furiten for macOS from the Actions tab: bumps the version past the newest v* tag (or the crates' version,
-# if that's newer), builds, signs and notarizes Furiten.dmg at that version, and creates the GitHub release, tagging
-# the commit v<version>. The version is set only in the build; nothing is committed. The latest release's DMG is
-# always at releases/latest/download/Furiten.dmg.
+# if that's newer), builds, signs and notarizes Furiten.dmg at that version, publishes it to Anomaly's release service
+# (anoma.ly/release), and tags the commit v<version>. The version is set only in the build; nothing is committed.
+# The run is the `release` environment, which is what the service's registry (anomalyco/release, registry/furiten.json)
+# authorizes: this repository, this workflow file, refs/heads/dev, environment release, the desktop artifact's stable
+# channel. The service's latest links never change:
+#   https://anoma.ly/release/furiten/desktop/stable/macos-arm64-dmg    the DMG (302 to the current file)
+#   https://anoma.ly/release/furiten/desktop/stable/macos-arm64        the updater zip
+#   https://anoma.ly/release/furiten/desktop/stable/macos-arm64-feed   the Sparkle appcast the app follows
 on:
   workflow_dispatch:
     inputs:
@@ -14,8 +19,10 @@ on:
         type: choice
         options: [patch, minor, major]
 
+# id-token is the release service's only credential: the job trades its OIDC token for a publish session.
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: release-macos
@@ -25,6 +32,7 @@ jobs:
   release:
     runs-on: macos-26
     timeout-minutes: 90
+    environment: release
     steps:
       - uses: actions/checkout@v7
       - run: rustup show active-toolchain
@@ -98,28 +106,44 @@ jobs:
       - name: Make the appcast
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          # The service's stable link to the updater zip, which outlives the version in the file's name.
+          FURITEN_ASSET_URL: https://anoma.ly/release/furiten/desktop/stable/macos-arm64
         run: |
           set -euo pipefail
           arch="$(uname -m)"
           [[ "$arch" == arm64 ]] || arch=x86_64
           dmg=apps/desktop/target/release/bundle/dmg
-          zip="$dmg/Furiten-$RELEASE_VERSION-macos-$arch.zip"
-          # A stable name, so the appcast's URL outlives the version in it.
-          cp "$zip" "$dmg/Furiten.zip"
-          apps/desktop/scripts/appcast.sh "$dmg/Furiten.zip" Furiten.zip "$RELEASE_VERSION" \
-            "$GITHUB_RUN_NUMBER" "$RELEASE_TAG" "$dmg/appcast.xml"
+          apps/desktop/scripts/appcast.sh "$dmg/Furiten-$RELEASE_VERSION-macos-$arch.zip" \
+            "Furiten-$RELEASE_VERSION-macos-$arch.zip" "$RELEASE_VERSION" "$GITHUB_RUN_NUMBER" "$RELEASE_TAG" \
+            "$dmg/appcast.xml"
           cat "$dmg/appcast.xml"
 
       - name: Remove the signing keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
 
-      - name: Create the GitHub release
+      - name: Publish to the release service
         env:
-          GH_TOKEN: ${{ github.token }}
+          RELEASE: https://anoma.ly/release
         run: |
-          gh release create "$RELEASE_TAG" \
-            apps/desktop/target/release/bundle/dmg/Furiten.dmg \
-            apps/desktop/target/release/bundle/dmg/Furiten.zip \
-            apps/desktop/target/release/bundle/dmg/appcast.xml \
-            --target "$GITHUB_SHA" --title "Furiten $RELEASE_VERSION" --generate-notes
+          set -euo pipefail
+          arch="$(uname -m)"
+          [[ "$arch" == arm64 ]] || arch=x86_64
+          dmg=apps/desktop/target/release/bundle/dmg
+          jq -n --arg channel stable --arg version "$RELEASE_VERSION" '{channel: $channel, version: $version}' \
+            > "$RUNNER_TEMP/release.json"
+          # The client opens a publish session with the job's OIDC token, uploads (content-addressed, in parts when
+          # large), publishes, and checks the published files' sizes and hashes.
+          curl -fsSL "$RELEASE/client.sh" | bash -s -- publish \
+            --app furiten --artifact desktop --release "$RUNNER_TEMP/release.json" \
+            --target "macos-arm64=$dmg/Furiten-$RELEASE_VERSION-macos-$arch.zip" \
+            --target "macos-arm64-dmg=$dmg/Furiten.dmg=Furiten.dmg" \
+            --target "macos-arm64-feed=$dmg/appcast.xml" \
+            --out "$RUNNER_TEMP/manifest.json" --verify-downloads
+          cat "$RUNNER_TEMP/manifest.json"
+
+      - name: Tag the release
+        run: |
+          set -euo pipefail
+          git tag "$RELEASE_TAG" "$GITHUB_SHA"
+          git push origin "$RELEASE_TAG"

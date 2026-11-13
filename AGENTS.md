@@ -37,7 +37,8 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 - `cargo run -p furiten -- --help`; `cargo run -p furiten-desktop`.
 - `apps/desktop/scripts/bundle.sh [--dmg] [--notarize] [--zip]` builds Furiten.app (ad hoc signed, or with
   `APPLE_SIGNING_IDENTITY`) with the CLI and the web app inside; `FURITEN_CHANNEL=dev` builds Furiten Dev.app instead.
-  Developer ID builds carry Sparkle and update from the newest GitHub release (`scripts/appcast.sh` signs its feed).
+  Developer ID builds carry Sparkle and update from Anomaly's release service at `anoma.ly/release` (`scripts/appcast.sh`
+  signs its feed; the registry entry lives in `anomalyco/release`).
 - `apps/ios/scripts/deploy.sh [device]` builds the iOS app and installs it on a paired iPhone (Wi-Fi is fine).
   `apps/ios/scripts/simulate.sh [-pair <ticket>] [-screen inbox|decks|settings|search|deck|new|editor|cram|tag]` runs it in the
   booted simulator, paired with a desktop (a ticket from `furiten host pair`; try a scratch `FURITEN_HOME`), on that

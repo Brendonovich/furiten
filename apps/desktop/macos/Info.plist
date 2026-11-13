@@ -35,7 +35,7 @@
   <key>SUAutomaticallyUpdate</key>
   <true/>
   <key>SUFeedURL</key>
-  <string>https://github.com/Brendonovich/furiten/releases/latest/download/appcast.xml</string>
+  <string>https://anoma.ly/release/furiten/desktop/stable/macos-arm64-feed</string>
   <key>SUPublicEDKey</key>
   <string></string>
 </dict>
