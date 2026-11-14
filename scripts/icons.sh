@@ -1,7 +1,7 @@
 #!/bin/sh
 # Renders every app's icon from the web app's: apps/web/public/icon.svg for releases, apps/web/public/icon-dev.svg (the
-# same card drawn as a blueprint) for dev builds. Run it after changing either. macOS only: Quick Look renders the SVG,
-# sips flattens it.
+# same card drawn as a blueprint) for dev builds. Run it after changing either. macOS only: AppKit renders the SVG
+# (Quick Look would paint the transparent corners white), sips flattens it.
 set -eu
 cd "$(dirname "$0")/.."
 src=apps/web/public/icon.svg
@@ -10,9 +10,19 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # render <svg> <size> <out.png>
+cat >"$tmp/render.swift" <<'EOF'
+import AppKit
+let a = CommandLine.arguments, size = Int(a[2])!
+let svg = NSImage(contentsOf: URL(fileURLWithPath: a[1]))!
+let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size, bitsPerSample: 8,
+  samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+svg.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
+NSGraphicsContext.current = nil
+try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: a[3]))
+EOF
 render() {
-  qlmanage -t -s "$2" -o "$tmp" "$1" >/dev/null 2>&1
-  mv "$tmp/$(basename "$1").png" "$3"
+  swift "$tmp/render.swift" "$1" "$2" "$3"
 }
 
 # macOS draws the icon as is, so it follows Apple's grid: an 824pt rounded square centred on 1024.
