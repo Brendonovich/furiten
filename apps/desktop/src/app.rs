@@ -177,8 +177,6 @@ pub struct Review {
 }
 
 pub struct Settings {
-    pub server: TextEdit,
-    pub error: Option<String>,
     /// Web access: whether this app serves the library to browsers on the network, and where.
     pub web: WebStatus,
     pub web_error: Option<String>,
@@ -1144,7 +1142,6 @@ impl App {
         self.editor = None;
         self.review = None;
         self.rollover_menu = false;
-        let server = self.status.server.clone().unwrap_or_default();
         let (web, web_error) = match self.core.web_status() {
             Ok(web) => (web, None),
             Err(e) => (WebStatus::default(), Some(e)),
@@ -1155,8 +1152,6 @@ impl App {
         };
         let rollover = self.core.settings().map(|s| s.rollover_hour).unwrap_or_default();
         self.settings = Some(Settings {
-            server: TextEdit::new(server),
-            error: None,
             web,
             web_error,
             show_token: false,
@@ -1269,33 +1264,8 @@ impl App {
         }
     }
 
-    pub fn sign_in(&mut self) {
-        let Some(settings) = self.settings.as_ref() else { return };
-        let server = settings.server.text.trim().to_string();
-        let result =
-            if server.is_empty() { Err("Enter a server address".to_string()) } else { self.core.login(&server) };
-        match result {
-            Ok(_) => {
-                if let Some(s) = self.settings.as_mut() {
-                    s.error = None;
-                }
-                self.refresh();
-            }
-            Err(e) => {
-                if let Some(s) = self.settings.as_mut() {
-                    s.error = Some(e);
-                }
-            }
-        }
-    }
-
     pub fn sync_now(&mut self) {
-        let result = self.core.sync_now();
-        if let Err(e) = result
-            && let Some(s) = self.settings.as_mut()
-        {
-            s.error = Some(e);
-        }
+        let _ = self.core.sync_now();
         self.refresh();
     }
 }

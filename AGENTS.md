@@ -1,11 +1,13 @@
 # Furiten
 
 Spaced-repetition flashcards (Markdown cards, FSRS, offline-first, synced) for desktop, mobile and web, with a CLI,
-HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.md` for formats, protocol and API.
+HTTP API and MCP server, and no cloud of our own: devices sync with the user's desktop or a self-hosted
+`furiten-hub`, both over Iroh. Read `PLAN.md` for the architecture and `docs/contract.md` for formats, protocol and
+API.
 
 ## Layout
 
-- `crates/srs`: FSRS-6 scheduler, no dependencies, also built to wasm for the server.
+- `crates/srs`: FSRS-6 scheduler, no dependencies.
 - `crates/core`: store (SQLite, device or hub), review queue, sync client and hub link, the hub's side over Iroh
   (`hub::host`, which `furiten-hub` and a hosting desktop both run), and the core's socket server, which runs inside
   another process (no daemon).
@@ -23,8 +25,7 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
   features and concepts one for one (`apps/web` is the reference; port changes there to here). It links the core
   (`crates/ffi`, built by `apps/ios/scripts/core.sh` before each build) and keeps a library of its own, offline, which
   syncs with the desktop it's paired with over Iroh (the desktop hosts: Settings → "Sync with your phone", or
-  `furiten host pair`), with a `furiten-hub`, or with Furiten Cloud. XcodeGen spec in `project.yml`.
-- `server`: Furiten Cloud, the Cloudflare Worker and per-user Durable Object (TypeScript), deployed with Alchemy.
+  `furiten host pair`), or with a `furiten-hub`. XcodeGen spec in `project.yml`.
 - `apps/web`: the web app in SolidJS 2 (pinned release candidate), mobile-first, over the HTTP API.
 - `apps/site`: the landing page, a static SolidJS 2 site built from the web app's own components and stylesheet
   (imported from `apps/web/src`, so install both). Its benefits are review cards (`src/cards.ts`) that open in turn
@@ -39,7 +40,7 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 
 ## Commands
 
-- `bun run check`: everything CI runs (Rust fmt, clippy, tests; server typecheck and tests). Done means it passes.
+- `bun run check`: everything CI runs (Rust fmt, clippy, tests; the web and site typechecks and tests). Done means it passes.
 - `cargo run -p furiten -- --help`; `cargo run -p furiten-desktop`.
 - `apps/desktop/scripts/bundle.sh [--dmg] [--notarize] [--zip]` builds Furiten.app (ad hoc signed, or with
   `APPLE_SIGNING_IDENTITY`) with the CLI and the web app inside; `FURITEN_CHANNEL=dev` builds Furiten Dev.app instead.
@@ -50,13 +51,13 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
   booted simulator, paired with a desktop (a ticket from `furiten host pair`; try a scratch `FURITEN_HOME`), on that
   screen (DEBUG launch arguments, for screenshots; `-reveal YES` shows every side under review, `-tag <tag>` is the
   tag `-screen tag` opens, `-tagging <text>` types into the editor's tag field).
-- `cd server && bun run dev` runs the Worker locally; `cd apps/web && bun run dev` serves the web app on :5173
-  (all interfaces, so a phone on the LAN or Tailscale can open it), proxying `/v1` to the Worker.
+- `cd apps/web && bun run dev` serves the web app on :5173 (all interfaces, so a phone on the LAN or Tailscale can
+  open it), proxying `/v1` to a desktop's web access (`furiten web on`, :8787).
   `cd apps/site && bun run dev` serves the landing page on :5174.
 - `scripts/icons.sh` renders the iOS, macOS and home screen icons from `apps/web/public/icon.svg`, and the desktop's dev
   icon (the same card drawn as a blueprint) from `apps/web/public/icon-dev.svg` (macOS only).
 - `cd apps/web && bun run build`, then `furiten web on`: the desktop app serves the built web app and the HTTP API on
-  :8787 for a phone to use the desktop's library directly (no Cloud).
+  :8787 for a phone to use the desktop's library directly, no hub needed.
 
 ## Rules
 
@@ -64,7 +65,4 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
 - The CLI covers everything the desktop app can do, with `--json`. Add the command when you add the feature.
 - Clients stay thin: domain logic goes in `crates/core` or `crates/srs`, never in an app.
 - Pin every dependency to an exact version (Rune to a `rev`), and say why in the commit that adds one.
-- Cloudflare resources are named `furiten-<stage>-<name>` (Durable Objects are named by their Worker and class, so
-  the per-user object is class `Users` on `furiten-<stage>-api`). Deploys run only from CI: `dev` deploys dev, `production`
-  (fast-forwarded from `dev`) deploys production.
 - Tests run offline and headless.

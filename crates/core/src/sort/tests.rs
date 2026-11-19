@@ -81,6 +81,6 @@ fn random_is_fixed_by_the_seed() {
     sort(&mut other, CardSort::Random, false, 8);
     assert_ne!(once, other.into_iter().map(|c| c.card.id).collect::<Vec<_>>());
     assert_ne!(once, ids(cards, CardSort::Created, false));
-    // The same hash the Worker uses (server/src/Sort.ts).
+    // The same hash the contract's `random` sort specifies.
     assert_eq!(fnv1a(b"7:c00"), 0x0037_724d);
 }

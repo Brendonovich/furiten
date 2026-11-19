@@ -126,12 +126,6 @@ final class Core: @unchecked Sendable {
         let _: Paired = try await call("sync.login", HubLogin(hub: ticket, name: name))
     }
 
-    /// Signs in to Furiten Cloud; without a token, creates an account. Returns the account's token.
-    func signIn(server: String, token: String?) async throws -> String {
-        let r: LoggedIn = try await call("sync.login", CloudLogin(server: server, token: token))
-        return r.token
-    }
-
     @discardableResult
     func syncNow() async throws -> SyncResult {
         try await call("sync.now")
@@ -188,10 +182,10 @@ extension CoreError: Decodable {
 struct CoreStatus: Decodable, Equatable, Sendable {
     let signedIn: Bool
     let lastSync: Int64?
-    /// `hub:<endpoint id>` when paired with a computer or a self-hosted hub, else Furiten Cloud's URL.
+    /// `hub:<endpoint id>`: the computer or self-hosted hub this library syncs with.
     let server: String?
     let syncError: String?
-    /// With a computer or hub, whether the connection to it is open.
+    /// Whether the connection to it is open.
     let connected: Bool?
 
     var paired: Bool { server?.hasPrefix("hub:") ?? false }
@@ -244,9 +238,7 @@ private struct DeckFilter: Encodable, Sendable { let deckId: String? }
 private struct CardBody: Encodable, Sendable { let id: String?; let content: String; let tags: [String]; let deckId: String }
 private struct Answer: Encodable, Sendable { let cardId: String; let remembered: Bool; let durationMs: Int64 }
 private struct HubLogin: Encodable, Sendable { let hub: String; let name: String }
-private struct CloudLogin: Encodable, Sendable { let server: String; let token: String? }
 private struct Paired: Decodable, Sendable { let libraryId: String }
-private struct LoggedIn: Decodable, Sendable { let token: String }
 
 private struct CardQuery: Encodable, Sendable {
     let deckId: String?

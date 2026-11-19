@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 
 use crate::protocol::*;
 use crate::store::SyncConfig;
-use crate::sync::{Http, lock, sync_once, token_user_id};
+use crate::sync::{lock, sync_once};
 use crate::{Error, Result, Store, VERSION};
 
 const DEBOUNCE: Duration = Duration::from_secs(2);
@@ -495,10 +495,10 @@ impl Core {
             }
             "sync.login" => {
                 let params: Login = parse(params)?;
-                let result = match params.hub {
-                    Some(ticket) => to_value(self.login_hub(&ticket, params.name.as_deref())?),
-                    None => to_value(self.login(params)?),
-                };
+                let ticket = params.hub.ok_or_else(|| {
+                    Error::invalid("sync.login pairs with a hub: pass its ticket (`furiten sync login --hub …`)")
+                })?;
+                let result = to_value(self.login_hub(&ticket, params.name.as_deref())?);
                 self.broadcast();
                 result
             }
@@ -579,7 +579,7 @@ impl Core {
             home: self.home.display().to_string(),
             signed_in: config.is_some(),
             last_sync: store.last_sync()?,
-            connected: config.as_ref().and_then(|c| c.hub.as_ref()).map(|_| self.hub_connected()),
+            connected: config.as_ref().map(|_| self.hub_connected()),
             server: config.map(|c| c.server),
             sync_error: self.sync_error.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             hosting: store.is_hosting(),
@@ -647,17 +647,14 @@ impl Core {
     /// One sync round, recording its error for `status` and telling clients when anything changed.
     fn sync(&self) -> Result<SyncResult> {
         let _one_at_a_time = self.sync_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let config = self.store().sync_config()?.ok_or_else(|| Error::new("not_signed_in", "run sync.login first"))?;
-        let result = match &config.hub {
-            #[cfg(feature = "hub")]
-            Some(_) => match self.hub_link() {
-                Some(link) => sync_once(&self.store, &*link),
-                None => Err(Error::new("network", "couldn't start the connection to the hub")),
-            },
-            #[cfg(not(feature = "hub"))]
-            Some(_) => Err(Error::new("unsupported", "this build of furiten can't sync with a hub")),
-            None => sync_once(&self.store, &Http::from_config(&config)),
+        self.store().sync_config()?.ok_or_else(|| Error::new("not_signed_in", "run sync.login first"))?;
+        #[cfg(feature = "hub")]
+        let result = match self.hub_link() {
+            Some(link) => sync_once(&self.store, &*link),
+            None => Err(Error::new("network", "couldn't start the connection to the hub")),
         };
+        #[cfg(not(feature = "hub"))]
+        let result = Err(Error::new("unsupported", "this build of furiten can't sync with a hub"));
         let error = result.as_ref().err().map(|e| e.message.clone());
         let error_changed = {
             let mut current = self.sync_error.lock().unwrap_or_else(|e| e.into_inner());
@@ -688,44 +685,6 @@ impl Core {
         self.refresh_link();
         self.broadcast_clients();
         Ok(Ack { ok: true })
-    }
-
-    fn login(&self, params: Login) -> Result<LoggedIn> {
-        self.not_hosting()?;
-        let server = params.server.trim().trim_end_matches('/').to_string();
-        if !(server.starts_with("https://") || server.starts_with("http://")) {
-            return Err(Error::invalid("server must be an http(s) URL"));
-        }
-        let (user_id, token) = match params.token {
-            Some(token) => (token_user_id(&token)?, token.trim().to_string()),
-            None => {
-                let account = Http::new(&server, None).create_account()?;
-                (account.user_id, account.token)
-            }
-        };
-        let previous = self.store().sync_config()?;
-        self.store().set_sync_config(&SyncConfig {
-            server,
-            token: token.clone(),
-            user_id: user_id.clone(),
-            hub: None,
-        })?;
-        self.refresh_link();
-        // A rejected token undoes the login; any other failure (offline, say) is retried in the background.
-        if let Err(e) = self.sync()
-            && e.code == "unauthorized"
-        {
-            let mut store = self.store();
-            match previous {
-                Some(previous) => store.set_sync_config(&previous)?,
-                None => store.clear_sync_config()?,
-            }
-            drop(store);
-            self.refresh_link();
-            *self.sync_error.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            return Err(e);
-        }
-        Ok(LoggedIn { user_id, token })
     }
 
     /// Pairs with a self-hosted hub and syncs with it from now on.
@@ -769,7 +728,7 @@ impl Core {
     /// The hub link, started if the core is signed in to a hub and it isn't running.
     #[cfg(feature = "hub")]
     fn hub_link(&self) -> Option<Arc<HubLink>> {
-        let addr = self.store().sync_config().ok()??.hub?;
+        let addr = self.store().sync_config().ok()??.hub;
         let mut link = self.link.lock().unwrap_or_else(|e| e.into_inner());
         if link.is_none() {
             let started = hub::load_or_create_key(&self.home.join("iroh.key")).and_then(|key| {

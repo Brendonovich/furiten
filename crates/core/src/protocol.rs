@@ -186,8 +186,8 @@ pub struct Stats {
 /// default; 0 would be Mochi's plain midnight).
 pub const DEFAULT_ROLLOVER_HOUR: u8 = 4;
 
-/// The library's settings, stored where the library itself lives (a device's own store, or a Cloud account's) and
-/// not synced: every store defaults to the same values, so devices agree unless one is changed.
+/// The library's settings, stored in the library's own store wherever it lives (a device's, a hub's) and not
+/// synced: every store defaults to the same values, so devices agree unless one is changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     /// The local hour (0-23) the review day rolls over at. Reviews done before it count as the day before, and the
@@ -218,26 +218,15 @@ pub struct TagSummary {
     pub last_used: i64,
 }
 
-/// `{ server, token? }` signs in to Furiten Cloud; `{ hub, name? }` pairs with a self-hosted hub.
+/// Params of `sync.login`: pairs with a hub using its ticket.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Login {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub server: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
     /// A hub's pairing ticket (`rchub1...`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hub: Option<String>,
     /// This device's name in the hub's device list; defaults to the host name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoggedIn {
-    pub user_id: String,
-    /// The account's token, needed to sign in on another device.
-    pub token: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,12 +348,6 @@ pub struct SyncRequest {
 pub struct SyncResponse {
     pub cursor: i64,
     pub changes: Vec<Change>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Account {
-    pub user_id: String,
-    pub token: String,
 }
 
 fn double_option<'de, D: Deserializer<'de>>(de: D) -> Result<Option<Option<Id>>, D::Error> {

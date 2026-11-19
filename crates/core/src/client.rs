@@ -198,21 +198,10 @@ impl Client {
         self.call("settings.update", update)
     }
 
-    /// Signs in to a sync server, creating an account when `token` is `None`.
-    pub fn login(&mut self, server: &str, token: Option<&str>) -> Result<LoggedIn> {
-        self.call(
-            "sync.login",
-            Login { server: server.to_string(), token: token.map(str::to_string), ..Default::default() },
-        )
-    }
-
     /// Pairs with a self-hosted hub using its ticket (`rchub1...`), as `name` (default: the host name) in its
     /// device list, and syncs with it from now on.
     pub fn login_hub(&mut self, ticket: &str, name: Option<&str>) -> Result<HubLoggedIn> {
-        self.call(
-            "sync.login",
-            Login { hub: Some(ticket.to_string()), name: name.map(str::to_string), ..Default::default() },
-        )
+        self.call("sync.login", Login { hub: Some(ticket.to_string()), name: name.map(str::to_string) })
     }
 
     /// Imports a Mochi export (`.mochi`, or a bare `data.json` or `data.edn`) as new decks under `parent_id`, or at

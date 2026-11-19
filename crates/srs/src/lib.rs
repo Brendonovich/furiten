@@ -1,11 +1,8 @@
-//! FSRS-6 with its published default parameters. Deterministic (no fuzz) so every device and the server derive the
+//! FSRS-6 with its published default parameters. Deterministic (no fuzz) so every device derives the
 //! same schedule from the same reviews.
 //!
 //! There are no learning steps: remembering a new card schedules it, and a card you forget (learning or relearning)
 //! is due again at once, for the review queue to bring back once the rest of the session is done.
-
-#[cfg(target_arch = "wasm32")]
-mod wasm;
 
 const DAY: i64 = 86_400_000;
 const MAX_INTERVAL_DAYS: f64 = 36_500.0;

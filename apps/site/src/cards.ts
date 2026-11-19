@@ -17,8 +17,7 @@ export const CARDS: string[][] = [
   ],
   [
     "Where does my library sync?",
-    "Wherever you like: **Furiten Cloud**, a `furiten-hub` on your own NAS, Pi or VPS, or straight from your " +
-      "desktop to your phone. No ports to open.",
+    "With a `furiten-hub` on your own NAS, Pi or VPS, or straight from your desktop to your phone. No ports to open.",
   ],
   [
     "Can my agent use it?",

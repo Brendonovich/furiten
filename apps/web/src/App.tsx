@@ -43,7 +43,7 @@ function Root(props: { children?: Element }) {
   const location = useLocation();
 
   onSettled(() => {
-    // `#token=rc_...` signs in from a link (the token never reaches the server's logs that way).
+    // `#token=rw_...` signs in from a link (the token never reaches any server's logs that way).
     const token = new URLSearchParams(location.hash.slice(1)).get("token");
     if (token) {
       navigate(location.pathname + location.search, { replace: true });

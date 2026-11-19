@@ -178,12 +178,12 @@ export function createApp() {
     store(`furiten.sort.${page}`, sortParam(p.sort) ?? "created");
   }
 
-  // A desktop pushes changes as server-sent events; Furiten Cloud doesn't, so there the 30 s poll does the job.
+  // The desktop pushes changes as server-sent events, so the page refetches as they happen.
   let events: EventSource | null = null;
   function listen(session: Session | null) {
     events?.close();
     events = null;
-    if (!session || !isDesktop(session)) return;
+    if (!session) return;
     events = new EventSource(`${session.server}/v1/events?token=${encodeURIComponent(session.token)}`);
     events.onmessage = () => void refresh();
   }
@@ -239,9 +239,6 @@ export function createApp() {
 
 export type App = ReturnType<typeof createApp>;
 export const AppContext = createContext<App>();
-
-/** A desktop's web access token (`rw_`), as opposed to a Furiten Cloud account's (`rc_`). */
-export const isDesktop = (session: Session) => session.token.startsWith("rw_");
 
 /** Reads a desktop's sign-in link (`http://host:8787/#token=rw_…`) into a session. */
 export function sessionFromLink(link: string): Session | null {

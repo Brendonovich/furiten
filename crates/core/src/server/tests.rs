@@ -368,7 +368,11 @@ mod hosting {
         let ticket = desk.host_pair().unwrap();
         let status = desk.host_status().unwrap();
         assert!(status.enabled && status.running && status.error.is_none());
-        assert_eq!(desk.login("https://example.com", Some("rc_u_s")).unwrap_err().code, "conflict");
+        assert_eq!(
+            desk.call::<Value>("sync.login", json!({ "hub": "rchub1-bogus" })).unwrap_err().code,
+            "conflict",
+            "no signing in while hosting"
+        );
 
         let phone = Embedded::open_with_net(&phone_home, Net::Local, || {}).unwrap();
         let paired = call(&phone, "sync.login", json!({ "hub": ticket.ticket, "name": "iPhone" })).unwrap();

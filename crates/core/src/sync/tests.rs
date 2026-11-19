@@ -4,6 +4,7 @@ use super::memory::MemoryServer;
 use super::*;
 use crate::Change;
 use crate::protocol::{Answer, CardQuery, CardUpdate, NewCard, NewDeck};
+use crate::store::SyncConfig;
 
 const T0: i64 = 1_800_000_000_000;
 const DAY: i64 = 86_400_000;
@@ -162,25 +163,23 @@ fn edits_made_during_a_sync_stay_in_the_outbox_and_resending_is_harmless() {
 }
 
 #[test]
-fn signing_in_to_another_account_resends_everything() {
+fn signing_in_to_another_hub_resends_everything() {
     let server = MemoryServer::default();
     let a = device(T0);
     sync(&a, &server);
     assert!(lock(&a).pending().unwrap().changes.is_empty());
-    let config = |user: &str| SyncConfig {
-        server: "https://x".into(),
-        token: format!("rc_{user}_s"),
-        user_id: user.into(),
-        hub: None,
+    let config = |hub: &str| {
+        let addr = crate::store::HubAddr { id: hub.into(), ..Default::default() };
+        SyncConfig::hub(addr, &format!("lib-{hub}"))
     };
-    lock(&a).set_sync_config(&config("u1")).unwrap();
+    lock(&a).set_sync_config(&config("AAAA")).unwrap();
     assert_eq!(lock(&a).pending().unwrap().changes.len(), 6);
     assert_eq!(lock(&a).cursor().unwrap(), None);
     sync(&a, &server);
-    lock(&a).set_sync_config(&config("u1")).unwrap();
-    assert!(lock(&a).pending().unwrap().changes.is_empty(), "same account, nothing to resend");
-    assert_eq!(token_user_id("rc_01ABC_secret").unwrap(), "01ABC");
-    assert!(token_user_id("nope").is_err());
+    lock(&a).set_sync_config(&config("AAAA")).unwrap();
+    assert!(lock(&a).pending().unwrap().changes.is_empty(), "the same hub, nothing to resend");
+    lock(&a).set_sync_config(&config("BBBB")).unwrap();
+    assert_eq!(lock(&a).pending().unwrap().changes.len(), 6, "another hub gets everything again");
 }
 
 #[test]
@@ -293,12 +292,7 @@ fn a_hosting_device_is_its_librarys_hub() {
     assert_eq!(sync(&phone, &desk), SyncResult { pushed: 0, pulled: 0 });
 
     // A library syncs with one hub: no signing in while hosting, or hosting while signed in.
-    let config = crate::store::SyncConfig {
-        server: "https://example.com".into(),
-        token: "rc_u_s".into(),
-        user_id: "u".into(),
-        hub: None,
-    };
+    let config = SyncConfig::hub(crate::store::HubAddr { id: "HUB".into(), ..Default::default() }, "lib");
     assert_eq!(lock(&desk).set_sync_config(&config).unwrap_err().code, "conflict");
     assert_eq!(sync_once(&desk, &MemoryServer::default()).unwrap_err().code, "conflict");
     lock(&phone).set_sync_config(&config).unwrap();

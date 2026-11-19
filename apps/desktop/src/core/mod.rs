@@ -235,15 +235,6 @@ impl Core {
         }
     }
 
-    /// Signs in to a sync server (creating an account), returning the user id.
-    pub fn login(&mut self, server: &str) -> Result<String> {
-        match self {
-            Core::Live(c) => c.login(server, None).map(|l| l.user_id).map_err(err),
-            Core::Fixture(_) => Err(format!("Couldn’t sign in to {server}: the app is running on sample data")),
-            Core::Pending => Err(PENDING.into()),
-        }
-    }
-
     /// The library's settings: when the review day rolls over.
     pub fn settings(&mut self) -> Result<Settings> {
         match self {

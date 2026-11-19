@@ -1,7 +1,7 @@
 # Contract
 
 The one description of Furiten's data, scheduling, sync, local protocol and HTTP API. The Rust core, the CLI, the
-desktop app, the Worker and the mobile clients all implement this file. Change it in the same commit as the code.
+desktop app and the mobile clients all implement this file. Change it in the same commit as the code.
 
 ## Data
 
@@ -37,7 +37,7 @@ Later: cloze (`{{word}}`), templates, attachments. They aren't part of v1.
 ## Scheduling
 
 Furiten schedules with FSRS-6 using its published default parameters and 90 % desired retention, implemented in
-`crates/srs` (no dependencies, deterministic, compiled to wasm for the Worker).
+`crates/srs` (no dependencies, deterministic).
 
 A card's schedule is **derived**: fold its reviews ordered by `(reviewed_at, id)` through the scheduler, starting
 from a new card. Two devices that reviewed the same card offline therefore converge after sync. Stores may cache the
@@ -77,10 +77,9 @@ the cram, so it comes round again until it's remembered; the cram ends when ever
 
 ## Sync
 
-Each device keeps its own SQLite store and syncs with one hub: the user's Durable Object on Furiten Cloud, a
-self-hosted `furiten-hub` reached over Iroh (see Self-hosted hub), or the user's desktop app hosting its own library
-over the same Iroh protocol (see Hosting). All speak the same request and response and apply the same rules; only
-the transport differs.
+Each device keeps its own SQLite store and syncs with one hub: a self-hosted `furiten-hub` reached over Iroh (see
+Self-hosted hub), or the user's desktop app hosting its own library over the same Iroh protocol (see Hosting). Both
+apply the same rules; only the transport differs.
 
 ```
 Change = { kind: "deck", value: Deck } | { kind: "card", value: Card } | { kind: "review", value: Review }
@@ -100,23 +99,11 @@ POST /v1/sync
 - A client sends everything it changed since its last successful sync, then applies the response with the same merge
   rules, then stores `cursor`. Syncing is idempotent: resending a change is harmless.
 
-## Accounts (interim)
-
-Until real sign-in lands, an account is a secret token.
-
-```
-POST /v1/accounts -> { user_id, token }      token = "rc_" + user_id + "_" + 32 random base32 chars
-```
-
-The Worker routes a request to the Durable Object named by the token's `user_id`; the DO stores only a SHA-256 hash
-of the secret and rejects mismatches with 401. Clients send `Authorization: Bearer <token>`.
-
 ## Self-hosted hub
 
-`furiten-hub` is a Rust binary that holds one library (any number of devices) and does the Durable Object's job on
-hardware the user owns: a NAS, a Pi, a VPS. It's an always-online peer, not a mesh: devices only ever sync with
-the hub, so a phone and a sleeping laptop still converge. It reuses `crates/core`'s store and merge, so its sync and
-scheduling behave exactly like a device's.
+`furiten-hub` is a Rust binary that holds one library (any number of devices) on hardware the user owns: a NAS, a Pi,
+a VPS. It's an always-online peer, not a mesh: devices only ever sync with the hub, so a phone and a sleeping laptop
+still converge. It reuses `crates/core`'s store and merge, so its sync and scheduling behave exactly like a device's.
 
 - **Transport.** Iroh, dialled by the hub's endpoint ID, direct where possible and through a relay otherwise, so it
   needs no open ports, DNS or certificates. n0's public relays by default; `furiten-hub serve --relay <url>` (and
@@ -148,12 +135,13 @@ scheduling behave exactly like a device's.
 - **HTTP API and MCP (optional).** `furiten-hub --http 127.0.0.1:8787` serves the HTTP API below and `/mcp`, with
   tokens from `furiten-hub tokens create`. Put it behind your own proxy or tunnel to reach it remotely.
 
-The HTTP API exists twice, in the Worker (TypeScript) and the hub (Rust). `tests/conformance` is one black-box suite,
-run against a base URL, that both must pass; a behaviour isn't in the contract until it's tested there.
+The HTTP API is served by `furiten-hub --http` and by a desktop's web access (see Web access), which answers through
+the same core. `tests/conformance` is one black-box suite, run against a base URL, that both must pass; a behaviour
+isn't in the contract until it's tested there.
 
 ## HTTP API
 
-Served by the Worker and by `furiten-hub --http`. JSON in and out; errors are `{ error: { code, message } }` with a
+Served by `furiten-hub --http` and by a desktop's web access. JSON in and out; errors are `{ error: { code, message } }` with a
 matching status, and `code` is one of `invalid_params` (400), `unauthorized` (401), `not_found` (404), `conflict`
 (409) or `internal` (500), the same codes the local core uses. Sync rejects a whole request with 400 if any ID isn't
 a ULID.
@@ -162,12 +150,11 @@ a ULID.
 library's rollover hour. Devices know their zone; over HTTP a client sends an IANA zone in `X-Furiten-Timezone`,
 and a server without one uses UTC. A device's own core serving web access uses the machine's zone, since the
 library lives there. `rollover_hour` is the library's setting, stored with it wherever it lives: a device's own
-store, or the account's Durable Object on Furiten Cloud.
+store, or the hub's.
 
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
 | GET | `/health` | | `{ ok: true, version }` (no auth) |
-| POST | `/v1/accounts` | | `{ user_id, token }` (no auth) |
 | GET | `/v1/decks` | | `{ decks: DeckSummary[] }` |
 | POST | `/v1/decks` | `{ name, parent_id? }` | `Deck` |
 | PATCH | `/v1/decks/:id` | `{ name?, parent_id? }` | `Deck` |
@@ -216,7 +203,7 @@ review queue. `limit` and `offset` page the sorted result. Ties go by `(created_
 
 ## MCP
 
-The Worker and the hub serve MCP over Streamable HTTP at `/mcp` with the same bearer token, and `furiten mcp` serves
+The hub serves MCP over Streamable HTTP at `/mcp` with the same bearer token, and `furiten mcp` serves
 it over stdio from any device through the local core, so agents work offline and against either backend. Tools
 mirror the API:
 `list_decks`, `create_deck`, `search_cards`, `create_cards` (batch), `update_card`, `delete_card`, `next_review`,
@@ -264,7 +251,7 @@ write, including writes arriving through sync, so clients refetch.
 | `stats` | `{ deck_id? }` | as HTTP |
 | `settings.get` | | `Settings = { rollover_hour: 0-23 }`, the library's settings |
 | `settings.update` | `{ rollover_hour? }` | `Settings`; an hour outside 0-23 is `invalid_params`; changing it sends `changed` to the core's clients, since the day's counts move with it |
-| `sync.login` | `{ server, token? }` (creates an account when `token` is omitted), or `{ hub: ticket, name? }` (name defaults to the host name) | `{ user_id, token }` or `{ library_id }` |
+| `sync.login` | `{ hub: ticket, name? }` (name defaults to the host name) | `{ library_id }`; error `invalid_params` without a `hub` |
 | `sync.now` | | `{ pushed, pulled }` |
 | `sync.logout` | | `{ ok: true }`: stops syncing and forgets the cursor; the data stays, and a later sign-in sends all of it |
 | `host.status` | | `HostStatus` (see Hosting) |
@@ -305,13 +292,13 @@ WebStatus = { enabled, running, bind, port, token: string | null, urls: string[]
   `<host>.local`. `link` is the first with `#token=<token>`, which the web app reads to sign in (Settings shows it
   as a QR code).
 - Routes are the HTTP API's, each answered by the protocol method underneath, so results match the local core's
-  exactly; `POST /v1/sync` and `POST /v1/accounts` aren't served. `GET /v1/events?token=` streams `data: changed`
+  exactly; `POST /v1/sync` isn't served. `GET /v1/events?token=` streams `data: changed`
   as server-sent events after any write (`: ping` every 25 s). Other paths serve the web app when the desktop
   bundles it (`$FURITEN_WEB_DIR`, else the app's `Resources/web`, else a checkout's `apps/web/dist`), with
   `index.html` for anything that isn't a file.
 
 **Hosting.** The desktop app's core can be its library's hub, so a phone keeps a library of its own (linked core,
-offline) and syncs with the desktop over Iroh, on any network, with no Cloud and no separate `furiten-hub`:
+offline) and syncs with the desktop over Iroh, on any network, with no separate `furiten-hub`:
 `host.enable` or `host.pair` (Settings → "Sync with your phone", or `furiten host pair`).
 
 ```
@@ -338,7 +325,7 @@ the app process with no socket: `furiten_request` takes one request line and ret
 `on_change` callback stands in for the `changed` event. The home is the app container's Application Support
 `Furiten` directory. `shutdown` is `unsupported` (the app closes the core with `furiten_close`), and so is `app.open`.
 The phone's library is its own: it works offline, and syncs with a hosting desktop or a `furiten-hub` (paired with
-`sync.login { hub }`), or Furiten Cloud (`sync.login { server, token? }`). The app asks for a sync
+`sync.login { hub }`). The app asks for a sync
 (`furiten_sync_soon`) when it comes to the foreground and runs `sync.now` as it goes to the background.
 
 ## Import

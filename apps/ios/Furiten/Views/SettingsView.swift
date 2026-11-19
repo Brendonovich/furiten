@@ -2,7 +2,7 @@ import SwiftUI
 import VisionKit
 
 /// Settings: where this phone's library syncs. The library lives on the phone either way; pairing with your computer
-/// (or signing in to Furiten Cloud) keeps it in step with your other devices.
+/// keeps it in step with your other devices.
 struct SettingsView: View {
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
@@ -64,10 +64,10 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $pairing) { PairView() }
             .confirmationDialog(
-                library.sync?.paired == true ? "Stop syncing with your computer?" : "Sign out of Furiten Cloud?",
+                "Stop syncing with your computer?",
                 isPresented: $confirmDisconnect, titleVisibility: .visible
             ) {
-                Button(library.sync?.paired == true ? "Disconnect" : "Sign out", role: .destructive) {
+                Button("Disconnect", role: .destructive) {
                     Task { await library.signOut() }
                 }
             } message: {
@@ -93,38 +93,27 @@ struct SettingsView: View {
             } header: {
                 Text("Sync")
             }
-            Section {
-                NavigationLink("Furiten Cloud") { CloudSignIn() }
-            } footer: {
-                Text("Or sync through a Furiten Cloud account instead of your computer.")
-            }
         }
     }
 
     private func syncing(_ sync: CoreStatus) -> some View {
         Section {
-            if sync.paired {
-                LabeledContent("Your computer") {
-                    HStack(spacing: 6) {
-                        Circle().fill(sync.connected == true ? .green : .orange).frame(width: 7, height: 7)
-                        Text(sync.connected == true ? "Connected" : "Not connected")
-                    }
+            LabeledContent("Your computer") {
+                HStack(spacing: 6) {
+                    Circle().fill(sync.connected == true ? .green : .orange).frame(width: 7, height: 7)
+                    Text(sync.connected == true ? "Connected" : "Not connected")
                 }
-            } else {
-                LabeledContent("Furiten Cloud", value: sync.server.flatMap { URLComponents(string: $0)?.host } ?? "")
             }
             LabeledContent("Last synced", value: sync.lastSync.map { ago(Date(ms: $0)) } ?? "Not synced yet")
             if let error = sync.syncError {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
             Button("Sync now") { Task { await library.syncNow() } }
-            Button(sync.paired ? "Disconnect" : "Sign out", role: .destructive) { confirmDisconnect = true }
+            Button("Disconnect", role: .destructive) { confirmDisconnect = true }
         } header: {
             Text("Sync")
         } footer: {
-            Text(sync.paired
-                 ? "This phone keeps its own copy of your decks and syncs with Furiten on your computer whenever both are online. Changes made offline sync later."
-                 : "This phone keeps its own copy of your decks and syncs with your account.")
+            Text("This phone keeps its own copy of your decks and syncs with Furiten on your computer whenever both are online. Changes made offline sync later.")
         }
     }
 }
@@ -249,83 +238,6 @@ struct PairView: View {
             dismiss()
         } catch let e as CoreError where e.code == "network" {
             error = "Couldn’t reach your computer. Check Furiten is open there and online, then try again."
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-}
-
-/// Signing in to Furiten Cloud with an account token, or making a new account.
-private struct CloudSignIn: View {
-    @Environment(Library.self) private var library
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.palette) private var palette
-    @State private var server = ""
-    @State private var token = ""
-    @State private var busy = false
-    @State private var error: String?
-    /// A new account's token, shown once so it can be kept for other devices.
-    @State private var created: String?
-
-    var body: some View {
-        Form {
-            Group {
-                if let created {
-                    Section {
-                        Text(created).font(.footnote.monospaced()).textSelection(.enabled)
-                        Button("Copy token") { UIPasteboard.general.string = created }
-                        Button("Done") { dismiss() }
-                    } header: {
-                        Text("Your account token")
-                    } footer: {
-                        Text("It signs you in on your other devices. Keep it secret.")
-                    }
-                } else {
-                    Section {
-                        field("Server (furiten.example.com)", text: $server).keyboardType(.URL)
-                        field("rc_…", text: $token).monospaced()
-                        Button("Sign in") { Task { await signIn(token: token) } }
-                            .disabled(busy || url == nil || token.trimmingCharacters(in: .whitespaces).isEmpty)
-                        Button("Create a new account") { Task { await signIn(token: nil) } }
-                            .disabled(busy || url == nil)
-                    } footer: {
-                        if let error { Text(error).foregroundStyle(.red) }
-                    }
-                }
-            }
-            .listRowBackground(palette.row)
-        }
-        .listBackground(palette.list)
-        .navigationTitle("Furiten Cloud")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// The server as typed, HTTPS unless it says otherwise.
-    private var url: String? {
-        var server = server.trimmingCharacters(in: .whitespacesAndNewlines)
-        while server.hasSuffix("/") { server.removeLast() }
-        guard !server.isEmpty else { return nil }
-        if !server.contains("://") { server = "https://" + server }
-        return URLComponents(string: server)?.host?.isEmpty == false ? server : nil
-    }
-
-    private func field(_ prompt: String, text: Binding<String>) -> some View {
-        TextField(prompt, text: text)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-    }
-
-    private func signIn(token: String?) async {
-        guard let url else { return }
-        busy = true
-        error = nil
-        defer { busy = false }
-        do {
-            let token = token?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let kept = try await library.signIn(server: url, token: token)
-            if token == nil { created = kept } else { dismiss() }
-        } catch let e as CoreError where e.code == "unauthorized" {
-            error = "That token wasn’t accepted"
         } catch {
             self.error = error.localizedDescription
         }

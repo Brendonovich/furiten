@@ -2,9 +2,9 @@
 
 use rune::{Color, El, ScrollSpec, col, el, row, text};
 use rune_kit::shell::Toolbar;
-use rune_kit::{Button, ButtonVariant, Kit, Menu, MenuItem, Placement, Switch, TextInput};
+use rune_kit::{Button, ButtonVariant, Kit, Menu, MenuItem, Placement, Switch};
 
-use super::{error_line, format, toolbar};
+use super::{error_line, format, icons, toolbar};
 use crate::app::{App, Settings};
 use crate::core::now_ms;
 
@@ -21,7 +21,7 @@ pub fn view(s: &App, settings: &Settings, k: &Kit, layer: &mut Vec<El>) -> (El, 
             .last_sync
             .map_or("Not synced yet".to_string(), |at| format!("Last synced {}", format::ago(at, now_ms())));
         sync = sync
-            .child(text(format!("Signed in to {server}")).key("server").font(k.ty.ui).color(k.c.text_muted))
+            .child(text(format!("Syncing with {server}")).key("server").font(k.ty.ui).color(k.c.text_muted))
             .child(text(last).key("last").font(k.ty.ui).color(k.c.text_faint))
             .child(
                 row().key("actions").pt(4.0).child(
@@ -36,42 +36,15 @@ pub fn view(s: &App, settings: &Settings, k: &Kit, layer: &mut Vec<El>) -> (El, 
             sync = sync.child(error_line(k, &format!("The last sync failed: {e}")));
         }
     } else {
-        sync = sync
-            .child(
-                text("Keep your decks on all your devices. Furiten works fully offline without it.")
-                    .key("lede")
-                    .font(k.ty.ui)
-                    .color(k.c.text_muted)
-                    .wrap(),
-            )
-            .child(
-                row()
-                    .key("sign-in")
-                    .w_full()
-                    .gap(8.0)
-                    .center_y()
-                    .child(
-                        col().key("server-field").grow(1.0).min_w(0.0).child(
-                            TextInput::new(&settings.server)
-                                .placeholder("https://furiten.example.com")
-                                .width(None)
-                                .on_edit(|s: &mut App| &mut s.settings.as_mut().expect("settings").server)
-                                .on_submit(|s: &mut App, _| s.sign_in())
-                                .build(k)
-                                .key("server"),
-                        ),
-                    )
-                    .child(
-                        Button::new("Sign in")
-                            .variant(ButtonVariant::Contrast)
-                            .on_press(|s: &mut App| s.sign_in())
-                            .build(k)
-                            .key("sign-in-button"),
-                    ),
-            );
-    }
-    if let Some(e) = &settings.error {
-        sync = sync.child(error_line(k, e));
+        sync = sync.child(
+            text("Your decks live on this Mac. Phones pair with it below, keeping their own copy and syncing over \
+                  Iroh; to sync with a `furiten-hub` on your own NAS, Pi or VPS instead, run \
+                  `furiten sync login --hub <ticket>` in a terminal.")
+                .key("lede")
+                .font(k.ty.ui)
+                .color(k.c.text_muted)
+                .wrap(),
+        );
     }
 
     let about = format!("{} core {} · {}", crate::identity::name(), st.version, st.home);
@@ -252,8 +225,8 @@ fn phones(s: &App, settings: &Settings, k: &Kit) -> El {
 fn web(settings: &Settings, k: &Kit) -> El {
     let w = &settings.web;
     let label = "Use this library from your phone";
-    let what = "Serves your decks to browsers on your network and Tailscale, without Furiten Cloud. Scan the code or \
-                open the link on your phone.";
+    let what = "Serves your decks to browsers on your network and Tailscale, no hub of your own needed. Scan the \
+                code or open the link on your phone.";
     let switch = Switch::new(w.enabled)
         .label(label)
         .hide_label()
@@ -370,6 +343,7 @@ fn review(s: &App, settings: &Settings, k: &Kit, layer: &mut Vec<El>) -> El {
                     before, so studying past midnight stays yesterday’s.";
     let hour = settings.rollover;
     let trigger = Button::new(format!("{:02}:00", hour))
+        .icon(&icons::CLOCK)
         .variant(ButtonVariant::Neutral)
         .on_press(|s: &mut App| s.rollover_menu ^= true)
         .build(k)

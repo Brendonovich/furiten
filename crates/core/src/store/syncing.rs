@@ -10,25 +10,18 @@ use crate::model::{Card, Change, Review, normalize_tags};
 use crate::protocol::{SyncRequest, SyncResponse};
 use crate::{Error, Result};
 
-/// Where a device syncs. For Furiten Cloud, `server` is its URL and `token` the account's; for a self-hosted hub,
-/// `server` is `hub:<endpoint id>`, `token` is empty, `user_id` is the hub's library id and `hub` says how to reach
-/// it.
+/// Where a device syncs: one hub, reached as its pairing ticket said. `server` is its display name,
+/// `hub:<endpoint id>`, and `user_id` the hub's library id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncConfig {
     pub server: String,
-    pub token: String,
     pub user_id: String,
-    pub hub: Option<HubAddr>,
+    pub hub: HubAddr,
 }
 
 impl SyncConfig {
     pub fn hub(addr: HubAddr, library_id: &str) -> SyncConfig {
-        SyncConfig {
-            server: format!("hub:{}", addr.id),
-            token: String::new(),
-            user_id: library_id.to_string(),
-            hub: Some(addr),
-        }
+        SyncConfig { server: format!("hub:{}", addr.id), user_id: library_id.to_string(), hub: addr }
     }
 }
 
@@ -58,8 +51,8 @@ impl Store {
     pub fn sync_config(&self) -> Result<Option<SyncConfig>> {
         let get = |key| meta::<String>(&self.conn, key);
         let hub = get("hub_addr")?.and_then(|json| serde_json::from_str(&json).ok());
-        Ok(match (get("server")?, get("token")?, get("user_id")?) {
-            (Some(server), Some(token), Some(user_id)) => Some(SyncConfig { server, token, user_id, hub }),
+        Ok(match (get("server")?, get("user_id")?, hub) {
+            (Some(server), Some(user_id), Some(hub)) => Some(SyncConfig { server, user_id, hub }),
             _ => None,
         })
     }
@@ -81,14 +74,8 @@ impl Store {
             }
         }
         set_meta(&tx, "server", &config.server)?;
-        set_meta(&tx, "token", &config.token)?;
         set_meta(&tx, "user_id", &config.user_id)?;
-        match &config.hub {
-            Some(hub) => set_meta(&tx, "hub_addr", serde_json::to_string(hub)?)?,
-            None => {
-                tx.execute("DELETE FROM meta WHERE key = 'hub_addr'", [])?;
-            }
-        }
+        set_meta(&tx, "hub_addr", serde_json::to_string(&config.hub)?)?;
         tx.commit()?;
         Ok(())
     }

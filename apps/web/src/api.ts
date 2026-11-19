@@ -14,7 +14,7 @@ export class ApiError extends Error {
 
 export type Session = { server: string; token: string };
 
-/** `""` is this page's own origin, which proxies to the Worker in dev and is the Worker in production. */
+/** `""` is this page's own origin: the desktop's web access serves the app and the API from one address. */
 export const sameOrigin = "";
 
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -78,16 +78,6 @@ export const api = (s: Session) => ({
 });
 
 export type Api = ReturnType<typeof api>;
-
-/** Creates an account on `server`: the interim sign-in (docs/contract.md, "Accounts"). */
-export async function createAccount(server: string): Promise<Session> {
-  const res = await fetch(`${server}/v1/accounts`, { method: "POST" }).catch(() => {
-    throw new ApiError(0, "network", "Couldn’t reach the server");
-  });
-  if (!res.ok) throw new ApiError(res.status, "internal", "Couldn’t create an account");
-  const { token } = (await res.json()) as { token: string };
-  return { server, token };
-}
 
 /** Checks a token by listing decks; throws `unauthorized` for a bad one. */
 export async function checkSession(session: Session): Promise<void> {

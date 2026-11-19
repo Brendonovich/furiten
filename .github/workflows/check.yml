@@ -13,13 +13,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-        working-directory: server
       - run: bun install --frozen-lockfile
         working-directory: apps/web
       - run: bun install --frozen-lockfile

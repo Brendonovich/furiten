@@ -1,5 +1,5 @@
 //! Web access: the desktop's core serving the HTTP API (docs/contract.md, "HTTP API") to browsers on the network,
-//! so a phone can use this library directly instead of through Furiten Cloud. Each route is a protocol method
+//! so a phone can use this library directly instead of keeping its own synced copy. Each route is a protocol method
 //! underneath, so its answers are exactly the local core's. When the host bundles the web app it's served from the
 //! same origin, and `/v1/events` streams `changed` as server-sent events.
 

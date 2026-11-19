@@ -23,7 +23,6 @@ import type { Sort, View } from "./types.ts";
 
 export type SortState = { by: Sort; desc: boolean; seed: number | null };
 export type DeckStep = "menu" | "rename" | "subdeck" | "move" | "delete";
-export type SignInMode = "desktop" | "cloud";
 
 /** Raw search params, as the router gives them. */
 export type Search = Partial<Record<string, string | string[]>>;
@@ -143,7 +142,6 @@ export const viewParam = (v: View) => (v === DEFAULT_VIEW ? undefined : v);
 
 export const readStep = (search: Search): DeckStep | null => pick(STEPS, one(search.actions));
 export const readText = (search: Search, key: string): string => one(search[key]) ?? "";
-export const readSignIn = (search: Search): SignInMode => (one(search.via) === "cloud" ? "cloud" : "desktop");
 
 /** A query string from params, leaving out empty ones: `?view=list&sort=name`, or `""`. */
 export function queryString(params: Record<string, string | number | undefined | null>): string {

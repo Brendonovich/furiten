@@ -399,14 +399,14 @@ private struct DeckList: View {
     }
 }
 
-/// A green dot, on Settings, while syncing is connected: open to the paired computer or hub, or signed in to Furiten
-/// Cloud and syncing without error. Nothing otherwise, since working offline is fine; Settings says more.
+/// A green dot, on Settings, while syncing is connected: open to the paired computer or hub, and syncing without
+/// error. Nothing otherwise, since working offline is fine; Settings says more.
 private struct SyncDot: View {
     let sync: CoreStatus?
 
     private var connected: Bool {
         guard let sync, sync.signedIn, sync.syncError == nil else { return false }
-        return sync.paired ? sync.connected == true : sync.lastSync != nil
+        return sync.connected == true
     }
 
     var body: some View {

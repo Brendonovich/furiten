@@ -2,7 +2,7 @@
 
 `furiten-hub` holds one Furiten library on a machine you own (a NAS, a Raspberry Pi, a small VPS) and syncs it with
 your paired devices. Devices only ever sync with the hub, never with each other, so a phone and a laptop that are
-never online together still converge. It does the same job as Furiten Cloud, with the same merge rules.
+never online together still converge. It's `crates/core`'s own store and merge, the same ones a device runs.
 
 It connects over [Iroh](https://www.iroh.computer): each side is dialled by its public key, connections are
 end-to-end encrypted, direct where possible and through a relay otherwise. You don't open ports, set up DNS or get

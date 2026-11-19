@@ -2,9 +2,9 @@ import Observation
 import UIKit
 
 /// What the screens show, and the UI's own state (the web app's apps/web/src/state.ts). Data comes from this phone's
-/// own core, which syncs with your computer (or Furiten Cloud) in the background; it's refetched after every write and
-/// whenever the core reports a change, including changes that arrive through sync. Nothing here decides scheduling
-/// or order.
+/// own core, which syncs with your computer (or a `furiten-hub`) in the background; it's refetched after every write
+/// and whenever the core reports a change, including changes that arrive through sync. Nothing here decides
+/// scheduling or order.
 @MainActor
 @Observable
 final class Library {
@@ -229,16 +229,6 @@ final class Library {
         try await core.pair(ticket: ticket, name: UIDevice.current.name)
         notice = nil
         await refresh()
-    }
-
-    /// Signs in to Furiten Cloud, creating an account without a token. Returns the account's token.
-    @discardableResult
-    func signIn(server: String, token: String?) async throws -> String {
-        guard let core else { return "" }
-        let token = try await core.signIn(server: server, token: token)
-        notice = nil
-        await refresh()
-        return token
     }
 
     /// Stops syncing. Everything stays on this phone.

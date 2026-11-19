@@ -111,7 +111,7 @@ enum Command {
         #[command(subcommand)]
         command: ImportCommand,
     },
-    /// Sync now, or sign in to Furiten Cloud or a self-hosted hub.
+    /// Sync now, or pair with a hub.
     Sync {
         #[command(subcommand)]
         command: Option<SyncCommand>,
@@ -264,18 +264,13 @@ enum ImportCommand {
 
 #[derive(Subcommand)]
 enum SyncCommand {
-    /// Sign in to a server (without --token a new account is created; keep the token it prints to sign in
-    /// elsewhere), or pair with a self-hosted hub using a ticket from `furiten-hub pair`.
+    /// Pair with a hub using its ticket: from `furiten-hub pair`, or a desktop's `furiten host pair`.
     Login {
-        #[arg(long, required_unless_present = "hub", conflicts_with = "hub")]
-        server: Option<String>,
-        #[arg(long, requires = "server")]
-        token: Option<String>,
         /// A hub's pairing ticket (rchub1...).
         #[arg(long)]
-        hub: Option<String>,
+        hub: String,
         /// This device's name in the hub's device list (default: the host name).
-        #[arg(long, requires = "hub")]
+        #[arg(long)]
         name: Option<String>,
     },
     /// Sync now (the default).
@@ -437,21 +432,9 @@ fn command(c: &mut Client, cli: Cli) -> Result<()> {
             emit(json, &imported, output::imported)
         }
         Command::Sync { command } => match command.unwrap_or(SyncCommand::Now) {
-            SyncCommand::Login { hub: Some(ticket), name, .. } => {
-                let login = c.login_hub(&ticket, name.as_deref())?;
+            SyncCommand::Login { hub, name } => {
+                let login = c.login_hub(&hub, name.as_deref())?;
                 emit(json, &login, |l| format!("Paired with the hub (library {})", l.library_id))
-            }
-            SyncCommand::Login { server, token, .. } => {
-                let server = server.unwrap_or_default();
-                let created = token.is_none();
-                let login = c.login(&server, token.as_deref())?;
-                emit(json, &login, |l| {
-                    let mut text = format!("Signed in to {server} as {}", l.user_id);
-                    if created {
-                        text.push_str(&format!("\nNew account. To sign in on another device use --token {}", l.token));
-                    }
-                    text
-                })
             }
             SyncCommand::Now => emit(json, &c.sync_now()?, |r| format!("Pushed {}, pulled {}", r.pushed, r.pulled)),
             SyncCommand::Logout => {
