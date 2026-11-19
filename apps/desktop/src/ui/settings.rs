@@ -1,14 +1,14 @@
 //! Sync sign-in and the core's status. Reached from the sidebar after the first review, never before.
 
-use rune::{Color, El, col, el, row, text};
+use rune::{Color, El, ScrollSpec, col, el, row, text};
 use rune_kit::shell::Toolbar;
-use rune_kit::{Button, ButtonVariant, Kit, Switch, TextInput};
+use rune_kit::{Button, ButtonVariant, Kit, Menu, MenuItem, Placement, Switch, TextInput};
 
 use super::{error_line, format, toolbar};
 use crate::app::{App, Settings};
 use crate::core::now_ms;
 
-pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
+pub fn view(s: &App, settings: &Settings, k: &Kit, layer: &mut Vec<El>) -> (El, Toolbar) {
     let st = &s.status;
     let mut sync = col()
         .key("sync")
@@ -75,7 +75,7 @@ pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
     }
 
     let about = format!("{} core {} · {}", crate::identity::name(), st.version, st.home);
-    let mut page = col().key("settings").w_full().h_full().px(24.0).pt(8.0).gap(28.0).child(
+    let mut body = col().key("settings-body").w_full().px(24.0).pt(8.0).pb(24.0).gap(28.0).child(
         col()
             .key("column")
             .w_full()
@@ -84,7 +84,7 @@ pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
             .child(sync)
             .child(phones(s, settings, k))
             .child(web(settings, k))
-            .child(review(s, k))
+            .child(review(s, settings, k, layer))
             .child(experiments(s, k))
             .child(
                 col()
@@ -95,15 +95,25 @@ pub fn view(s: &App, settings: &Settings, k: &Kit) -> (El, Toolbar) {
             ),
     );
     if let Some(why) = &s.offline {
-        page = page.child(super::deck::offline_note(k, why));
+        body = body.child(super::deck::offline_note(k, why));
     } else if s.core.is_fixture() {
-        page = page.child(
+        body = body.child(
             text("Running on sample data: changes last until the app quits.")
                 .key("fixtures")
                 .font(k.ty.caption())
                 .color(k.c.text_faint),
         );
     }
+    // Settings are longer than most windows: they scroll, as the card views do.
+    let page = col()
+        .key("settings")
+        .w_full()
+        .grow(1.0)
+        .min_h(0.0)
+        .scroll(ScrollSpec { stick_bottom: false })
+        .scroll_edge_fade(16.0)
+        .scroll_margin(12.0)
+        .child(body);
     (page, toolbar("Settings"))
 }
 
@@ -337,8 +347,8 @@ fn qr(data: &str) -> El {
     col().key("qr").padding(4.0 * MODULE).fill(Color::WHITE).radius(8.0).child(rows)
 }
 
-/// How the review lays cards out.
-fn review(s: &App, k: &Kit) -> El {
+/// How the review lays cards out, and when the review day rolls over.
+fn review(s: &App, settings: &Settings, k: &Kit, layer: &mut Vec<El>) -> El {
     let label = "Full-width cards";
     let what = "Cards under review fill the window, instead of a fixed column down the middle.";
     let switch = Switch::new(s.full_width_cards())
@@ -354,12 +364,55 @@ fn review(s: &App, k: &Kit) -> El {
         .gap(2.0)
         .child(text(label).key("label").font(k.ty.ui_medium).color(k.c.text_base))
         .child(text(what).key("description").font(k.ty.ui).color(k.c.text_muted).wrap());
-    col()
+
+    let day_label = "Next day starts at";
+    let day_what = "The day’s due cards are all there from the hour you pick, and reviews before it count as the day \
+                    before, so studying past midnight stays yesterday’s.";
+    let hour = settings.rollover;
+    let trigger = Button::new(format!("{:02}:00", hour))
+        .variant(ButtonVariant::Neutral)
+        .on_press(|s: &mut App| s.rollover_menu ^= true)
+        .build(k)
+        .key("rollover-button");
+    let mut menu = Menu::new("rollover")
+        .trigger(trigger)
+        .placement(Placement::BottomEnd)
+        .min_width(120.0)
+        .open(s.rollover_menu)
+        .on_close(|s: &mut App| s.rollover_menu = false);
+    for h in 0..24 {
+        let title = if h == 4 { "04:00 (default)".to_string() } else { format!("{h:02}:00") };
+        menu = menu.item(MenuItem::new(title).on_select(move |s: &mut App| s.set_rollover(h)));
+    }
+    let menu = menu.build(k, layer).key("rollover-menu");
+
+    let mut section = col()
         .key("review")
         .w_full()
         .gap(10.0)
         .child(text("Review").key("title").font(k.ty.body_medium).color(k.c.text_base))
         .child(row().key("full-width-row").w_full().gap(16.0).center_y().child(text_col).child(switch))
+        .child(
+            row()
+                .key("rollover-row")
+                .w_full()
+                .gap(16.0)
+                .center_y()
+                .child(
+                    col()
+                        .key("day-text")
+                        .grow(1.0)
+                        .min_w(0.0)
+                        .gap(2.0)
+                        .child(text(day_label).key("label").font(k.ty.ui_medium).color(k.c.text_base))
+                        .child(text(day_what).key("description").font(k.ty.ui).color(k.c.text_muted).wrap()),
+                )
+                .child(menu),
+        );
+    if let Some(e) = &settings.rollover_error {
+        section = section.child(error_line(k, e));
+    }
+    section
 }
 
 /// Designs being tried out, off until switched on here.

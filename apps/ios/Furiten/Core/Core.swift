@@ -103,6 +103,18 @@ final class Core: @unchecked Sendable {
         try await call("review.answer", Answer(cardId: card, remembered: recalled == .remembered, durationMs: durationMs))
     }
 
+    // MARK: Settings
+
+    /// The library's settings: when the review day rolls over.
+    func settings() async throws -> CoreSettings {
+        try await call("settings.get")
+    }
+
+    /// Sets the hour (0-23) the review day rolls over at.
+    func setRollover(_ hour: Int) async throws -> CoreSettings {
+        try await call("settings.update", RolloverUpdate(rolloverHour: hour))
+    }
+
     // MARK: Sync
 
     func status() async throws -> CoreStatus {
@@ -189,6 +201,14 @@ struct SyncResult: Decodable, Sendable {
     let pushed: Int
     let pulled: Int
 }
+
+/// The library's settings, from the core's `settings.get`.
+struct CoreSettings: Decodable, Equatable, Sendable {
+    /// The local hour (0-23) the review day rolls over at.
+    let rolloverHour: Int
+}
+
+private struct RolloverUpdate: Encodable, Sendable { let rolloverHour: Int }
 
 /// A pairing ticket from a computer's Settings (or `furiten host pair`, or `furiten-hub pair`): `rchub1…`, or the
 /// `furiten://pair/<ticket>` link its QR code holds. Read case-insensitively.

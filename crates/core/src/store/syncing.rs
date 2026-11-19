@@ -377,7 +377,7 @@ pub(super) fn meta<T: rusqlite::types::FromSql>(conn: &Connection, key: &str) ->
     Ok(conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()?)
 }
 
-fn set_meta(conn: &Connection, key: &str, value: impl rusqlite::ToSql) -> Result<()> {
+pub(super) fn set_meta(conn: &Connection, key: &str, value: impl rusqlite::ToSql) -> Result<()> {
     conn.execute(
         "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         params![key, value],

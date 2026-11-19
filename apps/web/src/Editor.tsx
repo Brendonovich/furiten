@@ -2,6 +2,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { createEffect, createMemo, createSignal, createStore, flush, For, onCleanup, Show, snapshot, untrack, useContext } from "solid-js";
+import { Portal } from "@solidjs/web";
 import { Icon } from "./Icon.tsx";
 import { livePreview } from "./livePreview.ts";
 import { createSheet, Sheet } from "./Sheet.tsx";
@@ -27,17 +28,47 @@ export function Editor(props: { editing: Editing; onClose: () => void }) {
     deck: editing.kind === "edit" ? editing.card.deck_id : editing.deck,
   });
   const [draft, setDraft] = createSignal("");
-  const [confirmDelete, setConfirmDelete] = createSignal(false);
+  const [menuOpen, setMenuOpen] = createSignal(false);
+  const [confirming, setConfirming] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [library, setLibrary] = createSignal<TagSummary[]>([]);
   const [tagFocus, setTagFocus] = createSignal(false);
   const [highlight, setHighlight] = createSignal(0);
   const fields: EditorView[] = [];
+  let menuRef: HTMLDivElement | undefined;
 
   const sheet = createSheet();
   /** Slides the editor away; `onClose` runs once it's gone. */
   const close = () => sheet.dismiss();
+
+  // The ⋯ menu closes on a click or tap anywhere outside it.
+  createEffect(
+    () => menuOpen(),
+    (open) => {
+      if (!open) return;
+      const onDown = (e: PointerEvent) => {
+        if (menuRef && !menuRef.contains(e.target as Node)) setMenuOpen(false);
+      };
+      document.addEventListener("pointerdown", onDown, true);
+      return () => document.removeEventListener("pointerdown", onDown, true);
+    },
+  );
+
+  // The confirm dialog takes Escape back from the sheet (which would dismiss the editor), to just cancel the delete.
+  createEffect(
+    () => confirming(),
+    (open) => {
+      if (!open) return;
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key !== "Escape") return;
+        e.stopPropagation();
+        setConfirming(false);
+      };
+      document.addEventListener("keydown", onKey, true);
+      return () => document.removeEventListener("keydown", onKey, true);
+    },
+  );
 
   // Suggestions come from the deck the card is going into, then the rest of the library.
   createEffect(
@@ -142,7 +173,6 @@ export function Editor(props: { editing: Editing; onClose: () => void }) {
 
   const remove = async () => {
     if (!initial) return;
-    if (!confirmDelete()) return setConfirmDelete(true);
     await app.write((c) => c.deleteCard(initial.id));
     close();
   };
@@ -155,31 +185,61 @@ export function Editor(props: { editing: Editing; onClose: () => void }) {
       tall
       initialFocus={() => (initial ? undefined : fields[0]?.contentDOM)}
     >
-      {/* Delete asks once more before it deletes. */}
+      {/* The sheet's toolbar, as iOS's: ✕ left, the card's title centred, then (editing) a ⋯ menu and Save. */}
       <header class="editor-head">
-        <Show when={initial}>
-          <button
-            data-component="button-v2"
-            data-variant={confirmDelete() ? "danger" : "ghost-muted"}
-            data-size="large"
-            class="editor-delete"
-            onClick={() => void remove()}
-            onBlur={() => setConfirmDelete(false)}
-          >
-            <Icon name="trash" />
-            {confirmDelete() ? "Delete this card" : "Delete"}
-          </button>
-        </Show>
         <button
           data-component="button-v2"
           data-variant="neutral"
           data-size="large"
-          class="editor-save"
-          disabled={saving()}
-          onClick={() => void save()}
+          class="editor-close"
+          aria-label="Close"
+          onClick={() => close()}
         >
-          Save
+          <Icon name="close" />
         </button>
+        <h2 class="editor-title">{initial ? "Edit card" : "New card"}</h2>
+        <div class="editor-actions">
+          <Show when={initial}>
+            <div class="editor-menu" ref={(el) => (menuRef = el)}>
+              <button
+                data-component="button-v2"
+                data-variant="neutral"
+                data-size="large"
+                class="editor-more"
+                aria-label="More"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen() ? "true" : "false"}
+                onClick={() => setMenuOpen(!menuOpen())}
+              >
+                <Icon name="more" />
+              </button>
+              <Show when={menuOpen()}>
+                <div class="menu" role="menu">
+                  <button
+                    role="menuitem"
+                    class="menu-item"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setConfirming(true);
+                    }}
+                  >
+                    <Icon name="trash" /> Delete card
+                  </button>
+                </div>
+              </Show>
+            </div>
+          </Show>
+          <button
+            data-component="button-v2"
+            data-variant="neutral"
+            data-size="large"
+            class="editor-save"
+            disabled={saving()}
+            onClick={() => void save()}
+          >
+            Save
+          </button>
+        </div>
       </header>
 
       <div class="editor-body">
@@ -203,7 +263,7 @@ export function Editor(props: { editing: Editing; onClose: () => void }) {
             )}
           </For>
           <div class="well-foot">
-            <button data-component="button-v2" data-variant="outline" data-size="large" data-icon class="add-side" onClick={addSide}>
+            <button data-component="button-v2" class="add-side" onClick={addSide}>
               <Icon name="plus" /> Side
             </button>
             <span class="faint small">or type --- on its own line</span>
@@ -265,7 +325,10 @@ export function Editor(props: { editing: Editing; onClose: () => void }) {
               autocomplete="off"
               enterkeyhint="done"
               value={draft()}
-              onFocus={() => setTagFocus(true)}
+              onFocus={(e) => {
+                setTagFocus(true);
+                e.currentTarget.scrollIntoView({ block: "nearest" });
+              }}
               onBlur={() => setTimeout(() => setTagFocus(false), 150)}
               onInput={(e) => {
                 const v = e.currentTarget.value;
@@ -278,6 +341,7 @@ export function Editor(props: { editing: Editing; onClose: () => void }) {
                   setDraft(v);
                   setHighlight(0);
                 }
+                e.currentTarget.scrollIntoView({ block: "nearest" });
               }}
               onKeyDown={(e) => {
                 const list = suggestions();
@@ -300,6 +364,32 @@ export function Editor(props: { editing: Editing; onClose: () => void }) {
           </label>
         </div>
       </div>
+
+      {/* Delete's confirmation, as iOS's dialog: a small in-app alert over the sheet. */}
+      <Show when={confirming()}>
+        <Portal>
+          <div class="confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+            <div class="confirm-overlay" onClick={() => setConfirming(false)} />
+            <div class="confirm-card">
+              <h2 id="confirm-title" class="confirm-title">Delete this card?</h2>
+              <div class="confirm-buttons">
+                <button data-component="button-v2" data-variant="danger" data-size="touch" onClick={() => void remove()}>
+                  Delete card
+                </button>
+                <button
+                  data-component="button-v2"
+                  data-variant="neutral"
+                  data-size="touch"
+                  ref={(el) => queueMicrotask(() => el.focus())}
+                  onClick={() => setConfirming(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      </Show>
 
     </Sheet>
   );

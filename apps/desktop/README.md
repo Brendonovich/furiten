@@ -15,6 +15,7 @@ cd apps/desktop
 cargo run                          # hosts the core at $FURITEN_HOME and opens the window
 cargo run -- --background          # hosts the core with no window (how the CLI starts the app)
 cargo run -- --fixtures            # sample data in memory, no core (first-run | lived-in | caught-up)
+FURITEN_TEMP_DB=1 cargo run        # a throwaway, seeded library in the temp directory
 ```
 
 Only one app runs per `FURITEN_HOME`. Launching it while a core is running asks that app to show its window
@@ -24,8 +25,10 @@ its core, when its window closes. If the CLI is hosting the core itself (it does
 runs as one more client of it.
 
 To have the CLI start this checkout's app, build it and point `FURITEN_APP` at `target/debug/furiten-desktop`. Point
-`FURITEN_HOME` at a scratch directory to try it without touching your own decks. If the core can't be opened the app
-says so and shows sample data.
+`FURITEN_HOME` at a scratch directory to try it without touching your own decks. `FURITEN_TEMP_DB=1` does the same
+with a library that starts fresh each run: sample decks with some reviews due, some waiting and some cards new, in
+`$TMPDIR/furiten-temp` (`furiten-temp-dev` for a dev build), shared with the CLI while a core serves it. If the core
+can't be opened the app says so and shows sample data.
 
 The window opens before the core answers: the core starts on another thread once the first frame is up. A quick start
 shows nothing in between; one that takes longer than 0.4 s says "Opening your decks…".
@@ -91,7 +94,10 @@ Review → **Full-width cards** has cards fill the pane instead (a local prefere
 only for a subdeck's card). A click anywhere but the buttons, Space or ↓ reveals the next side, under a dashed rule
 across the card, and ↑ hides it again; the line under the card says which keys to press. The tags wait for the last
 side. Space on the last side is Remembered, as in Mochi. The ✕ and ✓ buttons (F and ⇧Space, or 1 and 2) are always
-there and answer at any side; each takes its answer's colour under the pointer.
+there and answer at any side; each takes its answer's colour under the pointer. An answered card flies off the way its
+answer goes (right for Remembered, left for Forgot), above everything else in the window so the toolbar doesn't cover
+it, tilting as it goes with its edge and its answer's button in that answer's colour, and the next one rises in once
+it's gone, as on iOS and the web.
 
 E edits the card where it is: its sides become fields in place, with Cancel and Save card (Esc, ⌘Return) where the
 answers were; its tags and deck stay as they are. D asks "Delete this card?" in the answers' place, and D again

@@ -1,11 +1,14 @@
 import SwiftUI
+import UIKit
 
 /// One review session over a deck and its subdecks (apps/web/src/Review.tsx), or with no deck, the inbox: every due
 /// card from every deck. Sides reveal one at a time with a tap anywhere. Swipe right if you remembered it or left if you
 /// forgot, anywhere below the toolbar, or use the buttons, at any side (VoiceOver gets the answers as actions on the
 /// card). In the inbox on iPhone, a drag from the leading edge or on the buttons pulls the sidebar instead. The queue
-/// and scheduling are the desktop's; this only asks for the next card. A cram goes through the cards it was given
-/// instead, in their order, recording nothing (docs/contract.md, Cramming), in a sheet a swipe down dismisses.
+/// and scheduling are the desktop's; this only asks for the next card. A menu over the card edits it, copies its
+/// Markdown, or deletes it, as Mochi's review does. A cram goes through the cards it was given instead, in their order,
+/// recording nothing (docs/contract.md, Cramming), in a sheet a swipe down dismisses; its cards are a snapshot, so it
+/// leaves them alone.
 struct ReviewView: View {
     @Environment(Library.self) private var library
     @Environment(\.palette) private var palette
@@ -43,6 +46,9 @@ struct ReviewView: View {
     @State private var busy = false
     @State private var started = Date.now
     @State private var adding = false
+    @State private var editing: Editing?
+    @State private var deleting: CardView?
+    @State private var confirmingDelete = false
 
     /// How far a card is dragged before letting go grades it.
     private let swipe: CGFloat = 96
@@ -65,31 +71,58 @@ struct ReviewView: View {
                 cram?.title ?? deckId.flatMap { id in library.decks.first { $0.id == id }?.name } ?? "Review")
             .navigationSubtitle(subtitle)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if inbox, let showSidebar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Decks", systemImage: "sidebar.leading", action: showSidebar)
-                    }
-                }
-                if !inbox {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(role: .close, action: close).keyboardShortcut(.cancelAction)
-                    }
-                }
-            }
+            .toolbar { toolbar }
         }
         // A drag goes the way it started: across answers, and only down dismisses a cram's sheet.
         .interactiveDismissDisabled(sideways)
         .onChange(of: dragging) { if !dragging { horizontal = nil } }
         .sensoryFeedback(.impact(weight: .light), trigger: answered)
         .sensoryFeedback(.selection, trigger: abs(drag) >= swipe)
+        .sheet(item: $editing, onDismiss: { Task { await reload() } }) { CardEditor(editing: $0) }
         .sheet(isPresented: $adding, onDismiss: { Task { await load() } }) {
             if let deckId { CardEditor(editing: .new(deck: deckId)) }
+        }
+        .confirmationDialog("Delete this card?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete card", role: .destructive) {
+                if let deleting { delete(deleting) }
+            }
+        } message: {
+            Text("It won’t come up for review again.")
         }
         // Once the inbox has run out, look again whenever the library changes.
         .task { if next?.card == nil { await load() } }
         .onChange(of: library.refreshed) {
             if inbox, next != nil, next?.card == nil, !busy { Task { await load() } }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        if inbox, let showSidebar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Decks", systemImage: "sidebar.leading", action: showSidebar)
+            }
+        }
+        if !inbox {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(role: .close, action: close).keyboardShortcut(.cancelAction)
+            }
+        }
+        if cram == nil, let card = next?.card {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Edit card", systemImage: "pencil") { editing = .edit(card) }
+                    Button("Copy card as Markdown", systemImage: "doc.on.doc") { copy(card) }
+                    Divider()
+                    Button("Delete card", systemImage: "trash", role: .destructive) {
+                        deleting = card
+                        confirmingDelete = true
+                    }
+                } label: {
+                    Label("Card actions", image: "more")
+                }
+                .disabled(busy)
+            }
         }
     }
 
@@ -107,37 +140,43 @@ struct ReviewView: View {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 ScrollView {
-                    // Keyed, so each card (and its deck) comes in afresh rather than only its text changing.
-                    ReviewColumn(minWidth: 0) {
-                        if inbox || card.deckId != deckId {
-                            Label(deckPath(library.decks, card.deckId), systemImage: "book.closed")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .labelIconToTitleSpacing(6)
-                                .padding(.leading, 4)
-                                .padding(.bottom, 10)
+                    // Keyed, so each card (and its deck) comes in afresh rather than only its text changing, and
+                    // the whole column — deck, card and hint — slides up and fades in as one (the web's
+                    // `@keyframes card-in`). The slide is an explicit offset rather than a transition: a ScrollView
+                    // won't run an offset transition on re-keyed content.
+                    DealIn {
+                        ReviewColumn(minWidth: 0) {
+                            if inbox || card.deckId != deckId {
+                                Label { Text(deckPath(library.decks, card.deckId)) } icon: { Image.icon("deck", size: 15) }
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .labelIconToTitleSpacing(6)
+                                    .padding(.leading, 4)
+                                    .padding(.bottom, 10)
+                                    // Fades out as the answered card flies off, as on the web.
+                                    .opacity(leaving != 0 ? 0 : 1)
+                                    .animation(ReviewCurve.fadeOut, value: leaving != 0)
+                            }
+                            face(card, width: geo.size.width)
+                            if !revealed(card) {
+                                Text("Tap to reveal the next side")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.tertiary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.top, 20)
+                                    // Fades as the card is swiped away, and out with the deck as it flies off.
+                                    .opacity(1 - abs(intent))
+                                    .animation(ReviewCurve.fadeOut, value: leaving != 0)
+                                    .layoutValue(key: Stretches.self, value: true)
+                            }
                         }
-                        face(card, width: geo.size.width)
-                        if !revealed(card) {
-                            Text("Tap to reveal the next side")
-                                .font(.subheadline)
-                                .foregroundStyle(.tertiary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 20)
-                                // Fades as the card is swiped away.
-                                .opacity(1 - abs(intent))
-                                .layoutValue(key: Stretches.self, value: true)
-                        }
+                        .frame(maxWidth: maxWidth)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                     }
-                    .frame(maxWidth: maxWidth)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
                     // A forgotten card can come straight back, and comes in afresh too.
                     .id(dealt)
-                    .transition(.asymmetric(
-                        insertion: .offset(y: 16).combined(with: .scale(scale: 0.98)).combined(with: .opacity),
-                        removal: .identity))
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 // Stops the scroll, and the sheet it pulls down, once a drag has gone sideways.
@@ -249,8 +288,17 @@ struct ReviewView: View {
     private func answers(_ card: CardView) -> some View {
         HStack(spacing: 8) {
             ForEach([Recalled.forgot, .remembered], id: \.self) { recalled in
-                Button(recalled.label, systemImage: recalled == .remembered ? "checkmark" : "xmark") {
+                Button {
                     Task { await answer(recalled) }
+                } label: {
+                    // Drawn at the desktop's 22 pt, so the ✕ and ✓ match each other and the other apps (web 24 px,
+                    // desktop 22 pt). The SVGs are 20-unit vectors with a 1.6 stroke, so at 22 pt the stroke scales to
+                    // ~1.76 pt rather than thinning; both icons render at that same size and weight.
+                    Label {
+                        Text(recalled.label)
+                    } icon: {
+                        Image.icon(recalled == .remembered ? "check" : "close", size: 22)
+                    }
                 }
                 .buttonStyle(AnswerButtonStyle(
                     colour: recalled == .remembered ? palette.remembered : palette.forgot,
@@ -309,6 +357,19 @@ struct ReviewView: View {
         withAnimation(ReviewCurve.reveal) { shown += 1 }
     }
 
+    /// The card's Markdown, sides and all, onto the pasteboard, as Mochi's "Copy card as Markdown".
+    private func copy(_ card: CardView) {
+        UIPasteboard.general.string = card.content
+        library.notice = "Copied card as Markdown"
+    }
+
+    private func delete(_ card: CardView) {
+        Task {
+            await library.write { try await $0.deleteCard(card.id) }
+            await load()
+        }
+    }
+
     private func close() {
         dismiss()
         Task { await library.refresh() }
@@ -326,17 +387,34 @@ struct ReviewView: View {
         }
     }
 
-    private func show(_ next: NextReview) {
-        withAnimation(ReviewCurve.cardIn) {
-            self.next = next
-            dealt += 1
-            shown = 1
-            #if DEBUG
-            if Scripted.reveal { shown = next.card?.sides.count ?? 1 }
-            #endif
-            drag = 0
-            leaving = 0
+    /// After an edit, bring the card on screen up to date in place when it's still the same one, rather than dealing
+    /// it again (which would flash it back in), and deal the next card when it's gone.
+    private func reload() async {
+        guard cram == nil, let core = library.core else { return }
+        do {
+            let fresh = try await core.next(deck: deckId)
+            if let current = next?.card, fresh.card?.id == current.id {
+                self.next = fresh
+                shown = min(shown, fresh.card?.sides.count ?? 1)
+            } else {
+                show(fresh)
+            }
+        } catch {
+            library.fail(error)
         }
+    }
+
+    private func show(_ next: NextReview) {
+        // No animation here: the new column slides up and fades in on its own once it appears (DealIn), so dealing
+        // the next card is an instant swap and the old card, already flown off, just goes.
+        self.next = next
+        dealt += 1
+        shown = 1
+        #if DEBUG
+        if Scripted.reveal { shown = next.card?.sides.count ?? 1 }
+        #endif
+        drag = 0
+        leaving = 0
         started = .now
     }
 
@@ -470,6 +548,28 @@ private struct ReviewColumn: Layout {
     }
 }
 
+/// Slides up and fades in, as one, once it appears: the web's `card-in` keyframes on the review column. The offset is
+/// drawn directly (an implicit animation) rather than as a transition, which a `ScrollView` won't animate when its
+/// direct content is re-keyed.
+private struct DealIn<Content: View>: View {
+    @State private var entered = false
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .offset(y: entered ? 0 : 16)
+            .opacity(entered ? 1 : 0)
+            // Not straight in onAppear: set there, the change lands in the same update as the appearance
+            // and the column appears in place rather than rising. A runloop tick later its start state has
+            // drawn, and the change animates.
+            .onAppear { Task { @MainActor in withAnimation(ReviewCurve.cardIn) { entered = true } } }
+    }
+}
+
 /// The review's animation curves, the web's own (apps/web/src/styles.css, `.review-card`), so a card moves the same
 /// in both apps.
 private enum ReviewCurve {
@@ -481,6 +581,8 @@ private enum ReviewCurve {
     static let settle = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.3)
     /// The next card rises in (`@keyframes card-in`).
     static let cardIn = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.32)
+    /// The answered card's deck and hint fade out (`.review-deck`'s `opacity` transition in styles.css).
+    static let fadeOut = Animation.linear(duration: 0.24)
     /// The next side slides down into view (`.reveal-in`).
     static let reveal = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.28)
     /// The answer buttons pressing and fading with a swipe: CSS's `ease` (`.answer`).

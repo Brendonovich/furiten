@@ -244,6 +244,23 @@ impl Core {
         }
     }
 
+    /// The library's settings: when the review day rolls over.
+    pub fn settings(&mut self) -> Result<Settings> {
+        match self {
+            Core::Live(c) => c.settings().map_err(err),
+            Core::Fixture(_) | Core::Pending => Ok(Settings::default()),
+        }
+    }
+
+    /// Sets the hour the review day rolls over at.
+    pub fn set_rollover(&mut self, hour: u8) -> Result<Settings> {
+        match self {
+            Core::Live(c) => c.update_settings(&SettingsUpdate { rollover_hour: Some(hour) }).map_err(err),
+            Core::Fixture(_) => Err("Settings aren’t available on sample data".into()),
+            Core::Pending => Err(PENDING.into()),
+        }
+    }
+
     /// Imports a Mochi export as new top-level decks. The core reads the file.
     pub fn import_mochi(&mut self, path: &std::path::Path) -> Result<Imported> {
         match self {

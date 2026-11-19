@@ -107,7 +107,7 @@ impl Store {
             ))?
             .query_map([], deck_row)?
             .collect::<rusqlite::Result<_>>()?;
-        let counts = queue::deck_counts(&self.conn, now)?;
+        let counts = queue::deck_counts(&self.conn, now, self.settings()?.rollover_hour)?;
         let own = |id: &str| counts.get(id).copied().unwrap_or_default();
         // Each deck's counts include its subdecks.
         let mut totals: Vec<[u64; 3]> = decks.iter().map(|d| own(&d.id)).collect();
@@ -206,12 +206,13 @@ impl Store {
              AND (?1 IS NULL OR c.deck_id IN (SELECT value FROM json_each(?1))) \
              AND (?2 IS NULL OR instr(lower(c.content), lower(?2)) > 0) \
              AND (?3 IS NULL OR EXISTS (SELECT 1 FROM json_each(c.tags) WHERE value = ?3)) \
-             AND (?4 IS NULL OR s.due <= ?4) \
+             AND (?4 IS NULL OR s.due < ?4) \
              ORDER BY c.created_at {dir}, c.id {dir} LIMIT ?5 OFFSET ?6",
             dir = if desc { "DESC" } else { "ASC" }
         );
         let tag = query.tag.as_deref().map(crate::model::normalize_tag);
-        let due_before = query.due.unwrap_or(false).then(|| self.now());
+        // As in the review queue: a card is due for the whole day its `due` falls on.
+        let due_before = query.due.unwrap_or(false).then(|| self.day().map(|(_, end)| end)).transpose()?;
         let q = query.q.as_deref().filter(|q| !q.is_empty());
         let limit = i64::from(query.limit.unwrap_or(DEFAULT_LIMIT));
         let offset = i64::from(query.offset.unwrap_or(0));

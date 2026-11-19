@@ -188,6 +188,16 @@ impl Client {
         self.call("stats", DeckFilter { deck_id: deck_id.map(str::to_string) })
     }
 
+    /// The library's settings: when the review day rolls over.
+    pub fn settings(&mut self) -> Result<Settings> {
+        self.call("settings.get", json!({}))
+    }
+
+    /// Changes what `update` says, returning the settings as they now are.
+    pub fn update_settings(&mut self, update: &SettingsUpdate) -> Result<Settings> {
+        self.call("settings.update", update)
+    }
+
     /// Signs in to a sync server, creating an account when `token` is `None`.
     pub fn login(&mut self, server: &str, token: Option<&str>) -> Result<LoggedIn> {
         self.call(

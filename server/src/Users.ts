@@ -11,6 +11,7 @@ import { HttpApiBuilder } from "effect/http-api";
 import { HttpApiSchemaError } from "effect/http-api/HttpApiError";
 import srsWasm from "../build/furiten_srs.wasm";
 import { parseToken, verifySecret } from "./Auth.ts";
+import { zoneOf } from "./Day.ts";
 import { BadRequest, Conflict, NotFound, FuritenApi, Unauthorized } from "./HttpApi.ts";
 import * as Mcp from "./Mcp.ts";
 import { ApiError } from "./Model.ts";
@@ -56,9 +57,16 @@ const makeApp = (store: Store) => {
   const tool = <A>(f: () => A) =>
     attempt(f).pipe(Effect.mapError((e) => ({ code: e.code, message: e.message })));
 
+  /** The caller's zone, from `X-Furiten-Timezone`, for the day their request asks about. */
+  const zone = Effect.map(Effect.service(HttpServerRequest.HttpServerRequest), (request) =>
+    zoneOf(request.headers["x-furiten-timezone"]),
+  );
+  /** Runs `f` with the caller's zone, mapping errors as `http` does. */
+  const zoned = <A>(f: (zone: string) => A) => Effect.flatMap(zone, (z) => http(() => f(z)));
+
   const decks = HttpApiBuilder.group(FuritenApi, "decks", (h) =>
     h
-      .handle("list", () => http(() => ({ decks: store.decks() })))
+      .handle("list", () => zoned((z) => ({ decks: store.decks(z) })))
       .handle("create", ({ payload }) => http(() => store.createDeck(payload)))
       .handle("update", ({ params, payload }) => http(() => store.updateDeck(params.id, payload)))
       .handle("delete", ({ params }) => http(() => (store.deleteDeck(params.id), { ok: true as const }))),
@@ -67,9 +75,9 @@ const makeApp = (store: Store) => {
   const cards = HttpApiBuilder.group(FuritenApi, "cards", (h) =>
     h
       .handle("list", ({ query }) =>
-        http(() => {
+        zoned((z) => {
           const flag = (v: "true" | "false" | undefined) => (v === undefined ? undefined : v === "true");
-          return { cards: store.cards({ ...query, due: flag(query.due), desc: flag(query.desc) }) };
+          return { cards: store.cards({ ...query, due: flag(query.due), desc: flag(query.desc) }, z) };
         }),
       )
       .handle("create", ({ payload }) =>
@@ -83,32 +91,38 @@ const makeApp = (store: Store) => {
 
   const review = HttpApiBuilder.group(FuritenApi, "review", (h) =>
     h
-      .handle("next", ({ query }) => http(() => store.nextReview(query.deck_id)))
+      .handle("next", ({ query }) => zoned((z) => store.nextReview(query.deck_id, z)))
       .handle("answer", ({ params, payload }) =>
         http(() => store.answer(params.id, payload.remembered, payload.duration_ms)),
       )
-      .handle("stats", ({ query }) => http(() => store.stats(query.deck_id))),
+      .handle("stats", ({ query }) => zoned((z) => store.stats(query.deck_id, z))),
   );
 
   const sync = HttpApiBuilder.group(FuritenApi, "sync", (h) =>
     h.handle("sync", ({ payload }) => http(() => store.sync(payload))),
   );
 
+  const settings = HttpApiBuilder.group(FuritenApi, "settings", (h) =>
+    h
+      .handle("get", () => http(() => store.settings()))
+      .handle("update", ({ payload }) => http(() => store.updateSettings(payload))),
+  );
+
   const api = HttpApiBuilder.layer(FuritenApi).pipe(
-    Layer.provide([decks, cards, review, sync]),
+    Layer.provide([decks, cards, review, sync, settings]),
     Layer.provide([Etag.layer, HttpPlatformStub, Path.layer, FileSystem.layerNoop({})]),
   );
 
   const tools = Mcp.toolkit.toLayer({
-    list_decks: () => tool(() => ({ decks: store.decks() })),
+    list_decks: () => tool(() => ({ decks: store.decks("UTC") })),
     create_deck: (p) => tool(() => store.createDeck(p)),
-    search_cards: (p) => tool(() => ({ cards: store.cards(p) })),
+    search_cards: (p) => tool(() => ({ cards: store.cards(p, "UTC") })),
     create_cards: (p) => tool(() => ({ cards: store.createCards(p.cards) })),
     update_card: ({ id, ...update }) => tool(() => store.updateCard(id, update)),
     delete_card: ({ id }) => tool(() => (store.deleteCard(id), { ok: true as const })),
-    next_review: (p) => tool(() => store.nextReview(p.deck_id)),
+    next_review: (p) => tool(() => store.nextReview(p.deck_id, "UTC")),
     review_card: (p) => tool(() => store.answer(p.id, p.remembered, p.duration_ms)),
-    stats: (p) => tool(() => store.stats(p.deck_id)),
+    stats: (p) => tool(() => store.stats(p.deck_id, "UTC")),
   });
 
   const mcp = McpServer.toolkit(Mcp.toolkit).pipe(

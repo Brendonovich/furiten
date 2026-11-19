@@ -32,7 +32,7 @@ struct SearchScreen: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Close search", systemImage: "xmark", action: close)
+                    Button(action: close) { Label("Close search", image: "close") }
                 }
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
                 ToolbarSpacer(.flexible, placement: .bottomBar)
@@ -101,7 +101,7 @@ struct SearchScreen: View {
             LazyVStack(alignment: .leading, spacing: 20) {
                 ForEach(decks) { deck in
                     VStack(alignment: .leading, spacing: 10) {
-                        Label(deck.name, systemImage: "book.closed")
+                        Label { Text(deck.name) } icon: { Image.icon("deck", size: 15) }
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {

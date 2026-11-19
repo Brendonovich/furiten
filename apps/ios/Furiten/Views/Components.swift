@@ -157,3 +157,16 @@ struct FlowLayout: Layout {
         return rows
     }
 }
+
+extension Image {
+    /// A shared line icon from `assets/icons` (the one set the web app and desktop draw too), template-rendered so it
+    /// takes the current foreground style like an SF Symbol, at `size` points (20, the web app's design size, by
+    /// default). Use this where the icon sits beside small text; beside system-sized text a plain `Image("deck")`
+    /// lines up already.
+    static func icon(_ name: String, size: CGFloat = 20) -> some View {
+        Image(name)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+    }
+}

@@ -1,5 +1,5 @@
 import { useSearchParams } from "@solidjs/router";
-import { createSignal, Show, untrack, useContext } from "solid-js";
+import { For, Show, createSignal, untrack, useContext } from "solid-js";
 import { ApiError, checkSession, createAccount, sameOrigin, type Session } from "./api.ts";
 import { ago } from "./format.ts";
 import { Field } from "./Field.tsx";
@@ -159,6 +159,10 @@ export function Settings() {
   const server = () => session().server || location.origin;
   const command = () => `furiten sync login --server ${server()} --token ${session().token}`;
 
+  const hours = Array.from({ length: 24 }, (_, h) => h);
+  const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00${h === 4 ? " (default)" : ""}`;
+  const rollover = () => app.state.settings?.rollover_hour ?? 4;
+
   return (
     <div class="screen">
       <header class="toolbar">
@@ -169,6 +173,25 @@ export function Settings() {
         <span class="icon-button" />
       </header>
       <div class="settings">
+        <section>
+          <h2 class="section-title">Review</h2>
+          <p class="muted">
+            The day starts at the hour you pick: its due cards are all there from then, and reviews before it count as
+            the day before, so late-night studying doesn’t wander into tomorrow. It’s this library’s setting, wherever
+            it’s opened.
+          </p>
+          <label class="select" title="Next day starts at">
+            <Icon name="clock" />
+            <span>Next day starts at {hourLabel(rollover())}</span>
+            <select
+              aria-label="Next day starts at"
+              value={rollover()}
+              onChange={(e) => void app.setRollover(Number(e.currentTarget.value))}
+            >
+              <For each={hours}>{(h) => <option value={h}>{hourLabel(h)}</option>}</For>
+            </select>
+          </label>
+        </section>
         <section>
           <h2 class="section-title">Sync</h2>
           <Show

@@ -142,11 +142,12 @@ enum CardLayout: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// The shared vector icon (assets/icons) for this layout, as the web app draws it.
     var icon: String {
         switch self {
-        case .grid: "square.grid.2x2"
-        case .list: "rectangle.grid.1x2"
-        case .column: "rectangle.split.2x1"
+        case .grid: "grid"
+        case .list: "list"
+        case .column: "column"
         }
     }
 }

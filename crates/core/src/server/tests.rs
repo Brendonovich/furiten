@@ -273,6 +273,19 @@ mod web_access {
         assert_eq!(tags["tags"][0]["tag"], "greeting");
         let (_, stats) = http(port, "GET", "/v1/stats", t, None);
         assert_eq!(stats["reviews_today"], 1);
+
+        // Settings: the review day's rollover hour, readable and changeable over HTTP as over the socket.
+        assert_eq!(c.settings().unwrap().rollover_hour, 4, "4am by default");
+        let (status, settings) = http(port, "GET", "/v1/settings", t, None);
+        assert_eq!((status, settings["rollover_hour"].as_u64()), (200, Some(4)));
+        let (status, settings) = http(port, "PATCH", "/v1/settings", t, Some(json!({ "rollover_hour": 7 })));
+        assert_eq!((status, settings["rollover_hour"].as_u64()), (200, Some(7)));
+        assert_eq!(c.settings().unwrap().rollover_hour, 7, "one store behind both surfaces");
+        assert_eq!(http(port, "PATCH", "/v1/settings", t, Some(json!({ "rollover_hour": 24 }))).0, 400);
+        assert_eq!(http(port, "PATCH", "/v1/settings", t, Some(json!({ "rollover_hour": "seven" }))).0, 400);
+        let (_, settings) = http(port, "GET", "/v1/settings", t, None);
+        assert_eq!(settings["rollover_hour"].as_u64(), Some(7));
+
         let (_, patched) = http(port, "PATCH", &format!("/v1/cards/{id}"), t, Some(json!({ "content": "adiós" })));
         assert_eq!(patched["content"], "adiós");
         assert_eq!(http(port, "DELETE", &format!("/v1/cards/{id}"), t, None).1, json!({ "ok": true }));

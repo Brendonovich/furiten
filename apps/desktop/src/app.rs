@@ -59,6 +59,8 @@ pub struct App {
     pub new_deck: Option<TextEdit>,
     /// The sidebar's "+" menu (New deck, Import from Mochi) is open.
     pub deck_menu: bool,
+    /// The Settings → Review menu of rollover hours is open.
+    pub rollover_menu: bool,
     /// What the last import brought in, shown above the deck it opened until you move on.
     pub notice: Option<String>,
     pub sidebar: PaneState,
@@ -80,7 +82,7 @@ pub struct App {
     /// The connection has taken long enough that the window says so.
     pub slow_connect: bool,
     /// The last `poll` clock, in seconds.
-    clock: f64,
+    pub clock: f64,
     waker: Option<rune::Waker>,
 }
 
@@ -134,6 +136,21 @@ const SLOW_CONNECT: f64 = 0.4;
 const SEPARATE_SIDES: &str = "experiment.separate-sides";
 /// The preference behind [`App::full_width_cards`].
 const FULL_WIDTH_CARDS: &str = "review.full-width";
+/// How long an answered card takes to fly off and fade out: iOS's `ReviewCurve.flyOffDuration` (the web's `FLY_OFF`).
+pub const FLY_OFF: f64 = 0.22;
+
+/// The card just answered, still on its way out while the review has already moved on to the next one.
+pub struct Leaving {
+    pub card: CardView,
+    /// How many of its sides were showing when it was answered.
+    pub shown: usize,
+    /// Remembered: off to the right. Forgot: off to the left.
+    pub remembered: bool,
+    /// When it was answered, on the `poll` clock.
+    pub at: f64,
+    /// The card is drawn in its place for a frame before it goes, so it has somewhere to fly from.
+    pub flying: bool,
+}
 
 pub struct Review {
     /// The deck (with its subdecks) being reviewed, or `None` for the inbox: every due card from every deck.
@@ -144,9 +161,12 @@ pub struct Review {
     pub cram: Option<Cram>,
     /// How many of the current card's sides are showing (1 is just the front).
     pub shown: usize,
-    /// A side has been shown or hidden since the card came up (or was edited), so the card animates its changes: a
-    /// card arriving or coming back from the editor lands at once.
+    /// A side has been shown or hidden, or a new card has come in, since the last frame, so the card animates its
+    /// changes: a card coming back from the editor lands at once.
     pub revealing: bool,
+    /// The card that was just answered, until it has flown off (`FLY_OFF`): the view keeps drawing it on its way out,
+    /// so it can tilt and take its answer's colour, while `next` already holds what comes after it.
+    pub leaving: Option<Leaving>,
     pub started: Instant,
     /// Cards answered since the review started.
     pub answered: u32,
@@ -171,6 +191,10 @@ pub struct Settings {
     pub ticket: Option<(PairTicket, usize)>,
     /// When `host` was last fetched (the app clock), to keep connection states fresh while Settings is open.
     pub host_at: f64,
+    /// The hour the review day rolls over at.
+    pub rollover: u8,
+    /// Why the rollover couldn't be changed, if it couldn't.
+    pub rollover_error: Option<String>,
 }
 
 /// How often Settings refetches the paired devices, whose connections come and go without a `changed` event.
@@ -201,6 +225,7 @@ impl Review {
     fn next_card(&mut self) {
         self.shown = 1;
         self.revealing = false;
+        self.leaving = None;
         self.started = Instant::now();
         self.confirm_delete = false;
         self.moving.close();
@@ -271,6 +296,7 @@ impl App {
             shortcuts: false,
             new_deck: None,
             deck_menu: false,
+            rollover_menu: false,
             notice: None,
             sidebar: PaneState::new(232.0).range(180.0, 360.0),
             sidebar_shown: 1.0,
@@ -364,6 +390,24 @@ impl App {
                 }
             }
         }
+        // The answered card goes a frame after it lands in its overlay, then the next one takes its place.
+        if let Some(r) = self.review.as_mut() {
+            if let Some(left) = r.leaving.as_mut()
+                && !left.flying
+                && clock > left.at
+            {
+                left.flying = true;
+                changed = true;
+            }
+            if let Some(left) = r.leaving.as_ref().map(|left| left.at + FLY_OFF - clock) {
+                if left <= 0.0 {
+                    r.leaving = None;
+                    changed = true;
+                } else {
+                    tx.wake_after(Duration::from_secs_f64(left));
+                }
+            }
+        }
         if let Some(due) = self.search_due {
             let left = due - clock;
             if left <= 0.0 {
@@ -445,6 +489,13 @@ impl App {
             self.status = status;
         }
         self.refresh_host();
+        // Settings may have changed from the web or the CLI while Settings is open.
+        if self.settings.is_some()
+            && let Ok(settings) = self.core.settings()
+            && let Some(shown) = self.settings.as_mut()
+        {
+            shown.rollover = settings.rollover_hour;
+        }
         let decks = self.core.decks();
         if let Some(decks) = self.ok(decks) {
             self.decks = decks;
@@ -502,6 +553,7 @@ impl App {
         if review.card().map(|c| &c.card.id) != next.card.as_ref().map(|c| &c.card.id) {
             review.shown = 1;
             review.revealing = false;
+            review.leaving = None;
             review.started = Instant::now();
             review.confirm_delete = false;
             review.moving.close();
@@ -780,6 +832,7 @@ impl App {
             cram: Some(Cram::new(self.cards.clone())),
             shown: 1,
             revealing: false,
+            leaving: None,
             started: Instant::now(),
             answered: 0,
             confirm_delete: false,
@@ -798,6 +851,7 @@ impl App {
                 cram: None,
                 shown: 1,
                 revealing: false,
+                leaving: None,
                 started: Instant::now(),
                 answered: 0,
                 confirm_delete: false,
@@ -892,7 +946,16 @@ impl App {
 
     /// Answers the card on screen, at any side, and moves on to the next.
     pub fn answer(&mut self, remembered: bool) {
+        let at = self.clock;
         let Some(review) = self.review.as_mut() else { return };
+        // The card answered keeps going on screen while the review already moves on behind it.
+        let leaving = review.card().map(|card| Leaving {
+            card: card.clone(),
+            shown: review.shown,
+            remembered,
+            at,
+            flying: false,
+        });
         if let Some(cram) = review.cram.as_mut() {
             // Practice: the core hears nothing, and a forgotten card comes round again.
             if cram.current().is_none() {
@@ -901,6 +964,9 @@ impl App {
             cram.answer(remembered);
             review.answered += 1;
             review.next_card();
+            // It comes in afresh, as the next card of a review does.
+            review.revealing = true;
+            review.leaving = leaving;
             return;
         }
         let Some(card) = review.card() else { return };
@@ -916,7 +982,8 @@ impl App {
         let review = self.review.as_mut().expect("reviewing");
         review.next = next;
         review.shown = 1;
-        review.revealing = false;
+        review.revealing = true;
+        review.leaving = leaving;
         review.started = Instant::now();
         review.answered += 1;
         review.confirm_delete = false;
@@ -1076,6 +1143,7 @@ impl App {
     pub fn open_settings(&mut self) {
         self.editor = None;
         self.review = None;
+        self.rollover_menu = false;
         let server = self.status.server.clone().unwrap_or_default();
         let (web, web_error) = match self.core.web_status() {
             Ok(web) => (web, None),
@@ -1085,6 +1153,7 @@ impl App {
             Ok(host) => (host, None),
             Err(e) => (HostStatus::default(), Some(e)),
         };
+        let rollover = self.core.settings().map(|s| s.rollover_hour).unwrap_or_default();
         self.settings = Some(Settings {
             server: TextEdit::new(server),
             error: None,
@@ -1095,7 +1164,22 @@ impl App {
             host_error,
             ticket: None,
             host_at: self.clock,
+            rollover,
+            rollover_error: None,
         });
+    }
+
+    /// Sets the hour the review day rolls over at, from Settings.
+    pub fn set_rollover(&mut self, hour: u8) {
+        let set = self.core.set_rollover(hour);
+        if let Some(s) = self.settings.as_mut() {
+            let (error, rollover) = match set {
+                Ok(settings) => (None, settings.rollover_hour),
+                Err(e) => (Some(e), s.rollover),
+            };
+            s.rollover_error = error;
+            s.rollover = rollover;
+        }
     }
 
     /// Refetches the paired devices for Settings. A ticket on screen goes once a new device has paired with it.
@@ -1522,10 +1606,10 @@ mod tests {
     }
 
     #[test]
-    fn only_a_card_already_up_animates() {
+    fn only_the_card_that_changed_animates() {
         let mut s = reviewing();
         let revealing = |s: &App| s.review.as_ref().unwrap().revealing;
-        assert!(!revealing(&s), "a new card lands at once");
+        assert!(!revealing(&s), "a card landing when the review opens lands at once");
         s.reveal();
         assert!(revealing(&s), "showing a side grows the card to it");
         s.edit_review_card();
@@ -1533,7 +1617,11 @@ mod tests {
         s.editor = None;
         s.reveal();
         s.answer(true);
-        assert!(!revealing(&s), "and so does the next card");
+        let r = s.review.as_ref().unwrap();
+        assert!(revealing(&s), "the next card rises in");
+        let left = r.leaving.as_ref().expect("the answered card goes on screen while it flies off");
+        assert!(left.remembered, "to the right, the way it was answered");
+        assert_ne!(Some(&left.card.card.id), r.card().map(|c| &c.card.id), "while the next one waits behind it");
     }
 
     #[test]

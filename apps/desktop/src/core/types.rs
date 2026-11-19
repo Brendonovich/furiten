@@ -4,8 +4,8 @@ pub use furiten_core::cram::Cram;
 pub use furiten_core::model::{content_from_sides, sides};
 pub use furiten_core::now_ms;
 pub use furiten_core::protocol::{
-    Answer, CardQuery, CardSort, CardUpdate, HostStatus, Imported, NewCard, NextReview, PairTicket, Remaining, Status,
-    TagSummary, WebEnable, WebStatus,
+    Answer, CardQuery, CardSort, CardUpdate, HostStatus, Imported, NewCard, NextReview, PairTicket, Remaining,
+    Settings, SettingsUpdate, Status, TagSummary, WebEnable, WebStatus,
 };
 pub use furiten_core::{Card, CardView, Deck, DeckSummary, Schedule, State};
 

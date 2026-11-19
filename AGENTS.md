@@ -26,10 +26,16 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
   `furiten host pair`), with a `furiten-hub`, or with Furiten Cloud. XcodeGen spec in `project.yml`.
 - `server`: Furiten Cloud, the Cloudflare Worker and per-user Durable Object (TypeScript), deployed with Alchemy.
 - `apps/web`: the web app in SolidJS 2 (pinned release candidate), mobile-first, over the HTTP API.
+- `apps/site`: the landing page, a static SolidJS 2 site built from the web app's own components and stylesheet
+  (imported from `apps/web/src`, so install both). Its benefits are review cards (`src/cards.ts`) that open in turn
+  on a schedule (`src/schedule.ts`) or when tapped. Not deployed yet.
 - `crates/hub`: `furiten-hub`, the self-hosted backend (Rust, Iroh): sync, pairing, devices. Its HTTP API and `/mcp`
   are planned. The wire format, the device side and the serving side live in `crates/core` (`hub` feature, on by
   default); this crate adds the data directory, control socket and CLI.
 - `tests/conformance`: one HTTP API suite both backends must pass. Planned.
+- `assets/icons`: the one set of line icons the three apps draw (20×20 viewBox): the web renders them from
+  `apps/web/src/Icon.tsx`, the desktop from `apps/desktop/src/ui/icons.rs`, and iOS as template vector image assets
+  (`apps/ios/scripts/icons.sh` copies them in). Change a drawing here, not per app.
 
 ## Commands
 
@@ -46,6 +52,7 @@ HTTP API and MCP server. Read `PLAN.md` for the architecture and `docs/contract.
   tag `-screen tag` opens, `-tagging <text>` types into the editor's tag field).
 - `cd server && bun run dev` runs the Worker locally; `cd apps/web && bun run dev` serves the web app on :5173
   (all interfaces, so a phone on the LAN or Tailscale can open it), proxying `/v1` to the Worker.
+  `cd apps/site && bun run dev` serves the landing page on :5174.
 - `scripts/icons.sh` renders the iOS, macOS and home screen icons from `apps/web/public/icon.svg`, and the desktop's dev
   icon (the same card drawn as a blueprint) from `apps/web/public/icon-dev.svg` (macOS only).
 - `cd apps/web && bun run build`, then `furiten web on`: the desktop app serves the built web app and the HTTP API on

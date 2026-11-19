@@ -11,6 +11,14 @@ struct SettingsView: View {
     @State private var pairing = false
     @State private var confirmDisconnect = false
 
+    /// The hour the review day rolls over at: what the library says, 4am until it loads, sent back when it changes.
+    private var rollover: Binding<Int> {
+        Binding(
+            get: { library.settings?.rolloverHour ?? 4 },
+            set: { hour in Task { await library.setRollover(hour) } }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -30,6 +38,17 @@ struct SettingsView: View {
                         Text(theme == .furiten
                              ? "Furiten’s own colours, as on the web, always dark."
                              : "The system’s colours, light or dark as your phone is.")
+                    }
+                    Section {
+                        Picker("Next day starts at", selection: rollover) {
+                            ForEach(0..<24, id: \.self) { hour in
+                                Text(String(format: "%02d:00", hour)).tag(hour)
+                            }
+                        }
+                    } header: {
+                        Text("Review")
+                    } footer: {
+                        Text("The day’s due cards are all there from the hour you pick, and reviews before it count as the day before, so late-night studying stays yesterday’s.")
                     }
                     Section {
                         LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")

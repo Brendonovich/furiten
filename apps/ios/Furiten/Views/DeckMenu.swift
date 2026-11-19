@@ -13,7 +13,7 @@ struct DeckMenu: View {
     private enum Prompt { case rename, subdeck }
 
     var body: some View {
-        Menu("Deck actions", systemImage: "ellipsis") {
+        Menu {
             Section("\(deck.cards) cards") {
                 Button("Rename", systemImage: "pencil") {
                     name = deck.name
@@ -35,6 +35,8 @@ struct DeckMenu: View {
                 }
             }
             Button("Delete deck", systemImage: "trash", role: .destructive) { confirmDelete = true }
+        } label: {
+            Label("Deck actions", image: "more")
         }
         .alert(
             prompt == .rename ? "Rename deck" : "New deck in \(deck.name)",

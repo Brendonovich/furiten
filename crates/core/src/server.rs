@@ -486,6 +486,13 @@ impl Core {
             "tags.list" => to_value(self.store().tags(parse::<DeckFilter>(params)?.deck_id.as_deref())?),
             "review.next" => to_value(self.store().next_review(parse::<DeckFilter>(params)?.deck_id.as_deref())?),
             "stats" => to_value(self.store().stats(parse::<DeckFilter>(params)?.deck_id.as_deref())?),
+            "settings.get" => to_value(self.store().settings()?),
+            "settings.update" => {
+                let settings = self.store().update_settings(parse(params)?)?;
+                // The day's counts change with the setting, so clients refetch; nothing syncs.
+                self.broadcast_clients();
+                to_value(settings)
+            }
             "sync.login" => {
                 let params: Login = parse(params)?;
                 let result = match params.hub {

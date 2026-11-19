@@ -39,5 +39,8 @@ export type Remaining = { due: number; new: number };
 export type NextReview = { card: CardView | null; remaining: Remaining };
 export type TagSummary = { tag: string; cards: number; last_used: number };
 
+/** The library's settings; `rollover_hour` is when the review day starts, 0-23. */
+export type Settings = { rollover_hour: number };
+
 export type Sort = "created" | "updated" | "name" | "due" | "reviewed" | "interval" | "retention" | "random";
 export type View = "grid" | "list" | "column";

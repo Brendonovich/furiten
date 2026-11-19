@@ -85,11 +85,15 @@ pub fn is_dev_build() -> bool {
     env!("FURITEN_DEV_BUILD") == "1"
 }
 
-/// `$FURITEN_HOME`, else `~/Library/Application Support/Furiten` on macOS and `$XDG_DATA_HOME/furiten` (default
-/// `~/.local/share/furiten`) elsewhere; a dev build uses `Furiten Dev` and `furiten-dev`.
+/// `$FURITEN_HOME`, else `$FURITEN_TEMP_DB`'s throwaway library, else `~/Library/Application Support/Furiten` on
+/// macOS and `$XDG_DATA_HOME/furiten` (default `~/.local/share/furiten`) elsewhere; a dev build uses `Furiten Dev`
+/// and `furiten-dev`.
 pub fn default_home() -> PathBuf {
     if let Some(home) = std::env::var_os("FURITEN_HOME").filter(|v| !v.is_empty()) {
         return PathBuf::from(home);
+    }
+    if let Some(home) = temp_home() {
+        return home;
     }
     let dev = is_dev_build();
     let user_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
@@ -101,6 +105,40 @@ pub fn default_home() -> PathBuf {
     match std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
         Some(data) => PathBuf::from(data).join(folder),
         None => user_home.join(".local/share").join(folder),
+    }
+}
+
+/// The throwaway library `$FURITEN_TEMP_DB` asks for, in the system temp directory: seeded with sample decks for
+/// trying the app out or testing, and started afresh each run. A core already serving it (a window, or the CLI
+/// hosting one) keeps its library, so a command and the app it starts share one.
+fn temp_home() -> Option<PathBuf> {
+    std::env::var_os("FURITEN_TEMP_DB").filter(|v| !v.is_empty())?;
+    static HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    Some(
+        HOME.get_or_init(|| {
+            let folder = if is_dev_build() { "furiten-temp-dev" } else { "furiten-temp" };
+            let home = std::env::temp_dir().join(folder);
+            prepare_temp_home(&home);
+            home
+        })
+        .clone(),
+    )
+}
+
+/// Makes `home` the seeded throwaway library `$FURITEN_TEMP_DB` promises, unless a core is already serving it.
+fn prepare_temp_home(home: &std::path::Path) {
+    #[cfg(unix)]
+    if client::Client::connect(home).is_ok() {
+        return;
+    }
+    let _ = std::fs::remove_dir_all(home);
+    if let Err(e) = std::fs::create_dir_all(home) {
+        eprintln!("furiten: temp library {}: {e}", home.display());
+        return;
+    }
+    match seed::seed_temp_home(home) {
+        Ok(()) => eprintln!("furiten: temp library at {}", home.display()),
+        Err(e) => eprintln!("furiten: temp library {}: {}", home.display(), e.message),
     }
 }
 

@@ -1,7 +1,7 @@
 import { createContext, createStore } from "solid-js";
 import { type Api, ApiError, api, type CardQuery, type Session } from "./api.ts";
 import { DEFAULT_VIEW, parseSort, type SortState, sortParam, tagKey } from "./routes.ts";
-import type { CardView, DeckSummary, TagSummary, View } from "./types.ts";
+import type { CardView, DeckSummary, Settings, TagSummary, View } from "./types.ts";
 
 // What the screens show. Where you are (the screen, deck, search, sort, view and any open sheet) is the URL's
 // (routes.ts); this holds the data for it, from the server, refetched after every write and whenever the page comes
@@ -12,6 +12,8 @@ type AppState = {
   decks: DeckSummary[];
   /** Every tag on a card in any deck, as the server orders them (the most recently used first). */
   tags: TagSummary[];
+  /** The library's settings, `null` until they load. */
+  settings: Settings | null;
   loaded: boolean;
   cards: CardView[];
   /**
@@ -53,6 +55,7 @@ export function createApp() {
     session: current,
     decks: [],
     tags: [],
+    settings: null,
     loaded: false,
     cards: [],
     cardsFor: null,
@@ -82,10 +85,15 @@ export function createApp() {
     const c = client();
     if (!c) return;
     try {
-      const [decks, tags] = await Promise.all([c.decks(), c.tags().catch(() => null)]);
+      const [decks, tags, settings] = await Promise.all([
+        c.decks(),
+        c.tags().catch(() => null),
+        c.settings().catch(() => null),
+      ]);
       setState((s) => {
         s.decks = decks;
         if (tags) s.tags = tags;
+        if (settings) s.settings = settings;
         s.loaded = true;
         s.lastSync = Date.now();
       });
@@ -147,6 +155,11 @@ export function createApp() {
     }
   }
 
+  /** Sets the hour the review day rolls over at, then refetches the counts that depend on it. */
+  async function setRollover(hour: number) {
+    await write((c) => c.updateSettings({ rollover_hour: hour }));
+  }
+
   /** A page's view and sort as last picked, by a deck's id or a tag's `tagKey`. */
   const prefsOf = (page: string): DeckPrefs =>
     prefs[page] ?? {
@@ -196,6 +209,7 @@ export function createApp() {
       s.session = null;
       s.decks = [];
       s.tags = [];
+      s.settings = null;
       s.cards = [];
       s.cardsFor = null;
       s.cardsKey = null;
@@ -215,6 +229,7 @@ export function createApp() {
     cardsAre,
     write,
     fail,
+    setRollover,
     prefsOf,
     remember,
     signIn,

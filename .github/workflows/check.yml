@@ -22,4 +22,6 @@ jobs:
         working-directory: server
       - run: bun install --frozen-lockfile
         working-directory: apps/web
+      - run: bun install --frozen-lockfile
+        working-directory: apps/site
       - run: bun run check

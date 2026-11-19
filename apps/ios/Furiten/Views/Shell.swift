@@ -296,7 +296,7 @@ private struct DeckList: View {
         List(selection: $selection) {
             Section {
                 HStack {
-                    Label("Review", systemImage: "tray.full")
+                    Label("Review", image: "inbox")
                     Spacer(minLength: 8)
                     let count = inboxCount(library.decks)
                     if count > 0 { Text("\(count)").font(.subheadline.monospacedDigit()).foregroundStyle(palette.accent) }
@@ -362,11 +362,11 @@ private struct DeckList: View {
             ToolbarItem(placement: .bottomBar) { settingsButton }
             ToolbarSpacer(.flexible, placement: .bottomBar)
             ToolbarItem(placement: .bottomBar) {
-                Button("Search", systemImage: "magnifyingglass", action: search)
+                Button(action: search) { Label("Search", image: "search") }
             }
             ToolbarSpacer(.fixed, placement: .bottomBar)
             ToolbarItem(placement: .bottomBar) {
-                Button("New deck", systemImage: "folder.badge.plus", action: newDeck)
+                Button(action: newDeck) { Label("New deck", image: "plus") }
             }
         }
         .alert("New deck", isPresented: $naming) {
@@ -387,7 +387,7 @@ private struct DeckList: View {
     /// Settings in the bottom bar, with the sync dot on its corner.
     private var settingsButton: some View {
         Button { settings = true } label: {
-            Image(systemName: "gearshape")
+            Image("settings")
                 .overlay(alignment: .topTrailing) { SyncDot(sync: library.sync).offset(x: 3, y: -2) }
         }
         .accessibilityLabel("Settings")
@@ -426,7 +426,7 @@ private struct DeckRow: View {
             Label {
                 Text(deck.name).lineLimit(1)
             } icon: {
-                Image(systemName: depth > 0 ? "arrow.turn.down.right" : "book.closed").foregroundStyle(palette.icon)
+                Image(depth > 0 ? "subdeck" : "deck").foregroundStyle(palette.icon)
             }
             Spacer(minLength: 8)
             HStack(spacing: 8) {
@@ -492,7 +492,7 @@ private struct TagRow: View {
             Label {
                 Text(tag.tag).lineLimit(1)
             } icon: {
-                Image(systemName: "number").foregroundStyle(palette.icon)
+                Image("tag").foregroundStyle(palette.icon)
             }
             Spacer(minLength: 8)
             Text("\(tag.cards)")

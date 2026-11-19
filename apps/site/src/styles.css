@@ -1,0 +1,118 @@
+/* The web app's stylesheet, so the cards here are its review cards, then the page's own layout. */
+@import "../../web/src/styles.css";
+
+/* The web app fills the screen; this is a page that scrolls. */
+html,
+body {
+  height: auto;
+  overscroll-behavior: auto;
+}
+
+.landing {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: calc(var(--top) + 72px) 20px calc(var(--bottom) + 40px);
+}
+
+[data-component="button-v2"][data-size="touch"] {
+  text-decoration: none;
+}
+
+/* Hero */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 72px;
+}
+
+.hero-icon {
+  margin-bottom: 28px;
+  border-radius: 15px;
+  box-shadow: var(--shadow);
+}
+
+.hero h1 {
+  max-width: 14em;
+  margin: 0;
+  font-size: clamp(34px, 6vw, 56px);
+  line-height: 1.05;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.lede {
+  max-width: 34em;
+  margin: 20px 0 0;
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+/* Benefits: columns of review cards, each growing downward as it opens, moving only the cards under it. */
+
+.benefits-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px 4px;
+}
+
+.benefits-bar p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.benefits-bar [data-component="button-v2"] {
+  color: var(--muted);
+}
+
+.benefit-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.benefit-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Where review shows a card's deck: here, when its turn comes. */
+.benefit-due {
+  min-height: 15px;
+  margin: 8px 0 0 4px;
+}
+
+.benefit .review-card {
+  cursor: pointer;
+  outline: none;
+}
+
+.benefit .review-card:focus-visible {
+  box-shadow:
+    var(--shadow),
+    0 0 0 2px var(--focus);
+}
+
+.site-footer {
+  margin-top: 72px;
+  text-align: center;
+  font-size: 13px;
+}

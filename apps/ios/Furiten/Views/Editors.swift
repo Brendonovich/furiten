@@ -20,8 +20,11 @@ struct CardEditor: View {
     @State private var libraryTags: [TagSummary] = []
     /// The side that should take the keyboard next, and where its caret goes.
     @State private var pending: Int?
+    /// A side has the keyboard now (tag focus is `tagsFocused`), so a keyboard-hide can be told apart from a hand-off.
+    @State private var sideFocused = false
     @State private var caret: Int?
-    @FocusState private var tagsFocused: Bool
+    /// The tag field has the keyboard; it's a UITextField, so its focus is tracked here rather than with `@FocusState`.
+    @State private var tagsFocused = false
     /// How tall the sheet is. A new card opens at full height, since the keyboard it opens with needs it anyway: at
     /// half it would rise, wait for the keyboard, then grow. Back to half when the keyboard goes.
     @State private var detent: PresentationDetent
@@ -76,10 +79,6 @@ struct CardEditor: View {
                 .onChange(of: tags) { if tagsFocused { revealTags(scroll) } }
             }
             .scrollDismissesKeyboard(.interactively)
-            // The tag field's keyboard toolbar, as the sides have the Markdown one: suggestions, by the thumb.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if tagsFocused { suggestionBar }
-            }
             // Under the keyboard too: the Markdown toolbar above it is transparent and shows what's behind.
             .background { palette.page.ignoresSafeArea() }
             .navigationTitle(initial == nil ? "New card" : "Edit card")
@@ -88,8 +87,10 @@ struct CardEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button(role: .cancel) { close() } }
                 if initial != nil {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Menu("More", systemImage: "ellipsis") {
+                        Menu {
                             Button("Delete card", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                        } label: {
+                            Label("More", image: "more")
                         }
                     }
                 }
@@ -106,7 +107,13 @@ struct CardEditor: View {
         // the keyboard goes, where the system's glass showed through, lit by what's behind the sheet.
         .presentationBackground(palette.page)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            detent = .medium
+            // A field's keyboard can report willHide while focus is only moving to another field (a side's keyboard
+            // gives way to the tag field's). Let it settle, and shrink to half height only once no editor field is
+            // going to be focused — otherwise the sheet dips to half for a moment, then bounces back up.
+            DispatchQueue.main.async {
+                guard !tagsFocused, !sideFocused, pending == nil else { return }
+                detent = .medium
+            }
         }
         .confirmationDialog("Delete this card?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete card", role: .destructive) {
@@ -122,6 +129,13 @@ struct CardEditor: View {
             libraryTags = (try? await library.core?.tags(deck: deck)) ?? []
         }
         .interactiveDismissDisabled(dirty)
+        // A comma or space in the tag field commits what's before it and keeps the rest to keep typing.
+        .onChange(of: draft) { _, value in
+            guard value.contains(where: { $0 == "," || $0.isWhitespace }) else { return }
+            let parts = value.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "," || $0.isWhitespace })
+            for part in parts.dropLast() { addTag(String(part)) }
+            draft = String(parts.last ?? "")
+        }
         #if DEBUG
         .task {
             guard let text = Scripted.tagging else { return }
@@ -197,7 +211,7 @@ struct CardEditor: View {
             sidesStack.padding(.horizontal, 24)
             Spacer(minLength: 0)
             HStack {
-                Button("Side", systemImage: "plus") { addSide(after: nil) }
+                Button { addSide(after: nil) } label: { Label("Side", image: "plus") }
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(PillButtonStyle())
                 Spacer()
@@ -228,7 +242,10 @@ struct CardEditor: View {
                     placeholder: sides.count == 1 ? "Write in Markdown" : "Empty side",
                     wantsFocus: pending == i,
                     caret: pending == i ? caret : nil,
-                    onFocus: { if $0 { pending = nil } },
+                    onFocus: { focused in
+                        if focused { pending = nil }
+                        sideFocused = focused
+                    },
                     onAddSide: { addSide(after: i) },
                     onJoin: i > 0 ? { join(i) } : nil,
                     onLeave: { leave(i, by: $0) }
@@ -253,7 +270,7 @@ struct CardEditor: View {
                     }
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "book.closed").foregroundStyle(.secondary)
+                        Image.icon("deck", size: 15).foregroundStyle(.secondary)
                         Text(deckPath(library.decks, deck)).lineLimit(1)
                         Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                     }
@@ -300,84 +317,29 @@ struct CardEditor: View {
         }
         // A pill until it's tapped, then it widens to type in.
         HStack(spacing: 4) {
-            Image(systemName: "plus").font(.footnote.weight(.medium)).foregroundStyle(.secondary)
-            TextField("Tag", text: $draft)
-                .font(.subheadline.weight(.medium))
-                .accessibilityLabel("Add tag")
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.done)
-                .focused($tagsFocused)
-                .onSubmit {
+            Image.icon("plus", size: 13).foregroundStyle(.secondary).allowsHitTesting(false)
+            TagField(
+                text: $draft,
+                focused: tagsFocused,
+                palette: palette,
+                suggestions: suggestions,
+                normalizedDraft: normalizeTag(draft),
+                onFocus: { tagsFocused = $0 },
+                onSubmit: {
                     // Return takes the top suggestion and stays for the next tag; on an empty field it's done.
                     guard !draft.isEmpty else { return }
                     addTag(suggestions.first ?? draft)
                     tagsFocused = true
-                }
-                .onChange(of: draft) { _, value in
-                    guard value.contains(where: { $0 == "," || $0.isWhitespace }) else { return }
-                    let parts = value.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "," || $0.isWhitespace })
-                    for part in parts.dropLast() { addTag(String(part)) }
-                    draft = String(parts.last ?? "")
-                }
+                },
+                onPick: { addTag($0) },
+                onHide: { tagsFocused = false }
+            )
         }
         .padding(.leading, 9)
         .padding(.trailing, 10)
         .frame(width: tagsFocused || !draft.isEmpty ? 150 : 76, height: 32)
         .overlay { Capsule().strokeBorder(tagsFocused ? .tertiary : .quaternary, lineWidth: 1) }
-        .contentShape(.capsule)
-        .onTapGesture { tagsFocused = true }
         .animation(.snappy(duration: 0.2), value: tagsFocused)
-    }
-
-    /// Above the keyboard, drawn like the Markdown toolbar the sides have: one glass bar of the library's tags that
-    /// match what's typed (the one Return takes in the accent colour), and Hide keyboard on its own. Typing something
-    /// new says so, rather than showing nothing.
-    private var suggestionBar: some View {
-        GlassEffectContainer(spacing: 8) {
-            HStack(spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        ForEach(Array(suggestions.enumerated()), id: \.element) { i, tag in
-                            suggestion("#\(tag)", primary: i == 0 && !draft.isEmpty) { addTag(tag) }
-                        }
-                        if suggestions.isEmpty {
-                            let tag = normalizeTag(draft)
-                            if tag.isEmpty {
-                                Text("No tags yet").foregroundStyle(.tertiary).padding(.horizontal, 12)
-                            } else {
-                                suggestion("New tag #\(tag)", primary: true) { addTag(draft) }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                }
-                .frame(height: barHeight)
-                .clipShape(.capsule)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") { tagsFocused = false }
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(.primary)
-                    .frame(width: barHeight, height: barHeight)
-                    .contentShape(.circle)
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
-            .font(.subheadline.weight(.medium))
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    }
-
-    private let barHeight: CGFloat = 40
-
-    private func suggestion(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .foregroundStyle(primary ? AnyShapeStyle(palette.accent) : AnyShapeStyle(.primary))
-            .fontWeight(primary ? .semibold : .medium)
-            .padding(.horizontal, 12)
-            .frame(maxHeight: .infinity)
-            .contentShape(.rect)
     }
 
     private var suggestions: [String] {
@@ -431,5 +393,145 @@ private struct PillButtonStyle: ButtonStyle {
             .contentShape(.capsule)
             .opacity(configuration.isPressed ? 0.5 : 1)
             .transaction { $0.animation = nil }
+    }
+}
+
+/// The tag field as a `UITextField`, so the suggestion bar rides on it as its own `inputAccessoryView`. UIKit then
+/// swaps the side's Markdown toolbar for this bar in one atomic move when focus changes, instead of the sheet
+/// rearranging a safe-area inset around a separately-changing keyboard.
+private struct TagField: UIViewRepresentable {
+    @Binding var text: String
+    var focused: Bool
+    var palette: Palette
+    var suggestions: [String]
+    var normalizedDraft: String
+    var onFocus: (Bool) -> Void
+    var onSubmit: () -> Void
+    var onPick: (String) -> Void
+    var onHide: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.font = UIFont.preferredFont(forTextStyle: .subheadline)
+        field.placeholder = "Tag"
+        field.accessibilityLabel = "Add tag"
+        field.autocapitalizationType = .none
+        field.autocorrectionType = .no
+        field.returnKeyType = .done
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.edited(_:)), for: .editingChanged)
+        field.text = text
+        let host = UIHostingController(rootView: bar())
+        host.view.frame = CGRect(x: 0, y: 0, width: 400, height: 52)
+        host.view.autoresizingMask = [.flexibleWidth]
+        host.view.backgroundColor = .clear
+        field.inputAccessoryView = host.view
+        context.coordinator.host = host
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.host?.rootView = bar()
+        if field.text != text { field.text = text }
+        if focused, !field.isFirstResponder, field.window != nil {
+            DispatchQueue.main.async { field.becomeFirstResponder() }
+        } else if !focused, field.isFirstResponder {
+            field.resignFirstResponder()
+        }
+    }
+
+    private func bar() -> TagSuggestionBar {
+        TagSuggestionBar(
+            accent: palette.accent, suggestions: suggestions, normalizedDraft: normalizedDraft,
+            onPick: onPick, onHide: onHide)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: TagField
+        var host: UIHostingController<TagSuggestionBar>?
+
+        init(_ parent: TagField) { self.parent = parent }
+
+        func textFieldDidBeginEditing(_ field: UITextField) { parent.onFocus(true) }
+        func textFieldDidEndEditing(_ field: UITextField) { parent.onFocus(false) }
+
+        func textFieldShouldReturn(_ field: UITextField) -> Bool {
+            parent.onSubmit()
+            return false
+        }
+
+        @objc func edited(_ field: UITextField) { parent.text = field.text ?? "" }
+    }
+}
+
+/// The tag field's keyboard accessory, drawn like the Markdown toolbar the sides have: one glass bar of the library's
+/// tags that match what's typed (the one Return takes in the accent colour), and Hide keyboard on its own.
+private struct TagSuggestionBar: View {
+    let accent: Color
+    let suggestions: [String]
+    let normalizedDraft: String
+    let onPick: (String) -> Void
+    let onHide: () -> Void
+
+    var body: some View {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(suggestions.enumerated()), id: \.element) { i, tag in
+                            SuggestionChip(title: "#\(tag)", primary: i == 0 && !normalizedDraft.isEmpty, accent: accent) {
+                                onPick(tag)
+                            }
+                        }
+                        if suggestions.isEmpty {
+                            if normalizedDraft.isEmpty {
+                                Text("No tags yet").foregroundStyle(.tertiary).padding(.horizontal, 12)
+                            } else {
+                                SuggestionChip(title: "New tag #\(normalizedDraft)", primary: true, accent: accent) {
+                                    onPick(normalizedDraft)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                }
+                .frame(height: barHeight)
+                .clipShape(.capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down", action: onHide)
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.primary)
+                    .frame(width: barHeight, height: barHeight)
+                    .contentShape(.circle)
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .font(.subheadline.weight(.medium))
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+
+    private let barHeight: CGFloat = 40
+}
+
+/// One suggestion, Return's pick in the accent colour.
+private struct SuggestionChip: View {
+    let title: String
+    let primary: Bool
+    let accent: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(title, action: action)
+            .foregroundStyle(primary ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
+            .fontWeight(primary ? .semibold : .medium)
+            .padding(.horizontal, 12)
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
     }
 }

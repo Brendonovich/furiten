@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { type Account, account, baseUrl, request } from "./harness.ts";
+import { type Account, account, baseUrl, request, ulid } from "./harness.ts";
 
 beforeAll(() => baseUrl(), 120_000);
 
@@ -240,5 +240,63 @@ describe("reviewing", () => {
     expect((await next()).card.id).toBe(first.id);
     await a.post(`/v1/cards/${first.id}/reviews`, { remembered: true });
     expect(await next()).toMatchObject({ card: null, remaining: { due: 0, new: 0 } });
+  });
+});
+
+describe("settings and the review day", () => {
+  const HOUR = 3_600_000;
+  /** The request's day, in a zone the caller names (UTC unless it does). */
+  const inZone = (a: Account, path: string, zone: string) =>
+    request("GET", path, { token: a.token, headers: { "x-furiten-timezone": zone } });
+
+  test("settings are read and changed, and hours outside the day are rejected", async () => {
+    const a = await account();
+    expect((await a.get("/v1/settings")).body).toEqual({ rollover_hour: 4 });
+    expect((await a.patch("/v1/settings", { rollover_hour: 7 })).body).toEqual({ rollover_hour: 7 });
+    expect((await a.get("/v1/settings")).body).toEqual({ rollover_hour: 7 });
+    expect((await a.patch("/v1/settings", {})).body).toEqual({ rollover_hour: 7 });
+    for (const bad of [24, -1, 7.5, "seven"]) {
+      expect((await a.patch("/v1/settings", { rollover_hour: bad })).status).toBe(400);
+    }
+  });
+
+  test("a card due later today is due from the start of the day, wherever the rollover and the caller put it", async () => {
+    const a = await account();
+    const deck = (await a.post("/v1/decks", { name: "D" })).body.id;
+    const card = (await a.post("/v1/cards", { deck_id: deck, content: "q" })).body;
+
+    // A review 25 hours ago, pushed the way a device syncs one, makes the card due 23 hours from now: later
+    // today, whatever the clock says.
+    const now = Date.now();
+    const reviewedAt = now - 25 * HOUR;
+    await a.post("/v1/sync", {
+      cursor: null,
+      changes: [
+        { kind: "review", value: { id: ulid(reviewedAt), card_id: card.id, rating: 3, reviewed_at: reviewedAt, duration_ms: null } },
+      ],
+    });
+    const check = async (zone: string) => (await inZone(a, `/v1/review/next?deck_id=${deck}`, zone)).body.remaining;
+    const remaining = (due: number) => ({ due, new: 0 });
+
+    // In UTC, a rollover at the current hour just started the day: it ends a whole day out, so the card is due
+    // now though its due time is hours away.
+    const hour = new Date(now).getUTCHours();
+    await a.patch("/v1/settings", { rollover_hour: hour });
+    expect(await check("UTC")).toEqual(remaining(1));
+
+    // Rolled to the far side of the clock, the day ends sooner than the card's due time: not today's.
+    await a.patch("/v1/settings", { rollover_hour: (hour + 12) % 24 });
+    expect(await check("UTC")).toEqual(remaining(0));
+
+    // The day follows the caller's zone too: in UTC+14 the same hour is two o'clock in the afternoon, and the
+    // day started a minute ago.
+    await a.patch("/v1/settings", { rollover_hour: (hour + 14) % 24 });
+    expect(await check("Etc/GMT-14")).toEqual(remaining(1));
+    expect(await check("UTC")).toEqual(remaining(0));
+
+    // The cards list's due filter and the stats agree with the queue.
+    await a.patch("/v1/settings", { rollover_hour: hour });
+    expect((await inZone(a, `/v1/cards?due=true&deck_id=${deck}`, "UTC")).body.cards).toHaveLength(1);
+    expect((await inZone(a, `/v1/stats?deck_id=${deck}`, "UTC")).body.due).toBe(1);
   });
 });

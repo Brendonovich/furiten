@@ -3,7 +3,9 @@
 use furiten_core::model::{CardView, DeckSummary};
 use std::io::IsTerminal;
 
-use furiten_core::protocol::{HostStatus, Imported, NextReview, PairTicket, Stats, Status, TagSummary, WebStatus};
+use furiten_core::protocol::{
+    HostStatus, Imported, NextReview, PairTicket, Settings, Stats, Status, TagSummary, WebStatus,
+};
 use furiten_core::{State, now_ms};
 use qrcode::render::unicode::Dense1x2;
 use qrcode::{EcLevel, QrCode};
@@ -28,6 +30,14 @@ pub fn status(s: &Status) -> String {
         out.push_str(&format!("\nlast sync failed: {error}"));
     }
     out
+}
+
+pub fn day(s: &Settings) -> String {
+    format!(
+        "The review day starts at {:02}:00: due cards are all there from then, and reviews before it count as \
+         the day before",
+        s.rollover_hour
+    )
 }
 
 pub fn web(w: &WebStatus) -> String {

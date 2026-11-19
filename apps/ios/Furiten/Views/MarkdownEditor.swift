@@ -29,8 +29,10 @@ struct MarkdownEditor: UIViewRepresentable {
         context.coordinator.view = view
         view.size = size
         view.backgroundColor = .clear
-        // The caret, list markers and links (`UIColor.tintColor` below) take the theme's accent.
+        // The caret, list markers and links (`UIColor.tintColor` below) take the theme's accent; inline and fenced
+        // code take its code tint.
         view.accent = palette.accent
+        view.inset = palette.inset
         view.tintColor = UIColor(palette.accent)
         view.isScrollEnabled = false
         view.textContainerInset = .zero
@@ -57,6 +59,10 @@ struct MarkdownEditor: UIViewRepresentable {
             view.tintColor = UIColor(palette.accent)
             MarkdownStyle.apply(to: view)
         }
+        if view.inset != palette.inset {
+            view.inset = palette.inset
+            MarkdownStyle.apply(to: view)
+        }
         if view.size != size {
             view.size = size
             view.placeholder.font = MarkdownStyle.body(size)
@@ -74,7 +80,7 @@ struct MarkdownEditor: UIViewRepresentable {
         view.onLeave = onLeave
         if wantsFocus { view.caret = caret }
         if wantsFocus && view.window != nil {
-            DispatchQueue.main.async { view.focus() }
+            DispatchQueue.main.async { context.coordinator.focus(view) }
         }
     }
 
@@ -88,6 +94,7 @@ struct MarkdownEditor: UIViewRepresentable {
         let placeholder = UILabel()
         var size: CGFloat = 22
         var accent: Color?
+        var inset: Color?
         var wantsFocus = false
         var caret: Int?
         var onJoin: (() -> Void)?
@@ -151,6 +158,15 @@ struct MarkdownEditor: UIViewRepresentable {
         }
 
         func textViewDidEndEditing(_ textView: UITextView) { parent.onFocus(false) }
+
+        /// A focus request, applied. A field taking the keyboard reports it through `textViewDidBeginEditing`; one that
+        /// already has it reports nothing (`becomeFirstResponder` is a no-op), so say it here — otherwise the request
+        /// stays live, and every update puts the caret back where it was asked to go, mid-typing.
+        func focus(_ view: TextView) {
+            let had = view.isFirstResponder
+            view.focus()
+            if had { parent.onFocus(true) }
+        }
 
         func textViewDidChange(_ textView: UITextView) {
             (textView as? TextView)?.placeholder.isHidden = !textView.text.isEmpty
@@ -288,6 +304,7 @@ enum MarkdownStyle {
         let size = (view as? MarkdownEditor.TextView)?.size ?? 22
         let body = body(size)
         let mono = mono(size)
+        let codeBg = (view as? MarkdownEditor.TextView)?.inset.map { UIColor($0) } ?? .tertiarySystemFill
         let selected = view.selectedRange
         let storage = view.textStorage
         let ns = storage.string as NSString
@@ -310,10 +327,10 @@ enum MarkdownStyle {
                 return
             }
             if fenced {
-                storage.addAttributes([.font: mono, .backgroundColor: UIColor.tertiarySystemFill], range: range)
+                storage.addAttributes([.font: mono, .backgroundColor: codeBg], range: range)
                 return
             }
-            style(line: line, at: range, size: size, in: storage)
+            style(line: line, at: range, size: size, codeBg: codeBg, in: storage)
         }
         storage.endEditing()
         view.typingAttributes = base
@@ -333,7 +350,7 @@ enum MarkdownStyle {
     }
     private static let marker = UIColor.tertiaryLabel
 
-    private static func style(line: String, at range: NSRange, size: CGFloat, in storage: NSTextStorage) {
+    private static func style(line: String, at range: NSRange, size: CGFloat, codeBg: UIColor, in storage: NSTextStorage) {
         func sub(_ r: Range<String.Index>) -> NSRange {
             let n = NSRange(r, in: line)
             return NSRange(location: range.location + n.location, length: n.length)
@@ -371,7 +388,7 @@ enum MarkdownStyle {
             storage.addAttribute(.foregroundColor, value: UIColor.tintColor, range: shift(m.range(at: 1)))
         }
         for m in spans(code) {
-            storage.addAttributes([.font: mono(size), .backgroundColor: UIColor.tertiarySystemFill], range: shift(m.range))
+            storage.addAttributes([.font: mono(size), .backgroundColor: codeBg], range: shift(m.range))
             markers(shift(m.range), 1, storage)
         }
     }

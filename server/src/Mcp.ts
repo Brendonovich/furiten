@@ -14,7 +14,7 @@ const deckId = (description: string) => Schema.optionalKey(Ulid.annotate({ descr
 
 export const listDecks = Tool.make("list_decks", {
   description:
-    "List the user's decks with their card counts: `cards` (total), `due` (reviewed cards due now) and `new` " +
+    "List the user's decks with their card counts: `cards` (total), `due` (reviewed cards due today) and `new` " +
     "(new cards available today). Counts include subdecks. Use a deck's `id` for the other tools.",
   success: Schema.Struct({ decks: Schema.Array(DeckSummary) }),
   failure: ToolError,
@@ -39,7 +39,9 @@ export const searchCards = Tool.make("search_cards", {
     deck_id: deckId("Only cards in this deck and its subdecks."),
     q: Schema.optionalKey(Schema.String.annotate({ description: "Text the content contains (case-insensitive)." })),
     tag: Schema.optionalKey(Schema.String.annotate({ description: "Only cards with this tag." })),
-    due: Schema.optionalKey(Schema.Boolean.annotate({ description: "Only cards due now (including new cards)." })),
+    due: Schema.optionalKey(
+      Schema.Boolean.annotate({ description: "Only cards due today (the whole day's batch, new cards included)." }),
+    ),
     limit: Schema.optionalKey(
       Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({ description: "Maximum results, default 50." }),
     ),
@@ -127,7 +129,7 @@ export const reviewCard = Tool.make("review_card", {
 
 export const stats = Tool.make("stats", {
   description:
-    "Review statistics: card count, cards due now, new cards available today, reviews today, and 30-day " +
+    "Review statistics: card count, cards due today, new cards available today, reviews today, and 30-day " +
     "retention (share of review-state cards recalled, null without data).",
   parameters: Schema.Struct({ deck_id: deckId("Only this deck and its subdecks.") }),
   success: Stats,

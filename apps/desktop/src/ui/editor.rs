@@ -196,6 +196,7 @@ fn tag_draft(e: &Editor, k: &Kit) -> El {
     let draft = TextInput::new(&e.tag_draft)
         .plain()
         .width(None)
+        .text_style(theme::PILL)
         .placeholder("Tag")
         .on_edit(|s: &mut App| &mut editing(s).tag_draft)
         .on_change(|s: &mut App, _: &mut Tx| editing(s).take_typed_tags())
@@ -213,7 +214,7 @@ fn tag_draft(e: &Editor, k: &Kit) -> El {
         .center_y()
         .radius(PILL_H / 2.0)
         .border(1.0, if focused { theme::tertiary(k) } else { theme::quaternary(k) })
-        .child(icon(&icons::PLUS, 12.0).key("plus").color(theme::secondary(k)))
+        .child(icon(&icons::PLUS, 13.0).key("plus").color(theme::secondary(k)))
         .child(col().key("tag-draft-box").grow(1.0).min_w(0.0).child(draft))
 }
 
@@ -255,7 +256,8 @@ fn sides_card(e: &Editor, k: &Kit) -> El {
     let foot = row()
         .key("add-side")
         .w_full()
-        .px(theme::SIDE_X)
+        .pl(12.0)
+        .pr(theme::SIDE_X)
         .py(12.0)
         .center_y()
         .child(add)

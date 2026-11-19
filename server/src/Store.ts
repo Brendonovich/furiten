@@ -10,15 +10,19 @@ import {
   type Deck,
   type DeckSummary,
   type DeckUpdate,
+  DEFAULT_ROLLOVER_HOUR,
   type NewCard,
   type NewDeck,
   type NextReview,
   type Review,
+  type Settings,
+  type SettingsUpdate,
   type Stats,
   type TagSummary,
   type SyncRequest,
   type SyncResponse,
 } from "./Model.ts";
+import { dayBounds } from "./Day.ts";
 import { sortCards } from "./Sort.ts";
 import type { Scheduler } from "./srs.ts";
 import { ulid } from "./ulid.ts";
@@ -85,7 +89,7 @@ const CARD_VIEW = `SELECT c.id, c.deck_id, c.content, c.tags, c.created_at, c.up
    FROM cards c JOIN schedules s ON s.card_id = c.id`;
 
 // New cards that may be shown today: per deck, the oldest `20 - introduced today` new cards. `:scope` (?2) is a
-// JSON array of deck ids, or NULL for every deck. Bindings: ?1 day start, ?2 scope, ?3 cap.
+// JSON array of deck ids, or NULL for every deck. Bindings: ?1 the current review day's start, ?2 scope, ?3 cap.
 const NEW_QUEUE = `WITH intro AS (
      SELECT c.deck_id, COUNT(*) AS n FROM cards c JOIN schedules s ON s.card_id = c.id
      WHERE c.deleted = 0 AND s.first_review >= ?1 GROUP BY c.deck_id
@@ -99,9 +103,10 @@ const NEW_QUEUE = `WITH intro AS (
    SELECT r.id, r.deck_id, r.created_at FROM ranked r LEFT JOIN intro i ON i.deck_id = r.deck_id
    WHERE r.rn <= ?3 - COALESCE(i.n, 0)`;
 
-// Reviewed cards that are due. Bindings: ?1 now, ?2 scope.
+// Reviewed cards that are due. Bindings: ?1 the current review day's end, ?2 scope. A card is due for the whole
+// day its `due` falls on, so the day's reviews are all there from the moment the day starts.
 const DUE = `SELECT c.id, c.deck_id, s.due, s.state FROM cards c JOIN schedules s ON s.card_id = c.id
-   WHERE c.deleted = 0 AND s.state != 'new' AND s.due <= ?1
+   WHERE c.deleted = 0 AND s.state != 'new' AND s.due < ?1
      AND (?2 IS NULL OR c.deck_id IN (SELECT value FROM json_each(?2)))`;
 
 type Row = Record<string, Value>;
@@ -141,8 +146,6 @@ const deckName = (name: string) => {
   if (trimmed === "") throw ApiError.invalid("deck name can't be empty");
   return trimmed;
 };
-
-const utcDayStart = (now: number) => now - (((now % DAY) + DAY) % DAY);
 
 const toDeck = (r: Row): Deck => ({
   id: r.id as string,
@@ -233,6 +236,31 @@ export class Store {
     return this.rows("UPDATE meta SET value = value + 1 WHERE key = 'seq' RETURNING value")[0]!.value as number;
   }
 
+  // Settings
+
+  /** The library's settings. The rollover hour lives in `meta`; 4am unless set. */
+  settings(): Settings {
+    return { rollover_hour: this.rolloverHour() };
+  }
+
+  private rolloverHour(): number {
+    const hour = Number(this.meta("rollover_hour") ?? DEFAULT_ROLLOVER_HOUR);
+    return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : DEFAULT_ROLLOVER_HOUR;
+  }
+
+  /** Changes what `update` says, validating the whole result. */
+  updateSettings(update: SettingsUpdate): Settings {
+    const rollover = update.rollover_hour ?? this.rolloverHour();
+    if (rollover < 0 || rollover > 23) throw ApiError.invalid("rollover_hour must be an hour of the day, 0-23");
+    this.setMeta("rollover_hour", rollover);
+    return { rollover_hour: rollover };
+  }
+
+  /** The current review day's start and end (the next rollover) for a caller in `zone`. */
+  private day(zone: string): [number, number] {
+    return dayBounds(this.clock(), zone, this.rolloverHour());
+  }
+
   // Accounts
 
   /** Stores the account's secret hash. Fails if the account already exists. */
@@ -247,12 +275,13 @@ export class Store {
 
   // Decks
 
-  decks(): DeckSummary[] {
+  /** `zone` is the caller's IANA zone (docs/contract.md, HTTP API): the day their counts are for. */
+  decks(zone: string): DeckSummary[] {
     const now = this.clock();
     const decks = this.rows(
       "SELECT * FROM decks WHERE deleted = 0 ORDER BY name COLLATE NOCASE, id",
     ).map(toDeck);
-    const counts = this.deckCounts(now);
+    const counts = this.deckCounts(now, zone);
     const own = (id: string) => counts.get(id) ?? [0, 0, 0];
     const index = new Map(decks.map((d, i) => [d.id, i]));
     // Each deck's counts include its subdecks.
@@ -274,14 +303,15 @@ export class Store {
     });
   }
 
-  private deckCounts(now: number): Map<string, [number, number, number]> {
+  private deckCounts(now: number, zone: string): Map<string, [number, number, number]> {
+    const [day, dayEnd] = dayBounds(now, zone, this.rolloverHour());
     const counts = new Map<string, [number, number, number]>();
     const queries: Array<[string, Array<unknown>]> = [
       ["SELECT deck_id, COUNT(*) AS n FROM cards WHERE deleted = 0 GROUP BY deck_id", []],
-      [`SELECT deck_id, COUNT(*) AS n FROM (${DUE}) GROUP BY deck_id`, [now, null]],
+      [`SELECT deck_id, COUNT(*) AS n FROM (${DUE}) GROUP BY deck_id`, [dayEnd, null]],
       [
         `SELECT deck_id, COUNT(*) AS n FROM (${NEW_QUEUE}) GROUP BY deck_id`,
-        [utcDayStart(now), null, NEW_PER_DECK_PER_DAY],
+        [day, null, NEW_PER_DECK_PER_DAY],
       ],
     ];
     queries.forEach(([sql, bindings], k) => {
@@ -392,11 +422,12 @@ export class Store {
 
   // Cards
 
-  cards(query: CardQuery): CardView[] {
+  cards(query: CardQuery, zone: string): CardView[] {
     const scope = this.scope(query.deck_id);
     const q = query.q === undefined || query.q === "" ? null : query.q;
     const tag = query.tag === undefined ? null : normalizeTag(query.tag);
-    const dueBefore = query.due === true ? this.clock() : null;
+    // As in the review queue: a card is due for the whole day its `due` falls on.
+    const dueBefore = query.due === true ? this.day(zone)[1] : null;
     const by = query.sort ?? "created";
     const desc = query.desc === true;
     const dir = desc ? "DESC" : "ASC";
@@ -409,7 +440,7 @@ export class Store {
        AND (?1 IS NULL OR c.deck_id IN (SELECT value FROM json_each(?1)))
        AND (?2 IS NULL OR instr(lower(c.content), lower(?2)) > 0)
        AND (?3 IS NULL OR EXISTS (SELECT 1 FROM json_each(c.tags) WHERE value = ?3))
-       AND (?4 IS NULL OR s.due <= ?4)
+       AND (?4 IS NULL OR s.due < ?4)
        ORDER BY c.created_at ${dir}, c.id ${dir} LIMIT ?5 OFFSET ?6`,
       scope,
       q,
@@ -501,20 +532,20 @@ export class Store {
 
   // Reviewing
 
-  nextReview(deckId: string | undefined): NextReview {
+  nextReview(deckId: string | undefined, zone: string): NextReview {
     const now = this.clock();
     const scope = this.scope(deckId);
-    const day = utcDayStart(now);
+    const [day, dayEnd] = dayBounds(now, zone, this.rolloverHour());
     const count = (sql: string, ...bindings: Array<unknown>) =>
       this.rows(`SELECT COUNT(*) AS n FROM (${sql})`, ...bindings)[0]!.n as number;
-    const due = count(DUE, now, scope);
+    const due = count(DUE, dayEnd, scope);
     const fresh = count(NEW_QUEUE, day, scope, NEW_PER_DECK_PER_DAY);
     // Scheduled reviews, then new cards, then the cards forgotten so far, longest ago first.
     const id =
-      this.rows(`SELECT id FROM (${DUE}) WHERE state = 'review' ORDER BY due, id LIMIT 1`, now, scope)[0]?.id ??
+      this.rows(`SELECT id FROM (${DUE}) WHERE state = 'review' ORDER BY due, id LIMIT 1`, dayEnd, scope)[0]?.id ??
       this.rows(`SELECT id FROM (${NEW_QUEUE}) ORDER BY created_at, id LIMIT 1`, day, scope, NEW_PER_DECK_PER_DAY)[0]
         ?.id ??
-      this.rows(`SELECT id FROM (${DUE}) ORDER BY due, id LIMIT 1`, now, scope)[0]?.id;
+      this.rows(`SELECT id FROM (${DUE}) ORDER BY due, id LIMIT 1`, dayEnd, scope)[0]?.id;
     return { card: id === undefined ? null : this.card(id as string), remaining: { due, new: fresh } };
   }
 
@@ -547,13 +578,13 @@ export class Store {
     ).map((r) => ({ tag: r.tag as string, cards: r.cards as number, last_used: r.last_used as number }));
   }
 
-  stats(deckId: string | undefined): Stats {
+  stats(deckId: string | undefined, zone: string): Stats {
     const now = this.clock();
     const scope = this.scope(deckId);
-    const day = utcDayStart(now);
+    const [day, dayEnd] = dayBounds(now, zone, this.rolloverHour());
     const inScope = "c.deleted = 0 AND (?1 IS NULL OR c.deck_id IN (SELECT value FROM json_each(?1)))";
     const cards = this.rows(`SELECT COUNT(*) AS n FROM cards c WHERE ${inScope}`, scope)[0]!.n as number;
-    const due = this.rows(`SELECT COUNT(*) AS n FROM (${DUE})`, now, scope)[0]!.n as number;
+    const due = this.rows(`SELECT COUNT(*) AS n FROM (${DUE})`, dayEnd, scope)[0]!.n as number;
     const fresh = this.rows(`SELECT COUNT(*) AS n FROM (${NEW_QUEUE})`, day, scope, NEW_PER_DECK_PER_DAY)[0]!
       .n as number;
     const row = this.rows(

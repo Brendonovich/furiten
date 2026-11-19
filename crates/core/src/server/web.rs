@@ -258,6 +258,8 @@ fn route(
         (Method::Post, ["cards", id, "reviews"]) => ("review.answer", with_id(body, "card_id", id), None),
         (Method::Get, ["review", "next"]) => ("review.next", deck_filter(), None),
         (Method::Get, ["stats"]) => ("stats", deck_filter(), None),
+        (Method::Get, ["settings"]) => ("settings.get", json!({}), None),
+        (Method::Patch, ["settings"]) => ("settings.update", body, None),
         (Method::Get, ["tags"]) => ("tags.list", deck_filter(), Some("tags")),
         _ => return Err(Error::not_found("route", &format!("{method} {path}"))),
     })

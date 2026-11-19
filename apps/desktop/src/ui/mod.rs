@@ -36,9 +36,9 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let (main, toolbar) = if s.connecting.is_some() {
         (connecting(s, &k), Toolbar::new())
     } else if let Some(settings) = &s.settings {
-        settings::view(s, settings, &k)
+        settings::view(s, settings, &k, &mut layer)
     } else if let Some(r) = &s.review {
-        review::view(s, r, &k, &mut layer)
+        review::view(s, r, &k, &mut layer, cx)
     } else {
         deck::view(s, &k, &mut layer)
     };
@@ -89,7 +89,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         split = split.sidebar_shown(shown);
     }
     // The app has no animation but the sidebar opening and closing (`SIDEBAR`, stepped by the app) and the review
-    // card's reveal (`review::REVEAL`): every other change, entrance, exit, colour and hover lands on the next frame.
+    // card (`review::REVEAL` and `CARD_IN`, `app::FLY_OFF`): every other change, entrance, exit, colour and hover
+    // lands on the next frame.
     rune_kit::root(split.build(&k), layer)
         .instant_changes()
         .motion(Spring::NONE)

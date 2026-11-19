@@ -28,6 +28,9 @@ targets:
       - name: Build the core
         script: '"$SRCROOT/scripts/core.sh"'
         basedOnDependencyAnalysis: false
+      - name: Copy shared icons
+        script: 'sh "$SRCROOT/scripts/icons.sh"'
+        basedOnDependencyAnalysis: false
     # Generated with the project; the build settings below fill in the rest.
     info:
       path: build/Info.plist

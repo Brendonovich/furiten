@@ -1,4 +1,4 @@
-//! Schedules (derived by folding reviews), the review queue, answers and stats.
+//! Schedules (derived by folding reviews), the review queue, answers, stats and the library's settings.
 
 use std::collections::HashMap;
 
@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, named_params, params};
 
 use super::{Store, next_dirty, subtree};
 use crate::model::{CardView, Review, State, ulid};
-use crate::protocol::{Answer, NextReview, Remaining, Stats};
+use crate::protocol::{Answer, NextReview, Remaining, Settings, SettingsUpdate, Stats};
 use crate::{Error, Result};
 
 const NEW_PER_DECK_PER_DAY: i64 = 20;
@@ -28,17 +28,45 @@ const NEW_QUEUE: &str = "WITH intro AS (
      SELECT r.id, r.deck_id, r.created_at FROM ranked r LEFT JOIN intro i ON i.deck_id = r.deck_id
      WHERE r.rn <= :cap - COALESCE(i.n, 0)";
 
-/// Reviewed cards that are due: `:scope` as above.
+/// Reviewed cards that are due: `:scope` as above. A card is due for the whole local day its `due` falls on, so the
+/// day's reviews are all there from the moment the day starts, not spaced through it.
 const DUE: &str = "SELECT c.id, c.deck_id, s.due, s.state FROM cards c JOIN schedules s ON s.card_id = c.id
-     WHERE c.deleted = 0 AND s.state != 'new' AND s.due <= :now
+     WHERE c.deleted = 0 AND s.state != 'new' AND s.due < :day_end
        AND (:scope IS NULL OR c.deck_id IN (SELECT value FROM json_each(:scope)))";
 
 impl Store {
+    /// The current review day's start and end (the next rollover), in Unix ms, for the store's rollover hour.
+    pub(crate) fn day(&self) -> Result<(i64, i64)> {
+        day_bounds(&self.conn, self.now(), self.settings()?.rollover_hour)
+    }
+
+    pub fn settings(&self) -> Result<Settings> {
+        let hour = super::syncing::meta::<i64>(&self.conn, "rollover_hour")?
+            .filter(|h| (0..24).contains(h))
+            .unwrap_or(i64::from(Settings::default().rollover_hour));
+        Ok(Settings { rollover_hour: hour as u8 })
+    }
+
+    /// Changes what `update` says, validating the whole result. Settings live in the store, not the sync outbox.
+    pub fn update_settings(&mut self, update: SettingsUpdate) -> Result<Settings> {
+        let current = self.settings()?;
+        let rollover_hour = update.rollover_hour.unwrap_or(current.rollover_hour);
+        if rollover_hour > 23 {
+            return Err(Error::invalid("rollover_hour must be an hour of the day, 0-23"));
+        }
+        if rollover_hour != current.rollover_hour {
+            let tx = self.conn.transaction()?;
+            super::syncing::set_meta(&tx, "rollover_hour", i64::from(rollover_hour))?;
+            tx.commit()?;
+        }
+        Ok(Settings { rollover_hour })
+    }
+
     pub fn next_review(&self, deck_id: Option<&str>) -> Result<NextReview> {
         let now = self.now();
         let scope = self.scope(deck_id)?;
-        let day = day_start(&self.conn, now)?;
-        let due_params = named_params! { ":now": now, ":scope": scope };
+        let (day, day_end) = day_bounds(&self.conn, now, self.settings()?.rollover_hour)?;
+        let due_params = named_params! { ":day_end": day_end, ":scope": scope };
         let new_params = named_params! { ":day": day, ":scope": scope, ":cap": NEW_PER_DECK_PER_DAY };
         let count = |sql: &str, params: &[(&str, &dyn rusqlite::ToSql)]| -> Result<u64> {
             Ok(self.conn.query_row(&format!("SELECT COUNT(*) FROM ({sql})"), params, uint)?)
@@ -85,7 +113,7 @@ impl Store {
     pub fn stats(&self, deck_id: Option<&str>) -> Result<Stats> {
         let now = self.now();
         let scope = self.scope(deck_id)?;
-        let day = day_start(&self.conn, now)?;
+        let (day, day_end) = day_bounds(&self.conn, now, self.settings()?.rollover_hour)?;
         let in_scope = "c.deleted = 0 AND (:scope IS NULL OR c.deck_id IN (SELECT value FROM json_each(:scope)))";
         let cards = self.conn.query_row(
             &format!("SELECT COUNT(*) FROM cards c WHERE {in_scope}"),
@@ -94,7 +122,7 @@ impl Store {
         )?;
         let due = self.conn.query_row(
             &format!("SELECT COUNT(*) FROM ({DUE})"),
-            named_params! { ":now": now, ":scope": scope },
+            named_params! { ":day_end": day_end, ":scope": scope },
             uint,
         )?;
         let new = self.conn.query_row(
@@ -129,15 +157,15 @@ impl Store {
 type Named<'a> = Vec<(&'a str, &'a dyn rusqlite::ToSql)>;
 
 /// Per deck (own cards only): `[cards, due, new available today]`.
-pub(super) fn deck_counts(conn: &Connection, now: i64) -> Result<HashMap<String, [u64; 3]>> {
-    let day = day_start(conn, now)?;
+pub(super) fn deck_counts(conn: &Connection, now: i64, rollover_hour: u8) -> Result<HashMap<String, [u64; 3]>> {
+    let (day, day_end) = day_bounds(conn, now, rollover_hour)?;
     let mut counts: HashMap<String, [u64; 3]> = HashMap::new();
     let none: Option<String> = None;
     let queries: [(String, Named); 3] = [
         ("SELECT deck_id, COUNT(*) FROM cards WHERE deleted = 0 GROUP BY deck_id".to_string(), vec![]),
         (
             format!("SELECT deck_id, COUNT(*) FROM ({DUE}) GROUP BY deck_id"),
-            vec![(":now", &now as &dyn rusqlite::ToSql), (":scope", &none)],
+            vec![(":day_end", &day_end as &dyn rusqlite::ToSql), (":scope", &none)],
         ),
         (
             format!("SELECT deck_id, COUNT(*) FROM ({NEW_QUEUE}) GROUP BY deck_id"),
@@ -158,13 +186,22 @@ fn uint(row: &rusqlite::Row) -> rusqlite::Result<u64> {
     Ok(row.get::<_, i64>(0)?.max(0) as u64)
 }
 
-/// Start of the local day containing `now`, in Unix ms. SQLite knows the system time zone, so no extra crate.
-pub(super) fn day_start(conn: &Connection, now: i64) -> Result<i64> {
-    Ok(conn.query_row(
-        "SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', 'localtime', 'start of day', 'utc') AS INTEGER) * 1000",
+/// The current review day's start and end (the next rollover), in Unix ms: the day a timestamp `t` falls on is the
+/// local calendar date of `t - rollover_hour` hours. SQLite knows the system time zone, so no extra crate; the
+/// chained modifiers keep wall-clock semantics across DST changes (`start of day` truncates in local time).
+fn day_bounds(conn: &Connection, now: i64, rollover_hour: u8) -> Result<(i64, i64)> {
+    let bounds = conn.query_row(
+        &format!(
+            "SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', 'localtime', '-{h} hours', 'start of day', \
+              '+{h} hours', 'utc') AS INTEGER) * 1000,
+                    CAST(strftime('%s', ?1 / 1000, 'unixepoch', 'localtime', '-{h} hours', 'start of day', \
+              '+1 day', '+{h} hours', 'utc') AS INTEGER) * 1000",
+            h = rollover_hour
+        ),
         [now],
-        |r| r.get(0),
-    )?)
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+    )?;
+    Ok(bounds)
 }
 
 /// Inserts a review unless one with its id exists. Returns whether it was new.

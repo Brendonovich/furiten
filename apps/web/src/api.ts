@@ -1,6 +1,6 @@
 // The HTTP API client (docs/contract.md, "HTTP API"). The app holds no domain logic: queues, schedules, sorting and
 // tag ordering all come from the server.
-import type { CardView, Deck, DeckSummary, NextReview, Sort, TagSummary } from "./types.ts";
+import type { CardView, Deck, DeckSummary, NextReview, Settings, Sort, TagSummary } from "./types.ts";
 
 export class ApiError extends Error {
   constructor(
@@ -73,6 +73,8 @@ export const api = (s: Session) => ({
   next: (deck_id?: string) => call<NextReview>(s, "GET", `/v1/review/next${query({ deck_id })}`),
   answer: (id: string, remembered: boolean, duration_ms: number) =>
     call<CardView>(s, "POST", `/v1/cards/${id}/reviews`, { remembered, duration_ms }),
+  settings: () => call<Settings>(s, "GET", "/v1/settings"),
+  updateSettings: (settings: Partial<Settings>) => call<Settings>(s, "PATCH", "/v1/settings", settings),
 });
 
 export type Api = ReturnType<typeof api>;

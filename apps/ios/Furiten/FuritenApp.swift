@@ -35,7 +35,7 @@ struct FuritenApp: App {
     }
 }
 
-/// A notice from the last thing that went wrong; tap it to dismiss, or it goes on its own.
+/// A notice from the last thing that went wrong, or was done; tap it to dismiss, or it goes on its own.
 private struct Toast: View {
     @Environment(Library.self) private var library
 

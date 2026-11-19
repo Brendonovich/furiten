@@ -1,2 +1,6 @@
 build/
 Furiten.xcodeproj/
+
+# Icons are copied here from the shared assets/icons/*.svg by scripts/icons.sh, which runs as a build phase before
+# the asset catalog compiles, so these generated .imageset copies aren't committed.
+Furiten/Assets.xcassets/*.imageset/

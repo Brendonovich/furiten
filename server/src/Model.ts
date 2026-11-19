@@ -164,6 +164,21 @@ export type Stats = typeof Stats.Type;
 export const TagSummary = Schema.Struct({ tag: Schema.String, cards: Schema.Int, last_used: Schema.Int });
 export type TagSummary = typeof TagSummary.Type;
 
+/** The review day's default rollover hour: 4am, so studying past midnight belongs to the day before. */
+export const DEFAULT_ROLLOVER_HOUR = 4;
+
+export const Settings = Schema.Struct({
+  rollover_hour: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 23 })).annotate({
+    description: "The local hour (0-23) the review day rolls over at. Reviews before it count as the day before.",
+  }),
+});
+export type Settings = typeof Settings.Type;
+
+export const SettingsUpdate = Schema.Struct({
+  rollover_hour: Schema.optionalKey(Settings.fields.rollover_hour),
+});
+export type SettingsUpdate = typeof SettingsUpdate.Type;
+
 export const Ok = Schema.Struct({ ok: Schema.Literal(true) });
 
 /** A domain failure, `{ code, message }` with the HTTP status it maps to. */

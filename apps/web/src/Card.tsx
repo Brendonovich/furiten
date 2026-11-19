@@ -1,4 +1,4 @@
-import { createMemo, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { frontSize, hiddenSides, untilShort } from "./format.ts";
 import { renderMarkdown } from "./markdown.ts";
 import type { CardView } from "./types.ts";
@@ -11,6 +11,34 @@ export function CardFace(props: { text: string; size?: boolean }) {
       class={["markdown", props.size ? `size-${frontSize(props.text)}` : undefined]}
       innerHTML={html()}
     />
+  );
+}
+
+/**
+ * A card's sides as review shows them, inside a `.review-card`: the first `shown`, split by dashed rules, each side
+ * after the first animating in as it's revealed, then its tags once every side shows.
+ */
+export function CardSides(props: { sides: readonly string[]; shown: number; tags?: readonly string[] }) {
+  return (
+    <>
+      <For each={props.sides.slice(0, props.shown)}>
+        {(side, i) => (
+          <>
+            <Show when={i() > 0}>
+              <hr class="side-rule" />
+            </Show>
+            <div class={{ "reveal-in": i() > 0 }}>
+              <CardFace text={side} />
+            </div>
+          </>
+        )}
+      </For>
+      <Show when={props.shown >= props.sides.length && props.tags?.length}>
+        <div class={["tags review-tags", { "reveal-in": props.sides.length > 1 }]}>
+          <For each={props.tags}>{(t) => <span class="badge">#{t}</span>}</For>
+        </div>
+      </Show>
+    </>
   );
 }
 

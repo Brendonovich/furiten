@@ -1,0 +1,28 @@
+{
+  "name": "furiten-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc -p .",
+    "test": "bun test",
+    "check": "bun run typecheck && bun run test"
+  },
+  "dependencies": {
+    "@solidjs/web": "2.0.0-rc.20",
+    "solid-js": "2.0.0-rc.20"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.56",
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2",
+    "vite": "8.3.5"
+  },
+  "overrides": {
+    "solid-js": "2.0.0-rc.20",
+    "@solidjs/web": "2.0.0-rc.20"
+  }
+}

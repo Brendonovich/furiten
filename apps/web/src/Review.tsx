@@ -1,6 +1,6 @@
 import { useLocation, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, flush, For, onSettled, Show, untrack, useContext } from "solid-js";
-import { CardFace } from "./Card.tsx";
+import { CardSides } from "./Card.tsx";
 import { DRAWER_EDGE, wide } from "./Drawer.tsx";
 import { counts, plural, until } from "./format.ts";
 import { Icon } from "./Icon.tsx";
@@ -12,8 +12,10 @@ import type { CardView, NextReview } from "./types.ts";
 const label = (remembered: boolean) => (remembered ? "Remembered" : "Forgot");
 /** How far a card is dragged before letting go answers it. */
 const SWIPE = 96;
-/** How long an answered card takes to fly off (`.review-card.leaving` in styles.css). */
+/** How long an answered card takes to fly off (`.review-card.leaving` in styles.css), as on iOS. */
 const FLY_OFF = 220;
+/** How far an answered card travels, as a fraction of its width, as on the desktop. */
+const FLY_DISTANCE = 0.65;
 
 /**
  * A cram (docs/contract.md, "Scheduling"): the cards a list is showing, in its order, due or not. Answers record
@@ -230,6 +232,9 @@ export function Review(props: { deck: string | null; cram?: Cram }) {
       if (e.key === "Escape") return close();
       if (e.key === " " || e.key === "Enter") {
         e.preventDefault();
+        // Space on the last side is Remembered, as on the desktop; before that it shows the next side.
+        const c = card();
+        if (c && shown() >= c.sides.length) return void answer(true);
         return reveal();
       }
       if (e.key === "1") void answer(false);
@@ -290,8 +295,9 @@ export function Review(props: { deck: string | null; cram?: Cram }) {
 
   const tilt = () => {
     const l = leaving();
-    // Just far enough to be off the screen, so it's gone as the fly-off ends.
-    const dx = l ? l * window.innerWidth : drag();
+    // Just far enough to be well into its fade, as on the desktop: 65% of the card's width.
+    const width = cardEl?.offsetWidth ?? window.innerWidth;
+    const dx = l ? l * width * FLY_DISTANCE : drag();
     return `translateX(${dx}px) rotate(${dx / 24}deg)`;
   };
   const intent = () => {
@@ -379,7 +385,7 @@ export function Review(props: { deck: string | null; cram?: Cram }) {
                   {(current) => (
                     <div class="review-column">
                       <Show when={inbox() || current.deck_id !== props.deck}>
-                        <p class="review-deck faint small">
+                        <p class={["review-deck faint small", { leaving: leaving() !== 0 }]}>
                           <Icon name="deck" />
                           {deckPath(app.state.decks, current.deck_id)}
                         </p>
@@ -389,23 +395,7 @@ export function Review(props: { deck: string | null; cram?: Cram }) {
                         ref={(el) => (cardEl = el)}
                         style={{ transform: tilt(), "--swipe": swipeColour() }}
                       >
-                        <For each={current.sides.slice(0, shown())}>
-                          {(side, i) => (
-                            <>
-                              <Show when={i() > 0}>
-                                <hr class="side-rule" />
-                              </Show>
-                              <div class={{ "reveal-in": i() > 0 }}>
-                                <CardFace text={side} />
-                              </div>
-                            </>
-                          )}
-                        </For>
-                        <Show when={revealed() && current.tags.length > 0}>
-                          <div class={["tags review-tags", { "reveal-in": current.sides.length > 1 }]}>
-                            <For each={current.tags}>{(t) => <span class="badge">#{t}</span>}</For>
-                          </div>
-                        </Show>
+                        <CardSides sides={current.sides} shown={shown()} tags={current.tags} />
                       </div>
                       <Show when={!revealed()}>
                         {/* Fades as the card is swiped away. */}

@@ -13,6 +13,8 @@ final class Library {
     private(set) var decks: [DeckSummary] = []
     /// Every tag on a card in any deck, as the core orders them (the most recently used first).
     private(set) var tags: [TagSummary] = []
+    /// The library's settings: when the review day rolls over.
+    private(set) var settings: CoreSettings?
     private(set) var loaded = false
     private(set) var deckId: String?
     private(set) var cards: [CardView] = []
@@ -24,6 +26,7 @@ final class Library {
     private(set) var refreshed: Date?
     /// Where the library syncs, and how that's going.
     private(set) var sync: CoreStatus?
+    /// A notice from the last thing that went wrong, or was done: the app's toast.
     var notice: String?
 
     private var sorts: [String: SortState] = [:]
@@ -95,6 +98,7 @@ final class Library {
             sync = try? await core.status()
             let decks = try await core.decks()
             if let tags = try? await core.tags(deck: nil) { self.tags = tags }
+            if let settings = try? await core.settings() { self.settings = settings }
             let open = deckId
             // A deck that's gone, deleted here or on another device, leaves for Review (the screens follow `deckId`).
             let deck: String? =
@@ -208,6 +212,13 @@ final class Library {
         sorts[deck] = next
         defaults.set(next.desc ? "\(by.rawValue)-desc" : by.rawValue, forKey: Keys.sort(deck))
         Task { await refreshCards() }
+    }
+
+    // MARK: Settings
+
+    /// Sets the hour the review day rolls over at, then refetches the counts that depend on it.
+    func setRollover(_ hour: Int) async {
+        await write { try await $0.setRollover(hour) }
     }
 
     // MARK: Syncing

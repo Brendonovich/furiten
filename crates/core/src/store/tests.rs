@@ -1,9 +1,10 @@
 use super::*;
 use crate::model::{Change, Review};
-use crate::protocol::{Answer, Remaining};
+use crate::protocol::{Answer, Remaining, Settings, SettingsUpdate};
 
 const T0: i64 = 1_800_000_000_000;
 const MIN: i64 = 60_000;
+const HOUR: i64 = 3_600_000;
 const DAY: i64 = 86_400_000;
 
 fn store() -> Store {
@@ -269,6 +270,111 @@ fn the_queue_puts_due_cards_first_then_new_cards_capped_per_deck_per_day_then_fo
         answer(&mut s, &c.card.id, true);
     }
     assert_eq!(next(&s).card.unwrap().card.id, cards[0].card.id);
+}
+
+#[test]
+fn the_days_reviews_are_all_there_from_the_start_of_the_day() {
+    let mut s = store();
+    let a = deck(&mut s, "A", None);
+    // Answered in day D, the card comes due in day D+2 at the same time of day.
+    let (d0, _) = s.day().unwrap();
+    s.now = Some(d0 + HOUR);
+    let c = card(&mut s, &a.id, "q\n---\na");
+    let at = d0 + 2 * HOUR;
+    s.now = Some(at);
+    answer(&mut s, &c.card.id, true);
+    let due = s.card(&c.card.id).unwrap().schedule.due;
+    assert_eq!(due, at + 2 * DAY);
+
+    // The day before it's due: not yet.
+    s.now = Some(d0 + DAY + HOUR);
+    assert_eq!(s.next_review(Some(&a.id)).unwrap().remaining, Remaining { due: 0, new: 0 });
+
+    // Its day: due from the moment the day starts, though `due` is hours away, and for the whole day.
+    s.now = Some(d0 + 2 * DAY + HOUR);
+    let n = s.next_review(Some(&a.id)).unwrap();
+    assert_eq!(n.remaining, Remaining { due: 1, new: 0 });
+    assert_eq!(n.card.unwrap().card.id, c.card.id);
+    assert_eq!(
+        s.cards(&CardQuery { deck_id: Some(a.id.clone()), due: Some(true), ..Default::default() })
+            .unwrap()
+            .iter()
+            .map(|c| c.card.id.as_str())
+            .collect::<Vec<_>>(),
+        [c.card.id.as_str()],
+        "the cards list's due filter is the queue's"
+    );
+    s.now = Some(d0 + 3 * DAY - HOUR);
+    assert_eq!(s.next_review(Some(&a.id)).unwrap().remaining, Remaining { due: 1, new: 0 });
+}
+
+#[test]
+fn answering_before_the_rollover_counts_as_the_day_before() {
+    let mut s = store();
+    let a = deck(&mut s, "A", None);
+    let one = card(&mut s, &a.id, "1");
+    let two = card(&mut s, &a.id, "2");
+
+    // Just before the day rolls over: the answer is still today's.
+    let (_, end) = s.day().unwrap();
+    s.now = Some(end - MIN);
+    answer(&mut s, &one.card.id, true);
+    assert_eq!(s.next_review(Some(&a.id)).unwrap().remaining, Remaining { due: 0, new: 1 });
+    assert_eq!(s.stats(Some(&a.id)).unwrap().reviews_today, 1);
+
+    // Past the rollover, the answer was yesterday's: the day's count and the new-card allowance start fresh.
+    s.now = Some(end + MIN);
+    let stats = s.stats(Some(&a.id)).unwrap();
+    assert_eq!((stats.reviews_today, stats.new), (0, 1));
+    assert_eq!(s.next_review(Some(&a.id)).unwrap().remaining, Remaining { due: 0, new: 1 });
+    // The forgotten side of it: a card lapsed just before the rollover is still due (it's due at once), so the
+    // queue never empties between days.
+    answer(&mut s, &two.card.id, false);
+    assert_eq!(s.next_review(Some(&a.id)).unwrap().card.unwrap().card.id, two.card.id);
+}
+
+#[test]
+fn the_rollover_setting_moves_the_day() {
+    let mut s = store();
+    assert_eq!(s.settings().unwrap(), Settings::default(), "4am unless set");
+    // Two in the morning, local time.
+    let (_, end) = s.day().unwrap();
+    let late = end - 2 * HOUR;
+    s.now = Some(late);
+    let (start4, _) = s.day().unwrap();
+
+    s.update_settings(SettingsUpdate { rollover_hour: Some(0) }).unwrap();
+    let (start0, end0) = s.day().unwrap();
+    assert!(start0 > start4, "with a midnight rollover the day starts at midnight, after yesterday's 4am");
+    assert!(late >= start0 && late < end0);
+
+    s.update_settings(SettingsUpdate { rollover_hour: Some(23) }).unwrap();
+    let (start23, end23) = s.day().unwrap();
+    assert!(start23 < start0, "a 23:00 rollover starts the day the evening before");
+    assert!(late < end23);
+    assert_eq!((end23 - start23) / HOUR, 24);
+}
+
+#[test]
+fn settings_validate_and_persist() {
+    let mut s = store();
+    assert_eq!(s.update_settings(SettingsUpdate { rollover_hour: Some(24) }).unwrap_err().code, "invalid_params");
+    assert_eq!(s.update_settings(SettingsUpdate { rollover_hour: Some(0) }).unwrap(), Settings { rollover_hour: 0 });
+    assert_eq!(
+        s.update_settings(SettingsUpdate::default()).unwrap(),
+        Settings { rollover_hour: 0 },
+        "nothing to change keeps the current"
+    );
+    assert_eq!(s.update_settings(SettingsUpdate { rollover_hour: Some(23) }).unwrap().rollover_hour, 23);
+
+    // The setting lives in the store, so it survives a reopen.
+    let dir = std::env::temp_dir().join(format!("furiten-settings-{}", ulid()));
+    let path = dir.join("furiten.db");
+    let mut stored = Store::open(&path).unwrap();
+    stored.update_settings(SettingsUpdate { rollover_hour: Some(7) }).unwrap();
+    drop(stored);
+    assert_eq!(Store::open(&path).unwrap().settings().unwrap().rollover_hour, 7);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

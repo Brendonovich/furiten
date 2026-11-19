@@ -51,10 +51,22 @@ There are no learning steps. Remembering a new card (or a learning or relearning
 interval from FSRS's stability; forgetting a card moves it to `learning` (from new) or `relearning` (from review) and
 makes it due at once (`due` is the review's time), and it stays there until it's remembered.
 
-A new card is due immediately. A card is due when `due <= now`. The review queue is, in order: due cards in `review`
-ordered by `due`; then new cards ordered by `created_at`, capped at 20 new cards per deck per local day (a deck's
-allowance is 20 minus the cards in it first reviewed today); then cards in `learning` or `relearning` ordered by
-`due`, so a forgotten card comes back once the rest of the session is done, and again until it's remembered.
+A new card is due immediately. A card is due for the whole **review day** its `due` falls on — the local calendar
+day shifted by the library's rollover hour — so the day's batch is complete the moment the day starts rather than
+arriving at each card's own due time: a card is due when `due` is before the end of the current review day. The day
+rolls over at 04:00 local by default; `rollover_hour` (`settings`, 0-23; 0 is a plain midnight) moves it. Reviews
+done before it count as the day before, so studying past midnight doesn't wander into tomorrow's cards. The setting
+is stored where the library lives and isn't synced, but every store defaults to 04:00, so devices agree unless one
+is changed.
+
+The review queue is, in order: due cards in `review` ordered by `due` (most overdue first); then new cards ordered
+by `created_at`, capped at 20 new cards per deck per review day (a deck's allowance is 20 minus the cards in it
+first reviewed that day); then cards in `learning` or `relearning` ordered by `due`, so a forgotten card comes back
+once the rest of the session is done, and again until it's remembered.
+
+`Schedule.due` itself stays an exact timestamp, the review's time plus FSRS's interval, so folding a card's reviews
+stays deterministic and time-zone-free; which day a timestamp falls on is decided where the queue is built — SQLite's
+`localtime` in a device's core, the caller's zone on a server (see HTTP API).
 
 **Cramming** reviews exactly the cards a list is showing (a deck's page with its search and tag filter, a tag's
 page with its search, or a search of every deck, its matches deck by deck as shown), in the list's order, due or not, as Mochi's cram does. It's practice: answers record no review and change no
@@ -146,8 +158,11 @@ matching status, and `code` is one of `invalid_params` (400), `unauthorized` (40
 (409) or `internal` (500), the same codes the local core uses. Sync rejects a whole request with 400 if any ID isn't
 a ULID.
 
-"Today" (the new-card cap, `reviews_today`) is the caller's local day. Devices know it; over HTTP a client sends an
-IANA zone in `X-Furiten-Timezone`, and a server without one uses UTC. (The Worker uses UTC until it reads the header.)
+"Today" (the review day: the due batch, the new-card cap, `reviews_today`) is the caller's local day at the
+library's rollover hour. Devices know their zone; over HTTP a client sends an IANA zone in `X-Furiten-Timezone`,
+and a server without one uses UTC. A device's own core serving web access uses the machine's zone, since the
+library lives there. `rollover_hour` is the library's setting, stored with it wherever it lives: a device's own
+store, or the account's Durable Object on Furiten Cloud.
 
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
@@ -165,6 +180,8 @@ IANA zone in `X-Furiten-Timezone`, and a server without one uses UTC. (The Worke
 | GET | `/v1/review/next` | `?deck_id` | `{ card: CardView \| null, remaining: { due, new } }` |
 | POST | `/v1/cards/:id/reviews` | `{ remembered: bool, duration_ms? }` | `CardView` |
 | GET | `/v1/stats` | `?deck_id` | `{ cards, due, new, reviews_today, retention_30d }` |
+| GET | `/v1/settings` | | `{ rollover_hour }` |
+| PATCH | `/v1/settings` | `{ rollover_hour? }` | `{ rollover_hour }`; an hour outside 0-23 is `invalid_params` |
 | GET | `/v1/tags` | `?deck_id` | `{ tags: TagSummary[] }`, ordered as `tags.list` |
 | POST | `/v1/sync` | see Sync | see Sync |
 
@@ -175,8 +192,8 @@ CardView    = Card & { sides: string[], schedule: Schedule }
 
 `q` matches card content case-insensitively. Deleted entities never appear outside `/v1/sync`. A `deck_id` filter
 (cards, review, stats) covers the deck and its subdecks, and a `DeckSummary`'s counts include its subdecks. `due`
-counts reviewed cards with `due <= now`; `new` counts new cards available today under the cap; `remaining` includes
-the returned card. `retention_30d` is `null` when there is nothing to measure.
+counts reviewed cards due in the caller's current review day; `new` counts new cards available today under the cap;
+`remaining` includes the returned card. `retention_30d` is `null` when there is nothing to measure.
 
 ### Card order
 
@@ -213,6 +230,11 @@ listens on a Unix socket at `$FURITEN_HOME/core.sock` (mode `0600`; `FURITEN_HOM
 `~/Library/Application Support/Furiten` on macOS and `$XDG_DATA_HOME/furiten` elsewhere), and the CLI, MCP and the
 app's own window are its clients. One core runs per home (`core.lock`).
 
+- **Temp library.** With `FURITEN_TEMP_DB` set (to anything) and no `FURITEN_HOME`, the home is a throwaway one in
+  the system temp directory (`furiten-temp`, or `furiten-temp-dev` in a dev build), seeded with sample decks, cards
+  and reviews for testing. It starts afresh whenever no core is serving it, so a window and the CLI commands beside
+  it share one, and the next launch starts from the seed again.
+
 - **Dev builds.** A build made with `FURITEN_CHANNEL=dev` is a dev build: `Furiten Dev.app` (bundle ID
   `co.anomaly.furiten.dev`), with its own library (`~/Library/Application Support/Furiten Dev`, or
   `$XDG_DATA_HOME/furiten-dev`) and preferences, so it installs and runs beside Furiten. Its CLI, and the app it
@@ -240,6 +262,8 @@ write, including writes arriving through sync, so clients refetch.
 | `review.next` | `{ deck_id? }` | as `GET /v1/review/next` |
 | `review.answer` | `{ card_id, remembered: bool, duration_ms? }` | `CardView` |
 | `stats` | `{ deck_id? }` | as HTTP |
+| `settings.get` | | `Settings = { rollover_hour: 0-23 }`, the library's settings |
+| `settings.update` | `{ rollover_hour? }` | `Settings`; an hour outside 0-23 is `invalid_params`; changing it sends `changed` to the core's clients, since the day's counts move with it |
 | `sync.login` | `{ server, token? }` (creates an account when `token` is omitted), or `{ hub: ticket, name? }` (name defaults to the host name) | `{ user_id, token }` or `{ library_id }` |
 | `sync.now` | | `{ pushed, pulled }` |
 | `sync.logout` | | `{ ok: true }`: stops syncing and forgets the cursor; the data stays, and a later sign-in sends all of it |

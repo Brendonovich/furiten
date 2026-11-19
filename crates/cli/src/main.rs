@@ -10,7 +10,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use furiten_core::client::Client;
-use furiten_core::protocol::{Ack, CardQuery, CardSort, CardUpdate, DeckUpdate, NewCard, WebEnable};
+use furiten_core::protocol::{Ack, CardQuery, CardSort, CardUpdate, DeckUpdate, NewCard, SettingsUpdate, WebEnable};
 use furiten_core::server::{Hosted, Server};
 use furiten_core::{Error, Result};
 use serde::Serialize;
@@ -100,6 +100,11 @@ enum Command {
         /// Only this deck (name or id) and its subdecks.
         #[arg(long)]
         deck: Option<String>,
+    },
+    /// When the review day rolls over (4am by default): show it, or set the hour, 0-23.
+    Day {
+        /// The local hour the day starts at; without one, show the current.
+        hour: Option<u8>,
     },
     /// Import decks from another app.
     Import {
@@ -418,6 +423,13 @@ fn command(c: &mut Client, cli: Cli) -> Result<()> {
         Command::Stats { deck } => {
             let deck_id = deck.map(|d| c.resolve_deck(&d, false).map(|d| d.id)).transpose()?;
             emit(json, &c.stats(deck_id.as_deref())?, output::stats)
+        }
+        Command::Day { hour } => {
+            let settings = match hour {
+                None => c.settings()?,
+                Some(hour) => c.update_settings(&SettingsUpdate { rollover_hour: Some(hour) })?,
+            };
+            emit(json, &settings, output::day)
         }
         Command::Import { command: ImportCommand::Mochi { file, parent } } => {
             let parent = parent.map(|p| c.resolve_deck(&p, false)).transpose()?;

@@ -77,7 +77,7 @@ struct DeckScreen: View {
                 }
                 ToolbarSpacer(.flexible, placement: .bottomBar)
                 ToolbarItem(placement: .bottomBar) {
-                    Button("New card", systemImage: "square.and.pencil") { editing = .new(deck: deck.id) }
+                    Button { editing = .new(deck: deck.id) } label: { Label("New card", image: "plus") }
                 }
             }
             .task(id: draft) {
@@ -225,7 +225,7 @@ struct CardList: View {
     private func newTile(list: Bool) -> some View {
         if let onNew {
             Button(action: onNew) {
-                Label("New card", systemImage: "plus")
+                Label("New card", image: "plus")
                     .font(.body.weight(.medium))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: list ? 64 : 156)
@@ -241,7 +241,7 @@ struct CardList: View {
 
     @ViewBuilder
     private var newCardRow: some View {
-        if let onNew { Button("New card", systemImage: "plus", action: onNew) }
+        if let onNew { Button(action: onNew) { Label("New card", image: "plus") } }
     }
 
     private func tiles(list: Bool) -> some View {
@@ -300,7 +300,7 @@ private struct TagMenu: View {
         } label: {
             // The icon, and the tag once one's picked, as on the web.
             HStack(spacing: 6) {
-                Image(systemName: tag.isEmpty ? "tag" : "tag.fill")
+                Image("tag")
                 if !tag.isEmpty { Text("#\(tag)").lineLimit(1) }
             }
             .foregroundStyle(tag.isEmpty ? AnyShapeStyle(.primary) : AnyShapeStyle(palette.accent))
@@ -511,7 +511,7 @@ struct ToolRow: View {
         return HStack(spacing: 2) {
             ForEach(CardLayout.allCases) { option in
                 Button { library.setLayout(page, option) } label: {
-                    Image(systemName: option.icon)
+                    Image(option.icon)
                         .frame(width: 38, height: 36)
                         .background { if option == layout { Capsule().fill(.fill.secondary) } }
                         .contentShape(.rect)
@@ -536,7 +536,7 @@ struct ToolRow: View {
                 .pickerStyle(.inline)
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
+                    Image("order").foregroundStyle(.secondary)
                     Text(sort.by.short).lineLimit(1).fixedSize()
                 }
                 .padding(.leading, 13)
@@ -549,7 +549,7 @@ struct ToolRow: View {
             Button {
                 if sort.by.directions == nil { library.setSort(page, .random) } else { library.setSort(page, sort.by, desc: !sort.desc) }
             } label: {
-                Image(systemName: sort.by.directions == nil ? "shuffle" : sort.desc ? "arrow.down" : "arrow.up")
+                Image(sort.by.directions == nil ? "shuffle" : sort.desc ? "down" : "up")
                     .frame(width: 44, height: 42)
                     .contentShape(.rect)
             }

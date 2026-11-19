@@ -182,6 +182,33 @@ pub struct Stats {
     pub retention_30d: Option<f64>,
 }
 
+/// The review day's default rollover hour: 4am, so studying past midnight belongs to the day before (Anki's
+/// default; 0 would be Mochi's plain midnight).
+pub const DEFAULT_ROLLOVER_HOUR: u8 = 4;
+
+/// The library's settings, stored where the library itself lives (a device's own store, or a Cloud account's) and
+/// not synced: every store defaults to the same values, so devices agree unless one is changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Settings {
+    /// The local hour (0-23) the review day rolls over at. Reviews done before it count as the day before, and the
+    /// day's due cards are all there once it passes, so late-night studying doesn't meet tomorrow's cards halfway
+    /// through.
+    pub rollover_hour: u8,
+}
+
+impl Default for Settings {
+    fn default() -> Settings {
+        Settings { rollover_hour: DEFAULT_ROLLOVER_HOUR }
+    }
+}
+
+/// Params of `settings.update`: what to change, or nothing to keep the current.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettingsUpdate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollover_hour: Option<u8>,
+}
+
 /// A tag on live cards: how many, and when one of them last changed (`updated_at`), which is when the tag was last
 /// used.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

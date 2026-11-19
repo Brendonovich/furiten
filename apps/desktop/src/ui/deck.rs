@@ -209,7 +209,7 @@ fn switch_view(s: &mut App, v: CardsView, tx: &mut Tx) {
 fn search(s: &App, k: &Kit, width: Option<f32>) -> El {
     let mut input = TextInput::new(&s.search)
         .placeholder("Search cards")
-        .leading_icon(k.glyph.search)
+        .leading_icon(&icons::SEARCH)
         .width(width)
         .on_edit(|s: &mut App| &mut s.search)
         .on_change(|s: &mut App, tx: &mut Tx| s.search_edited(tx))

@@ -15,6 +15,8 @@ import {
   NewDeck,
   NextReview,
   Ok,
+  Settings,
+  SettingsUpdate,
   Stats,
   SyncRequest,
   SyncResponse,
@@ -112,4 +114,16 @@ export class SyncGroup extends HttpApiGroup.make("sync")
     HttpApiEndpoint.post("sync", "/v1/sync", { payload: SyncRequest, success: SyncResponse, error: errors }),
   ) {}
 
-export class FuritenApi extends HttpApi.make("furiten").add(DecksGroup, CardsGroup, ReviewGroup, SyncGroup) {}
+export class SettingsGroup extends HttpApiGroup.make("settings")
+  .add(
+    HttpApiEndpoint.get("get", "/v1/settings", { success: Settings, error: errors }),
+    HttpApiEndpoint.patch("update", "/v1/settings", { payload: SettingsUpdate, success: Settings, error: errors }),
+  ) {}
+
+export class FuritenApi extends HttpApi.make("furiten").add(
+  DecksGroup,
+  CardsGroup,
+  ReviewGroup,
+  SyncGroup,
+  SettingsGroup,
+) {}
