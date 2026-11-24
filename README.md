@@ -1,10 +1,12 @@
 <p align="center">
   <img src="apps/web/public/icon.svg" width="128" alt="Furiten">
-  <br><br>
-  <strong><a href="https://anoma.ly/release/furiten/desktop/stable/macos-arm64-dmg">Download for Mac</a></strong>
 </p>
 
 # Furiten
+
+<p align="center">
+  <strong><a href="https://anoma.ly/release/furiten/desktop/stable/macos-arm64-dmg">Download for Mac</a></strong>
+</p>
 
 Flashcards you write in Markdown and review with spaced repetition. Works offline, syncs across devices, and agents
 can use it through a CLI, an HTTP API and an MCP server.
