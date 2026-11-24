@@ -2,7 +2,7 @@
   <img src="apps/web/public/icon.svg" width="128" alt="Furiten">
 </p>
 
-# Furiten
+<h1 align="center">Furiten</h1>
 
 <p align="center">
   <strong><a href="https://anoma.ly/release/furiten/desktop/stable/macos-arm64-dmg">Download for Mac</a></strong>
