@@ -24,13 +24,25 @@ pulldown-cmark = { version = "=0.13.6", default-features = false }
 rune-theme-opencode = { path = "vendor/rune/themes/opencode" }
 # The web access QR code in Settings, drawn as Rune boxes (no image or SVG output needed).
 qrcode = { version = "=0.14.1", default-features = false }
-# Sparkle's updater is loaded from the bundle at runtime (src/updater.rs), through the runtime classes and dlopen; both
-# are already in the tree through Rune, pinned to them so there's one copy.
-objc2 = "=0.6.5"
+# The updater's target files and the manifest's decisions, as the release protocol writes them. `derive` is what
+# the shared test vectors compare against; the same version the core pins.
+serde = { version = "=1.0.229", features = ["derive"] }
+# The updater's HTTPS to Anomaly's release service: platform TLS through the system's proxy, one blocking client.
+# The same ureq Hex's updater rides on (3.4 checks the `native-tls` feature's name, not `native-tls-no-default`).
+ureq = { version = "=3.4.2", default-features = false, features = ["native-tls"] }
+# The updater checks every download against the manifest's SHA-256.
+sha2 = "=0.11.0"
+# The update rollout bucket is drawn once, from the OS's secure source.
+getrandom = "=0.4.3"
+# The updater's errors, carried with context; the same line Hex's updater uses.
+eyre = "=0.6.12"
+# The updater's macOS half: bundle swaps (`renamex_np`), write access, App Translocation.
 libc = "=0.2.191"
 
-[dev-dependencies]
+# The updater's manifest parsing, beside the core's own JSON lines.
 serde_json = "=1.0.154"
+
+[dev-dependencies]
 
 [profile.dev.package."*"]
 debug = false

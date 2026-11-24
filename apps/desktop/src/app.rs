@@ -55,6 +55,8 @@ pub struct App {
     pub settings: Option<Settings>,
     /// The keyboard shortcuts panel (`?`) is open.
     pub shortcuts: bool,
+    /// The update panel (App › Check for Updates…) is open.
+    pub update: bool,
     /// The name of a deck being added in the sidebar.
     pub new_deck: Option<TextEdit>,
     /// The sidebar's "+" menu (New deck, Import from Mochi) is open.
@@ -81,6 +83,10 @@ pub struct App {
     pub connecting: Option<Option<f64>>,
     /// The connection has taken long enough that the window says so.
     pub slow_connect: bool,
+    /// The in-app updater, started once the first frame is up (`main`). Dev, source and background runs have none.
+    pub updater: Option<crate::updater::Updater>,
+    /// A background check has opened the update panel once; it doesn't open itself again this run.
+    update_offered: bool,
     /// The last `poll` clock, in seconds.
     pub clock: f64,
     waker: Option<rune::Waker>,
@@ -292,6 +298,7 @@ impl App {
             editor: None,
             settings: None,
             shortcuts: false,
+            update: false,
             new_deck: None,
             deck_menu: false,
             rollover_menu: false,
@@ -305,6 +312,8 @@ impl App {
             offline: None,
             connecting: None,
             slow_connect: false,
+            updater: None,
+            update_offered: false,
             clock: 0.0,
             waker: None,
         }
@@ -430,7 +439,38 @@ impl App {
                 tx.wake_after(Duration::from_secs_f64(left));
             }
         }
+        // The updater's states land here: a background update opens its panel once, and a completed restart quits
+        // (the new bundle's relauncher waits for this process to exit).
+        if let Some(u) = &self.updater {
+            if let Some(result) = u.take_restart() {
+                if result.is_ok() {
+                    changed = true;
+                    crate::quit();
+                }
+            } else if !self.update && !self.update_offered && u.offering() {
+                self.update = true;
+                self.update_offered = true;
+                changed = true;
+            }
+        }
         changed || self.poll_changed()
+    }
+
+    /// App › Check for Updates…: opens the update panel and checks now. Copies that never update do nothing.
+    pub fn check_for_updates(&mut self) {
+        if let Some(u) = &self.updater {
+            u.check_now();
+            self.update = true;
+        }
+    }
+
+    /// The panel's Restart to Update: the worker checks the channel once more, then switches to the staged release.
+    pub fn restart_into_update(&mut self) {
+        if let Some(u) = &self.updater
+            && let Err(e) = u.request_restart()
+        {
+            self.error = Some(e.to_string());
+        }
     }
 
     /// Replaces the core (scenes and tests switch fixture stores) and starts over.

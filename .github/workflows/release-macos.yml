@@ -7,8 +7,9 @@ name: release-macos
 # authorizes: this repository, this workflow file, refs/heads/dev, environment release, the desktop artifact's stable
 # channel. The service's latest links never change:
 #   https://anoma.ly/release/furiten/desktop/stable/macos-arm64-dmg    the DMG (302 to the current file)
-#   https://anoma.ly/release/furiten/desktop/stable/macos-arm64        the updater zip
-#   https://anoma.ly/release/furiten/desktop/stable/macos-arm64-feed   the Sparkle appcast the app follows
+#   https://anoma.ly/release/furiten/desktop/stable/macos-arm64        the updater zip (the app downloads it,
+#                                                                      checks its SHA-256 and the app's
+#                                                                      Developer ID, and swaps the bundle in)
 on:
   workflow_dispatch:
     inputs:
@@ -92,32 +93,16 @@ jobs:
           FURITEN_BUILD_NUMBER: ${{ github.run_number }}
           FURITEN_CHANNEL: production
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
-          [[ -n "$SPARKLE_PUBLIC_KEY" ]] || { echo "SPARKLE_PUBLIC_KEY is not set; the release would have no updater." >&2; exit 1; }
           app="$(apps/desktop/scripts/bundle.sh --notarize)"
           built="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
           [[ "$built" == "$RELEASE_VERSION" ]] || { echo "Built $built, not $RELEASE_VERSION" >&2; exit 1; }
-          # The app pins the key the appcast is signed with.
-          [[ "$(plutil -extract SUPublicEDKey raw "$app/Contents/Info.plist")" == "$SPARKLE_PUBLIC_KEY" ]] ||
-            { echo "The app has the wrong SUPublicEDKey." >&2; exit 1; }
+          # The updater accepts an update only if the unpacked app satisfies this requirement (src/updater/macos.rs
+          # checks the same file), so the build must too: a wrong signing identity would ship an app that can never
+          # update.
+          codesign --verify --deep --strict -R="$(cat apps/desktop/assets/update-requirement.txt)" "$app"
           ls -l apps/desktop/target/release/bundle/dmg
-
-      - name: Make the appcast
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          # The service's stable link to the updater zip, which outlives the version in the file's name.
-          FURITEN_ASSET_URL: https://anoma.ly/release/furiten/desktop/stable/macos-arm64
-        run: |
-          set -euo pipefail
-          arch="$(uname -m)"
-          [[ "$arch" == arm64 ]] || arch=x86_64
-          dmg=apps/desktop/target/release/bundle/dmg
-          apps/desktop/scripts/appcast.sh "$dmg/Furiten-$RELEASE_VERSION-macos-$arch.zip" \
-            "Furiten-$RELEASE_VERSION-macos-$arch.zip" "$RELEASE_VERSION" "$GITHUB_RUN_NUMBER" "$RELEASE_TAG" \
-            "$dmg/appcast.xml"
-          cat "$dmg/appcast.xml"
 
       - name: Remove the signing keychain
         if: always()
@@ -139,9 +124,35 @@ jobs:
             --app furiten --artifact desktop --release "$RUNNER_TEMP/release.json" \
             --target "macos-arm64=$dmg/Furiten-$RELEASE_VERSION-macos-$arch.zip" \
             --target "macos-arm64-dmg=$dmg/Furiten.dmg=Furiten.dmg" \
-            --target "macos-arm64-feed=$dmg/appcast.xml" \
             --out "$RUNNER_TEMP/manifest.json" --verify-downloads
           cat "$RUNNER_TEMP/manifest.json"
+
+      - name: Verify the published release
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          [[ "$arch" == arm64 ]] || arch=x86_64
+          zip="apps/desktop/target/release/bundle/dmg/Furiten-$RELEASE_VERSION-macos-$arch.zip"
+          info="$(curl -fsSL "https://anoma.ly/release/furiten/desktop/stable/macos-arm64/info")"
+          # What was published is what was built: the same version, size and SHA-256.
+          [[ "$(jq -r .version <<<"$info")" == "$RELEASE_VERSION" ]] ||
+            { echo "The published release is $(jq -r .version <<<"$info"), not $RELEASE_VERSION." >&2; exit 1; }
+          shasum="$(shasum -a 256 "$zip" | cut -d' ' -f1)"
+          [[ "$shasum" == "$(jq -r .sha256 <<<"$info")" ]] ||
+            { echo "The published zip's SHA-256 differs from the built one." >&2; exit 1; }
+          # And what a download gets is what the updater verifies: unpack the published file and check it the way
+          # src/updater/macos.rs does.
+          rm -rf "$RUNNER_TEMP/published" && mkdir -p "$RUNNER_TEMP/published"
+          curl -fsSL -o "$RUNNER_TEMP/published.zip" "https://anoma.ly/release/furiten/desktop/stable/macos-arm64"
+          [[ "$(shasum -a 256 "$RUNNER_TEMP/published.zip" | cut -d' ' -f1)" == "$shasum" ]]
+          ditto -x -k "$RUNNER_TEMP/published.zip" "$RUNNER_TEMP/published"
+          codesign --verify --deep --strict -R="$(cat apps/desktop/assets/update-requirement.txt)" \
+            "$RUNNER_TEMP/published/Furiten.app"
+          published="$(plutil -extract CFBundleShortVersionString raw \
+            "$RUNNER_TEMP/published/Furiten.app/Contents/Info.plist")"
+          [[ "$published" == "$RELEASE_VERSION" ]] ||
+            { echo "The published app is $published, not $RELEASE_VERSION." >&2; exit 1; }
+          echo "The published release satisfies the updater's requirement." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Tag the release
         run: |

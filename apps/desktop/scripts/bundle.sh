@@ -8,10 +8,12 @@
 #
 # --dmg also makes a disk image; --notarize notarizes and staples the app, then the disk image made from it, with
 # APPLE_NOTARY_PROFILE (a `notarytool store-credentials` profile) or APPLE_NOTARY_KEY_PATH and APPLE_NOTARY_KEY_ID
-# (and APPLE_NOTARY_ISSUER_ID for a team key). --zip also makes the app's updater zip, which Sparkle installs from.
+# (and APPLE_NOTARY_ISSUER_ID for a team key). --zip also makes the app's updater zip, which the built-in updater
+# installs from.
 #
-# Developer ID builds of the release app carry Sparkle (`embed-sparkle.sh`) with SPARKLE_PUBLIC_KEY in the plist and the
-# feed at FURITEN_FEED_URL; that's what App › Check for Updates… and the scheduled checks use. Dev builds have neither.
+# The release app updates itself from Anomaly's release service (src/updater/, no Sparkle): it polls the channel's
+# manifest at anoma.ly/release, verifies each download's SHA-256 and the unpacked app against
+# assets/update-requirement.txt, and swaps the bundle in at restart or quit. Dev builds never update.
 set -euo pipefail
 
 desktop="${0:A:h:h}"
@@ -97,8 +99,6 @@ plutil -replace CFBundleName -string "$app_name" "$app/Contents/Info.plist"
 plutil -replace CFBundleIdentifier -string "$bundle_id" "$app/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$build_number" "$app/Contents/Info.plist"
-plutil -replace SUFeedURL -string "${FURITEN_FEED_URL:-https://anoma.ly/release/furiten/desktop/stable/macos-arm64-feed}" \
-  "$app/Contents/Info.plist"
 ditto "$root/apps/web/dist" "$app/Contents/Resources/web"
 
 iconset="$(mktemp -d)/AppIcon.iconset"
@@ -110,12 +110,7 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 
-# Inside out: Sparkle (when this release build carries it), the CLI, then the app (whose main executable is the desktop
-# app).
-if [[ "$channel" == production && "$identity" != - && -n "${SPARKLE_PUBLIC_KEY:-}" ]]; then
-  "$desktop/scripts/embed-sparkle.sh" "$app" "$desktop/target" "$identity"
-  plutil -replace SUPublicEDKey -string "$SPARKLE_PUBLIC_KEY" "$app/Contents/Info.plist"
-fi
+# The CLI first (its signature stands alone), then the app (whose main executable is the desktop app).
 sign() {
   if [[ "$identity" == - ]]; then
     codesign --force --sign - "$@"
@@ -146,7 +141,8 @@ if [[ "$notarize" == true ]]; then
 fi
 
 if [[ "$make_zip" == true ]]; then
-  # Sparkle installs from this: the app at the zip's root, made after the app is stapled so its ticket is inside.
+  # The built-in updater installs from this: the app at the zip's root, made after the app is stapled so its ticket
+  # is inside.
   arch="$(uname -m)"
   [[ "$arch" == arm64 ]] || arch=x86_64
   archive="$out/dmg/$app_name-$version-macos-$arch.zip"

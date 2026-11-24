@@ -27,6 +27,17 @@ use crate::keys::{Action, pressed};
 static HOSTED: Mutex<Option<Hosted>> = Mutex::new(None);
 /// Set for `--background` runs, whose window comes and goes.
 static BACKGROUND: OnceLock<AppHandle<App>> = OnceLock::new();
+/// The updater, started once the first frame is up; a staged update installs at quit, for the next launch.
+static UPDATER: OnceLock<updater::Updater> = OnceLock::new();
+/// The windowed app's quit, for Restart to Update; set once the window is up.
+static QUIT: OnceLock<AppHandle<App>> = OnceLock::new();
+
+/// Quits the app, leaving the core to stop on the way out (`main`).
+fn quit() {
+    if let Some(handle) = QUIT.get() {
+        handle.quit();
+    }
+}
 
 /// The window's keys, once no field has taken them. Which keys do what is `keys::SECTIONS`.
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -36,6 +47,13 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.shortcuts {
         if pressed(ev, Action::Shortcuts) || pressed(ev, Action::Close) {
             s.shortcuts = false;
+            return true;
+        }
+        return false;
+    }
+    if s.update {
+        if pressed(ev, Action::Close) {
+            s.update = false;
             return true;
         }
         return false;
@@ -279,6 +297,8 @@ fn host_core(app: rune::App<App>, background: bool) -> rune::App<App> {
         return app;
     }
     let handle = app.handle();
+    // The windowed run keeps a quit handle and the updater, once the first frame is up.
+    let ready = handle.clone();
     let start = move || {
         let handle = handle.clone();
         std::thread::Builder::new()
@@ -304,7 +324,11 @@ fn host_core(app: rune::App<App>, background: bool) -> rune::App<App> {
     let mut started = false;
     app.on_ready(move |_| {
         if !std::mem::replace(&mut started, true) {
-            updater::start();
+            let updater = updater::Updater::start();
+            let _ = UPDATER.set(updater.clone());
+            let _ = QUIT.set(ready.clone());
+            let ready = ready.clone();
+            ready.update(move |s: &mut App, _| s.updater = Some(updater));
             start();
         }
     })
@@ -326,6 +350,8 @@ fn main() {
     if !background {
         rune::prewarm_gpu();
     }
+    // What an earlier update left beside the bundle, if this run is from one.
+    updater::finish_on_launch();
     // The web app's icon on Apple's grid, from scripts/icons.sh.
     let _ = rune::set_app_icon(identity::icon());
     let chrome = Chrome { full_size_content: true, traffic_lights: Some((25.0, 25.0)), drag_regions: true };
@@ -340,16 +366,22 @@ fn main() {
         ..AppSpec::new(identity::name(), (1040.0, 680.0), app::init, ui::view)
     };
     let mut app = rune::App::new(spec).chrome(chrome);
-    // App › Check for Updates…, when the bundle carries Sparkle.
-    let updates = rune::MenuItem::new("Check for Updates…", |_: &mut App, _: &mut Tx| updater::check_for_updates())
+    // App › Check for Updates…, on installs that can update: the panel (`ui/update.rs`) and the updater behind it.
+    let updates = rune::MenuItem::new("Check for Updates…", |s: &mut App, _: &mut Tx| s.check_for_updates())
         .id("furiten.check-for-updates")
-        .enabled(updater::available());
+        .enabled(updater::bundled());
     app = app.menu_item(updates);
     if background {
         app = app.windowless().accessory().standard_menus().on_close(hide_dock).on_reopen(reopen);
         let _ = BACKGROUND.set(app.handle());
     }
     host_core(app, background).run();
+    // A staged update installs at quit, for the next launch (Restart to Update has already swapped and scheduled
+    // its relaunch). The worker stops first, so a check in flight doesn't hold the process.
+    if let Some(u) = UPDATER.get() {
+        u.stop();
+        u.install_on_quit();
+    }
     let hosted = HOSTED.lock().unwrap_or_else(|e| e.into_inner()).take();
     if let Some(Err(e)) = hosted.map(Hosted::stop) {
         eprintln!("furiten-desktop: the core didn't stop cleanly: {}", e.message);

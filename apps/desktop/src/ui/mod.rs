@@ -11,6 +11,7 @@ mod review;
 mod settings;
 mod shortcuts;
 mod sidebar;
+mod update;
 
 use rune::{Anim, Cx, El, Spring, col, el, text};
 use rune_kit::shell::{SidebarToggle, SplitView, TOOLBAR_HEIGHT, Toolbar};
@@ -70,6 +71,9 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     }
     if s.shortcuts {
         shortcuts::dialog(&k, &mut layer);
+    }
+    if s.update {
+        update::dialog(s, &k, &mut layer);
     }
     let mut split = SplitView::new(main)
         .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar)
