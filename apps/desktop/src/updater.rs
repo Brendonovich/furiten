@@ -5,11 +5,12 @@
 //! Developer ID signature, and stages it until the user restarts. Checks continue while an update is staged, so a
 //! newer release replaces it, and Restart to update checks once more before it switches over. Versions are display
 //! text and never compared: whenever the channel's current release is not the running build (its exact version, on
-//! macOS), Furiten takes it. Dev builds, source builds, and installs whose updates an administrator turned off
-//! never check. Manifests are not signed: HTTPS, the download's SHA-256, and the bundle's code signature are the
+//! macOS), Furiten takes it. Only builds the release workflow made check: it compiles in the channel
+//! (`FURITEN_RELEASE_CHANNEL`, `stable` for Furiten and `dev` for Furiten Dev), so local builds, source builds, and
+//! installs whose updates an administrator turned off never check. Manifests are not signed: HTTPS, the download's SHA-256, and the bundle's code signature are the
 //! integrity checks.
 //!
-//! The release workflow publishes the channel's manifest (`.github/workflows/release-macos.yml`); the registry
+//! The release workflow publishes the channel's manifest (`.github/workflows/release.yml`); the registry
 //! entry that authorizes it lives in `anomalyco/release` (`registry/furiten.json`).
 
 #[cfg_attr(target_os = "macos", path = "updater/macos.rs")]
@@ -35,12 +36,17 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const APP: &str = "furiten";
 const ARTIFACT: &str = "desktop";
 const ORIGIN: &str = "https://anoma.ly/release";
-/// The one channel Furiten follows. (The protocol carries more; a channel setting would be the piece that adds
-/// them, and the client rules for a switch are already in `protocol::decide`.)
-const CHANNEL: &str = "stable";
+/// The channel the release workflow built this copy for: `stable` (Furiten) or `dev` (Furiten Dev). Copies built
+/// anywhere else have none and never check. (The client rules for a channel switch are already in
+/// `protocol::decide`.)
+const RELEASE_CHANNEL: Option<&str> = option_env!("FURITEN_RELEASE_CHANNEL");
 const STARTUP_DELAY: Duration = Duration::from_secs(10);
 /// The service counts a running install from at least one check an hour.
 const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
+/// Furiten Dev checks more often, so a dev build reaches the people testing it soon after it's published.
+const DEV_CHECK_INTERVAL: Duration = Duration::from_secs(10 * 60);
+/// The first retry after a failed check, doubling with each failure.
+const FAILURE_DELAY: Duration = Duration::from_secs(60);
 /// Failed checks back off, but never past hourly.
 const MAX_BACKOFF: Duration = CHECK_INTERVAL;
 /// The manifest fetch of an ordinary check.
@@ -49,7 +55,16 @@ const MANIFEST_TIMEOUT: Duration = Duration::from_secs(60);
 const RESTART_MANIFEST_TIMEOUT: Duration = Duration::from_secs(15);
 /// Where an install that can't update itself points when the release carries no better link: the project, until
 /// the landing page (`apps/site`) is deployed.
-const DOWNLOAD_FALLBACK: &str = "https://github.com/Brendonovich/furiten";
+const DOWNLOAD_FALLBACK: &str = "https://github.com/anomalyco/furiten";
+
+/// The channel this copy follows; `stable` for copies that never check.
+pub fn channel() -> &'static str {
+    RELEASE_CHANNEL.unwrap_or("stable")
+}
+
+fn check_interval() -> Duration {
+    if channel() == "dev" { DEV_CHECK_INTERVAL } else { CHECK_INTERVAL }
+}
 
 /// How this install receives updates, which decides what the updater does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,7 +181,7 @@ impl Updater {
     pub fn start() -> Self {
         let method = platform::method();
         let disabled = if !cfg!(target_os = "macos")
-            || furiten_core::is_dev_build()
+            || RELEASE_CHANNEL.is_none()
             || method == Method::Source
             || updates_off_by_env()
             || managed_by_policy()
@@ -306,7 +321,7 @@ fn wait(shared: &Shared, delay: Duration) -> bool {
 
 /// Whether this run is inside an app bundle, so the menu can offer updates at all.
 pub fn bundled() -> bool {
-    !furiten_core::is_dev_build() && platform::installed_bundle().is_some()
+    RELEASE_CHANNEL.is_some() && platform::installed_bundle().is_some()
 }
 
 /// Removes what an earlier update left beside the bundle: the replaced bundle once this (new) version runs, or an
@@ -335,7 +350,7 @@ fn run(shared: &Shared, method: &Method) {
         let (next, delay) = match result {
             Ok(next) => {
                 failures = 0;
-                (next, CHECK_INTERVAL)
+                (next, check_interval())
             }
             Err(error) => {
                 eprintln!("furiten-desktop: the update check failed: {error:#}");
@@ -344,7 +359,7 @@ fn run(shared: &Shared, method: &Method) {
                     .as_ref()
                     .map(|staged| Status::Ready { version: staged.version.clone() })
                     .unwrap_or(Status::Failed);
-                (next, (CHECK_INTERVAL * 2u32.pow(failures)).min(MAX_BACKOFF))
+                (next, (FAILURE_DELAY * 2u32.pow(failures)).min(MAX_BACKOFF))
             }
         };
         if restarting {
@@ -395,7 +410,7 @@ fn check(
     restarting: bool,
 ) -> Result<Status> {
     let updates = updates_dir()?;
-    let user_agent = transport::user_agent(CHANNEL, VERSION);
+    let user_agent = transport::user_agent(channel(), VERSION);
     let manifest_url = manifest_url();
     let timeout = if restarting { RESTART_MANIFEST_TIMEOUT } else { MANIFEST_TIMEOUT };
     let manifest = cache.fetch(&manifest_url, &user_agent, timeout)?;
@@ -407,9 +422,9 @@ fn check(
         // The macOS target is a zip of the bundle, which the running app cannot reproduce, so a Mac build is
         // identified by its version text.
         sha256: running_sha256(),
-        channel: Some(CHANNEL.into()),
+        channel: Some(channel().into()),
     };
-    let decision = protocol::decide(APP, ARTIFACT, CHANNEL, &manifest, &install);
+    let decision = protocol::decide(APP, ARTIFACT, channel(), &manifest, &install);
     match decision {
         Decision::Reject { reason } => Err(eyre!("the update manifest was rejected: {reason}")),
         Decision::None { .. } | Decision::Install { .. }
@@ -472,7 +487,7 @@ fn replaces_staged(decision: &Decision, staged_sha256: &str) -> bool {
 /// fixture service. Nothing defaults to the service's dev stage, which only tests the service itself.
 fn manifest_url() -> String {
     let origin = std::env::var("FURITEN_RELEASE_BASE_URL").ok().filter(|origin| origin.starts_with("https://"));
-    format!("{}/{APP}/{ARTIFACT}/{CHANNEL}.json", origin.as_deref().unwrap_or(ORIGIN).trim_end_matches('/'))
+    format!("{}/{APP}/{ARTIFACT}/{}.json", origin.as_deref().unwrap_or(ORIGIN).trim_end_matches('/'), channel())
 }
 
 /// This build's target SHA-256, when the platform can tell (the target is the executable itself); hashed once per

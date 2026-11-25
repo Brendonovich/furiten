@@ -44,10 +44,10 @@ API.
 - `cargo run -p furiten -- --help`; `cargo run -p furiten-desktop`.
 - `apps/desktop/scripts/bundle.sh [--dmg] [--notarize] [--zip]` builds Furiten.app (ad hoc signed, or with
   `APPLE_SIGNING_IDENTITY`) with the CLI and the web app inside; `FURITEN_CHANNEL=dev` builds Furiten Dev.app instead.
-  Developer ID builds update themselves from Anomaly's release service at `anoma.ly/release` (`apps/desktop/src/updater`,
-  the same client as Hex's: it polls the channel's manifest, checks each download's size and SHA-256, verifies the
-  unpacked app against `apps/desktop/assets/update-requirement.txt`, and swaps the bundle in at restart or quit; the
-  registry entry lives in `anomalyco/release`).
+  Builds from the Release workflow update themselves from Anomaly's release service at `anoma.ly/release`
+  (`apps/desktop/src/updater`, the same client as Hex's: it polls the channel's manifest, checks each download's size
+  and SHA-256, verifies the unpacked app against `apps/desktop/assets/update-requirement.txt`, and swaps the bundle in
+  at restart or quit; the registry entry lives in `anomalyco/release`). Local builds never update.
 - `apps/ios/scripts/deploy.sh [device]` builds the iOS app and installs it on a paired iPhone (Wi-Fi is fine).
   `apps/ios/scripts/simulate.sh [-pair <ticket>] [-screen inbox|decks|settings|search|deck|new|editor|cram|tag]` runs it in the
   booted simulator, paired with a desktop (a ticket from `furiten host pair`; try a scratch `FURITEN_HOME`), on that
@@ -60,6 +60,20 @@ API.
   icon (the same card drawn as a blueprint) from `apps/web/public/icon-dev.svg` (macOS only).
 - `cd apps/web && bun run build`, then `furiten web on`: the desktop app serves the built web app and the HTTP API on
   :8787 for a phone to use the desktop's library directly, no hub needed.
+
+## Releases
+
+`.github/workflows/release.yml` builds, signs (Anomaly's Developer ID), notarizes and publishes the Mac app to
+`anoma.ly/release/furiten`, following Abattoir's Releases and Infrastructure guides:
+
+- Every push to `dev` that touches the app publishes Furiten Dev on the `dev` channel; Furiten Dev updates from it.
+- A stable release is a dispatch of Release from `dev` with channel `stable` and a bump (`patch`, `minor`, `major`)
+  past the newest `v*` tag. Write the notes first, in `changelog/<version>.md`; the run fails without them. After it
+  publishes it tags `v<version>`, creates the GitHub release and updates the Homebrew cask (`anomalyco/tap/furiten`,
+  from `packaging/homebrew/furiten.rb`). Nothing is committed back.
+- Channel `check` builds, signs and verifies without publishing.
+- `.github/` is the release boundary and needs Dax's review. Credentials come from AWS Secrets Manager
+  (`anomalyco/secrets`, role `furiten-release`), never repository secrets.
 
 ## Rules
 

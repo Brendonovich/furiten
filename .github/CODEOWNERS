@@ -1,0 +1,2 @@
+# Release workflows and their scripts hold the release credentials; changing them needs Dax.
+/.github/ @thdxr

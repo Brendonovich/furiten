@@ -11,9 +11,11 @@
 # (and APPLE_NOTARY_ISSUER_ID for a team key). --zip also makes the app's updater zip, which the built-in updater
 # installs from.
 #
-# The release app updates itself from Anomaly's release service (src/updater/, no Sparkle): it polls the channel's
-# manifest at anoma.ly/release, verifies each download's SHA-256 and the unpacked app against
-# assets/update-requirement.txt, and swaps the bundle in at restart or quit. Dev builds never update.
+# FURITEN_RELEASE_CHANNEL (stable or dev) is set only by the Release workflow (.github/workflows/release.yml), which
+# builds unsigned and signs in a job of its own. A build with it updates itself from Anomaly's release service
+# (src/updater/, no Sparkle): it polls the channel's manifest at anoma.ly/release, verifies each download's SHA-256
+# and the unpacked app against assets/update-requirement.txt, and swaps the bundle in at restart or quit. Builds
+# without it never update.
 set -euo pipefail
 
 desktop="${0:A:h:h}"
@@ -37,6 +39,14 @@ case "$channel" in
     ;;
   *)
     print -u2 "FURITEN_CHANNEL must be dev or production, not $channel."
+    exit 2
+    ;;
+esac
+case "${FURITEN_RELEASE_CHANNEL:-}" in
+  "") ;;
+  stable|dev) env_args+=(--config "env.FURITEN_RELEASE_CHANNEL='$FURITEN_RELEASE_CHANNEL'") ;;
+  *)
+    print -u2 "FURITEN_RELEASE_CHANNEL must be stable or dev, not $FURITEN_RELEASE_CHANNEL."
     exit 2
     ;;
 esac
