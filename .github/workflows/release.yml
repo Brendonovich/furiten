@@ -1,0 +1,429 @@
+name: Release
+
+# Builds, signs, notarizes and publishes Furiten for Apple silicon from one exact commit of dev to Anomaly's release
+# service (https://anoma.ly/release/furiten), split the way Hex's and Spaceman's releases are:
+#
+# - build-macos, verify-macos and homebrew-stage run repository code (cargo, bun, the app's CLI, brew). They have no
+#   environment, no secrets and no id-token.
+# - sign-macos, publish, homebrew and record-brew run in the release environment. They check out only
+#   .github/release/ and run only those scripts and SHA-pinned actions, on artifacts they treat as data. Apple
+#   credentials and the Homebrew tap deploy key come from AWS Secrets Manager (role/github/furiten-release) through
+#   GitHub OIDC and live only in the one step that reads them (.github/release/with-secrets.sh).
+# - every artifact carries a SHA256SUMS whose digest the job that made it reports; every job that downloads it checks
+#   that digest.
+#
+# This file and .github/release/ are the release boundary: CODEOWNERS makes changes to .github/ need Dax.
+#
+# Channels (.github/release/plan.sh):
+# - dev: every push to dev that touches the app publishes Furiten Dev as 0.0.0-dev-<run number> on the dev channel.
+#   A running release finishes and only the newest push waits behind it.
+# - check: a dispatch from dev builds, signs, notarizes and verifies Furiten Dev, publishes nothing, and pushes and
+#   deletes a throwaway v0.0.0-test-<run> tag to prove the run can tag.
+# - stable: a dispatch from dev publishes Furiten on the stable channel at the next version (the bump past the newest
+#   v* tag), with the notes in changelog/<version>.md. Then it tags v<version>, creates the GitHub release and updates
+#   Homebrew (anomalyco/tap/furiten). Tags trigger nothing.
+#
+# The release service authorizes the publish jobs by their OIDC token: anomalyco/furiten, this file, refs/heads/dev,
+# environment release (anomalyco/release registry/furiten.json). Its latest links never change:
+#   https://anoma.ly/release/furiten/desktop/stable/macos-arm64-dmg    the DMG
+#   https://anoma.ly/release/furiten/desktop/stable/macos-arm64        the updater zip
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Run from dev. check (build, sign and verify), dev (dev channel) or stable (public release).
+        type: choice
+        options: [check, dev, stable]
+        default: check
+      bump:
+        description: For stable, the version bump past the newest v* tag.
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+  push:
+    branches: [dev]
+    paths:
+      - apps/desktop/**
+      - apps/web/**
+      - crates/**
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
+      - scripts/set-version.sh
+      - .github/release/**
+      - .github/workflows/release.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'dev' }}
+  # Releases never cancel each other: the running one finishes, and of the pushes that land meanwhile only the newest
+  # waits.
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  FURITEN_TEAM_ID: 5NZ4Q7NXJ4
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      channel: ${{ steps.plan.outputs.channel }}
+      release-channel: ${{ steps.plan.outputs.release-channel }}
+      build-channel: ${{ steps.plan.outputs.build-channel }}
+      app-name: ${{ steps.plan.outputs.app-name }}
+      bundle-id: ${{ steps.plan.outputs.bundle-id }}
+      service: ${{ steps.plan.outputs.service }}
+      tag: ${{ steps.plan.outputs.tag }}
+      notes-url: ${{ steps.plan.outputs.notes-url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            /.github/release/
+            /Cargo.toml
+            /changelog/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: plan
+        run: SHA=$(git rev-parse HEAD) bash .github/release/plan.sh
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'dev' }}
+          BUMP: ${{ inputs.bump || 'patch' }}
+          GH_TOKEN: ${{ github.token }}
+
+  # ---- Build: repository code; no environment, secrets or id-token ----------
+
+  # The app, ad hoc signed; sign-macos signs it with the Developer ID.
+  build-macos:
+    needs: plan
+    runs-on: macos-26
+    timeout-minutes: 90
+    outputs:
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: rustup show active-toolchain
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+        working-directory: apps/web
+      - name: Build the app
+        env:
+          FURITEN_VERSION: ${{ needs.plan.outputs.version }}
+          FURITEN_CHANNEL: ${{ needs.plan.outputs.build-channel }}
+          FURITEN_RELEASE_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+          FURITEN_BUILD_NUMBER: ${{ github.run_number }}
+          APP_NAME: ${{ needs.plan.outputs.app-name }}
+        run: |
+          scripts/set-version.sh "$FURITEN_VERSION"
+          app=$(apps/desktop/scripts/bundle.sh | tail -n 1)
+          [ "$app" = "$PWD/apps/desktop/target/release/bundle/macos/$APP_NAME.app" ] ||
+            { echo "::error::bundle.sh made $app."; exit 1; }
+          mkdir -p "$RUNNER_TEMP/macos"
+          /usr/bin/ditto -c -k --keepParent "$app" "$RUNNER_TEMP/macos/app.zip"
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-macos-arm64
+          path: ${{ runner.temp }}/macos
+
+  # ---- Sign: release environment; only .github/release/ is checked out -------
+
+  sign-macos:
+    needs: [plan, build-macos]
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FURITEN_VERSION: ${{ needs.plan.outputs.version }}
+      FURITEN_APP_NAME: ${{ needs.plan.outputs.app-name }}
+      FURITEN_BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
+    outputs:
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - &checkout-release
+        name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: /.github/release/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Require the Apple values
+        env:
+          KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+          ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          [ -n "$KEY_ID" ] && [ -n "$ISSUER" ] ||
+            { echo "::error::The release environment needs APPLE_NOTARY_KEY_ID and APPLE_NOTARY_ISSUER_ID."; exit 1; }
+      - name: Download
+        uses: ./.github/release/download
+        with:
+          pattern: build-macos-arm64
+          digests: build-macos-arm64=${{ needs.build-macos.outputs.digest }}
+      # AWS credentials only as this action's step outputs (never in the job's environment), for the one step below
+      # that reads the secrets.
+      - &aws-credentials
+        id: aws
+        name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::604439173067:role/github/furiten-release
+          role-session-name: furiten-${{ github.run_id }}
+          role-duration-seconds: 900
+          aws-region: us-east-1
+          output-env-credentials: false
+          output-credentials: true
+      - name: Import the certificate and notary key
+        env: &aws-env
+          AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+        run: |
+          bash .github/release/with-secrets.sh \
+            APPLE_SIGNING_CERTIFICATE=shared/APPLE_SIGNING_CERTIFICATE \
+            APPLE_NOTARY_KEY=shared/APPLE_NOTARY_KEY \
+            -- bash .github/release/macos-credentials.sh "$RUNNER_TEMP/credentials"
+      - name: Sign, notarize and staple
+        env:
+          FURITEN_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+          FURITEN_NOTARY_ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
+        run: bash .github/release/sign-macos.sh "$RUNNER_TEMP/in/build-macos-arm64/app.zip" "$RUNNER_TEMP/out"
+      - name: Remove the credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/credentials/signing.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/credentials"
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: sign-macos
+          path: ${{ runner.temp }}/out
+
+  # ---- Verify: repository code on the signed files; no secrets ----------------
+
+  # What Gatekeeper and the updater check, then a launch of the signed CLI.
+  verify-macos:
+    needs: [plan, sign-macos]
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      FURITEN_VERSION: ${{ needs.plan.outputs.version }}
+      APP_NAME: ${{ needs.plan.outputs.app-name }}
+      BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-macos
+          digests: sign-macos=${{ needs.sign-macos.outputs.digest }}
+      - name: Check the signed app and disk image
+        run: |
+          dir="$RUNNER_TEMP/in/sign-macos"
+          zip="Furiten-$FURITEN_VERSION-macos-arm64.zip"
+          dmg="Furiten-$FURITEN_VERSION-macos-arm64.dmg"
+          (cd "$dir" && shasum -a 256 -c "$zip.sha256" && shasum -a 256 -c "$dmg.sha256")
+          check=$(mktemp -d)
+          ditto -x -k "$dir/$zip" "$check"
+          app="$check/$APP_NAME.app"
+          [ "$(ls "$check")" = "$APP_NAME.app" ] || { echo "::error::The updater zip must hold exactly $APP_NAME.app."; exit 1; }
+          plist="$app/Contents/Info.plist"
+          [ "$(plutil -extract CFBundleShortVersionString raw "$plist")" = "$FURITEN_VERSION" ] ||
+            { echo "::error::The app is not version $FURITEN_VERSION."; exit 1; }
+          details=$(codesign --display --verbose=4 "$app" 2>&1)
+          grep -qx "TeamIdentifier=$FURITEN_TEAM_ID" <<< "$details" || { echo "::error::Not signed by team $FURITEN_TEAM_ID."; exit 1; }
+          # What src/updater/macos.rs requires of an update before it swaps it in.
+          requirement="identifier \"$BUNDLE_ID\" and $(cat apps/desktop/assets/update-requirement.txt)"
+          codesign --verify --deep --strict -R="$requirement" "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app" 2>&1 | tee "$check/spctl.txt"
+          grep -q 'source=Notarized Developer ID' "$check/spctl.txt" || { echo "::error::Gatekeeper does not see a notarized Developer ID app."; exit 1; }
+          xcrun stapler validate "$dir/$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dir/$dmg"
+          FURITEN_HOME="$check/home" "$app/Contents/MacOS/furiten" --help > /dev/null
+          codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Publish: release environment; only .github/release/ is checked out ----
+
+  # The only job that publishes to the release service; its OIDC token is the credential.
+  publish:
+    needs: [plan, sign-macos, verify-macos]
+    if: needs.plan.outputs.channel != 'check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env: &publish-env
+      RELEASE: ${{ needs.plan.outputs.service }}
+      FURITEN_VERSION: ${{ needs.plan.outputs.version }}
+      FURITEN_RELEASE_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+    steps:
+      - *checkout-release
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-macos
+          digests: sign-macos=${{ needs.sign-macos.outputs.digest }}
+      - name: Publish
+        env:
+          NOTES_URL: ${{ needs.plan.outputs.notes-url }}
+        run: |
+          dir="$RUNNER_TEMP/in/sign-macos"
+          bash .github/release/release-service.sh publish "$dir" "$NOTES_URL"
+          { echo '### Manifest'; echo '```json'; cat "$dir/manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  # Last, once the release service published: tags v<version> on the released commit with the built-in token, so a
+  # failed run leaves no tag, then mirrors a stable release to GitHub. A check run pushes and deletes a throwaway tag.
+  tag:
+    name: Tag
+    needs: [plan, sign-macos, verify-macos, publish]
+    if: >-
+      ${{ !cancelled() && (
+        (needs.plan.outputs.channel == 'stable' && needs.publish.result == 'success')
+        || (needs.plan.outputs.channel == 'check' && needs.verify-macos.result == 'success') ) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      SHA: ${{ github.sha }}
+      FURITEN_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      FURITEN_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      # Credentials stay so the job can push the tag; it runs no repository code beyond .github/release/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            /.github/release/
+            /changelog/
+          sparse-checkout-cone-mode: false
+      - name: Tag
+        env:
+          FURITEN_RELEASE_TAG_TEST: ${{ needs.plan.outputs.channel == 'check' && '1' || '' }}
+        run: bash .github/release/tag-release.sh
+      - if: needs.plan.outputs.channel == 'stable'
+        uses: ./.github/release/download
+        with:
+          pattern: sign-macos
+          digests: sign-macos=${{ needs.sign-macos.outputs.digest }}
+      - name: GitHub release
+        if: needs.plan.outputs.channel == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/release/github-release.sh \
+            "$RUNNER_TEMP/in/sign-macos/Furiten-$FURITEN_VERSION-macos-arm64.dmg" "changelog/$FURITEN_VERSION.md"
+
+  # Renders the cask from the published zip and checks it with brew, without secrets.
+  homebrew-stage:
+    name: Homebrew cask
+    needs: [plan, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.plan.outputs.channel == 'stable' }}
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      RELEASE: ${{ needs.plan.outputs.service }}
+      FURITEN_VERSION: ${{ needs.plan.outputs.version }}
+    outputs:
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Render the cask from the published zip
+        run: |
+          curl -fsS "$RELEASE/furiten/desktop/stable.json" -o "$RUNNER_TEMP/manifest.json"
+          version=$(jq -er .release.version "$RUNNER_TEMP/manifest.json")
+          test "$version" = "$FURITEN_VERSION"
+          zip=$(jq -ec '.release.targets["macos-arm64"]' "$RUNNER_TEMP/manifest.json") || {
+            echo "::error::Furiten $version has no macos-arm64 build."
+            exit 1
+          }
+          url="${RELEASE%/release}$(printf '%s' "$zip" | jq -r .url)"
+          sha256=$(printf '%s' "$zip" | jq -r .sha256)
+          mkdir -p "$RUNNER_TEMP/cask"
+          scripts/release-homebrew.sh render "$version" "$url" "$sha256" "$RUNNER_TEMP/cask/furiten.rb"
+          { echo '### Casks/furiten.rb'; echo '```ruby'; cat "$RUNNER_TEMP/cask/furiten.rb"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Check it with brew
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_FROM_API: "1"
+        run: |
+          brew tap anomalyco/tap
+          cp "$RUNNER_TEMP/cask/furiten.rb" "$(brew --repo anomalyco/tap)/Casks/furiten.rb"
+          # Homebrew 6 refuses to load casks from third-party taps until they are trusted; this runner trusts our own
+          # tap. Older Homebrew has no `brew trust` and no such check.
+          if brew trust --help > /dev/null 2>&1; then brew trust anomalyco/tap; fi
+          brew style --cask anomalyco/tap/furiten
+          # Skipped audits: the zip URL names its own SHA-256 rather than the version, so a pinned sha256 is right;
+          # and the token "furiten" belongs to this tap's cask.
+          brew audit --cask --strict --online \
+            --except=sha256_no_check_if_unversioned,token_conflicts anomalyco/tap/furiten
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-homebrew
+          path: ${{ runner.temp }}/cask
+
+  homebrew:
+    name: Homebrew
+    needs: [plan, homebrew-stage]
+    if: ${{ !cancelled() && needs.homebrew-stage.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FURITEN_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - *checkout-release
+      - uses: ./.github/release/download
+        with:
+          pattern: build-homebrew
+          digests: build-homebrew=${{ needs.homebrew-stage.outputs.digest }}
+      - *aws-credentials
+      - name: Push to anomalyco/homebrew-tap
+        env: *aws-env
+        run: |
+          bash .github/release/with-secrets.sh HOMEBREW_TAP_DEPLOY_KEY=shared/HOMEBREW_TAP_DEPLOY_KEY \
+            -- bash .github/release/push-homebrew.sh "$RUNNER_TEMP/in/build-homebrew/furiten.rb" "$FURITEN_VERSION"
+
+  # Tells Homebrew installs about the version only once the tap serves it.
+  record-brew:
+    needs: [plan, homebrew]
+    if: ${{ !cancelled() && needs.homebrew.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env: *publish-env
+    steps:
+      - *checkout-release
+      - run: bash .github/release/release-service.sh distribution brew "$FURITEN_VERSION"

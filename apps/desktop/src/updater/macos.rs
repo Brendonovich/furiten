@@ -19,8 +19,9 @@ pub const TARGET: &str = "macos-arm64";
 /// The target the download page for an install that can't update itself serves: the DMG people install from.
 pub const DOWNLOAD_TARGET: &str = "macos-arm64-dmg";
 const BUNDLE_ID: &str = "co.anomaly.furiten";
-/// A Developer ID application, identified as `co.anomaly.furiten` and notarized. The release workflow checks the
-/// build against the same file.
+const DEV_BUNDLE_ID: &str = "co.anomaly.furiten.dev";
+/// A notarized Developer ID application signed by Anomaly's team. `requirement` adds this build's identifier; the
+/// release workflow checks the build against the same file.
 const REQUIREMENT: &str = include_str!("../../assets/update-requirement.txt");
 /// Unpacked updates (and, after a swap, the replaced bundle) live in `.<name>-update-<version>` beside the
 /// installed bundle.
@@ -31,6 +32,16 @@ const STAGING_PREFIX: &str = ".Furiten-update-";
 pub struct Staged {
     update: PathBuf,
     installed: PathBuf,
+}
+
+/// The bundle identifier an update must carry: this build's own, `Furiten Dev`'s for a dev build.
+fn bundle_id() -> &'static str {
+    if furiten_core::is_dev_build() { DEV_BUNDLE_ID } else { BUNDLE_ID }
+}
+
+/// The code requirement an update must satisfy: this build's identifier and `assets/update-requirement.txt`.
+fn requirement() -> String {
+    format!("identifier \"{}\" and {}", bundle_id(), REQUIREMENT.trim())
 }
 
 /// The running `Furiten.app`, when this executable is inside one.
@@ -46,7 +57,7 @@ pub fn method() -> Method {
         // A bare binary from a checkout.
         return Method::Source;
     };
-    if replaceable(&bundle) { Method::Direct { channel: "stable".into() } } else { Method::DownloadOnly }
+    if replaceable(&bundle) { Method::Direct { channel: super::channel().into() } } else { Method::DownloadOnly }
 }
 
 /// The `macos-arm64` target is a zip of the bundle, which the running app cannot reproduce, so a Mac build is
@@ -104,8 +115,8 @@ pub fn stage(archive: &Path, version: &str) -> Result<Staged> {
     let parent = installed.parent().ok_or_else(|| eyre!("Furiten.app has no parent folder"))?;
     let staging = parent.join(format!("{STAGING_PREFIX}{version}"));
     unpack(archive, &staging)?;
-    let update = staging.join("Furiten.app");
-    let result = verify_bundle(&update, version, REQUIREMENT);
+    let update = staging.join(format!("{}.app", crate::identity::name()));
+    let result = verify_bundle(&update, version, &requirement());
     if let Err(error) = result {
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
@@ -149,8 +160,8 @@ fn verify_bundle(bundle: &Path, version: &str, requirement: &str) -> Result<()> 
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
     };
-    if value("CFBundleIdentifier")? != BUNDLE_ID {
-        bail!("the update is not {BUNDLE_ID}");
+    if value("CFBundleIdentifier")? != bundle_id() {
+        bail!("the update is not {}", bundle_id());
     }
     if value("CFBundleShortVersionString")? != version {
         bail!("the update is not version {version}");
@@ -222,7 +233,7 @@ mod tests {
     #[test]
     fn the_developer_id_requirement_compiles() {
         let status = Command::new("/usr/bin/csreq")
-            .arg(format!("-r={}", REQUIREMENT.trim()))
+            .arg(format!("-r={}", requirement()))
             .arg("-t")
             .stdout(Stdio::null())
             .status()
@@ -262,7 +273,7 @@ mod tests {
         // An ad-hoc signature satisfies a plain identifier requirement…
         verify_bundle(&app, "9.9.9", "identifier \"co.anomaly.furiten\"").unwrap();
         // …but never the Developer ID requirement.
-        let error = verify_bundle(&app, "9.9.9", REQUIREMENT).unwrap_err();
+        let error = verify_bundle(&app, "9.9.9", &requirement()).unwrap_err();
         assert!(error.to_string().contains("code signature"), "{error}");
         assert!(verify_bundle(&app, "9.9.8", "identifier \"co.anomaly.furiten\"").is_err());
         let other = bundle(&root.join("other"), "co.example.other", "9.9.9");
